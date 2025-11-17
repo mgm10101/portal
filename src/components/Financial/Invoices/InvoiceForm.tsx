@@ -1,0 +1,724 @@
+// src/components/Financial/Invoices/InvoiceForm.tsx
+
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Search } from 'lucide-react';
+import { 
+    ItemMaster, 
+    InvoiceHeader, 
+    StudentInfo, 
+    InvoiceLineItem,
+    InvoiceSubmissionData
+} from '../../../types/database'; 
+import { 
+    fetchMasterItems, 
+    fetchStudents, 
+    createInvoice,
+    updateInvoice, 
+    fetchFullInvoice 
+} from '../../../services/financialService';
+
+// IMPORT THE NEW REFACTORED COMPONENTS
+import { InvoiceFormLineItems } from './InvoiceFormLineItems';
+import { InvoiceFormBalanceBF } from './InvoiceFormBalanceBF';
+
+// --- NEW IMPORTS START ---
+import { InvoiceBatchCreate } from './InvoiceBatchCreate';
+import { InvoiceBatchExport } from './InvoiceBatchExport'; 
+import { InvoiceItems } from './InvoiceItems';
+// --- NEW IMPORTS END ---
+
+// 🎯 NEW TYPE DEFINITION for the Class Lookup List (as per previous discussion)
+interface ClassDropdownItem { 
+    id: number;
+    name: string;
+}
+
+// 🎯 MOCK FUNCTION: You MUST replace this with your actual fetchClasses function later!
+const mockFetchClasses = async (): Promise<ClassDropdownItem[]> => {
+    // Simulate API delay
+    await new Promise(resolve => setTimeout(resolve, 300)); 
+    // This is the data that maps the ID (from students) to the Name (for display)
+    return [
+        { id: 1, name: "Nursery A" },
+        { id: 2, name: "Kindergarten B" },
+        { id: 3, name: "Grade 1" },
+        { id: 4, name: "Grade 2" },
+        { id: 5, name: "Grade 3" },
+        // ... add all your classes here
+    ];
+};
+// ----------------------------------------
+
+
+interface InvoiceFormProps {
+    selectedInvoice: InvoiceHeader | null; 
+    onClose: () => void;
+}
+
+// Mock data for overdue invoices (replace with real fetchOverdueInvoices(admissionNumber))
+const mockOverdueInvoices = (admissionNumber: string) => {
+    if (admissionNumber === 'ADM1001') {
+        return [
+            { invoice_number: 'INV-2024-001', balanceDue: 150.00 },
+            { invoice_number: 'INV-2024-005', balanceDue: 25.50 },
+        ];
+    }
+    return [];
+};
+
+// Initial state for a new invoice (matched to the database type)
+const initialInvoiceHeader: InvoiceHeader = {
+    invoice_number: '', 
+    admission_number: '', 
+    name: '', 
+    invoice_date: new Date().toISOString().split('T')[0], 
+    due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], 
+    status: 'Pending',
+    subtotal: 0.00,
+    totalAmount: 0.00,
+    paymentMade: 0.00, // Important default for creation
+    balanceDue: 0.00,
+    invoice_seq_number: null,
+    created_at: new Date().toISOString(),
+    description: '',
+    broughtforward_description: null,
+    broughtforward_amount: null,
+};
+
+// --- Factory Function for Line Items ---
+const getNewDefaultLineItem = (): InvoiceLineItem => ({
+    // ID is undefined for new items
+    id: undefined, // Explicitly undefined for new items
+    item_master_id: '',
+    itemName: '',
+    description: null,
+    unitPrice: 0.00,
+    quantity: 1,
+    discount: 0,
+    lineTotal: 0.00,
+});
+// ----------------------------------------
+
+/**
+ * Helper function to determine the initial line item state.
+ * If editing, it starts empty, awaiting fetch. If creating, it starts with one default item.
+ */
+const getInitialLineItems = (selectedInvoice: InvoiceHeader | null): InvoiceLineItem[] => {
+    return selectedInvoice ? [] : [getNewDefaultLineItem()];
+};
+
+// Define tab types for the new feature
+type InvoiceFormTab = 'Single Invoice' | 'Batch Creation' | 'Batch Export' | 'Invoice Items';
+
+export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClose }) => {
+    
+    // 🎯 FIX: Helper to safely convert potentially null/undefined numeric fields from the database to 0
+    const safeHeaderInit = (invoice: InvoiceHeader): InvoiceHeader => ({
+        ...invoice,
+        // Coerce potential nulls/undefineds to 0.00 for numeric fields
+        subtotal: invoice.subtotal || 0.00,
+        totalAmount: invoice.totalAmount || 0.00,
+        paymentMade: invoice.paymentMade || 0.00, // <--- CRITICAL FIX FOR NaN
+        balanceDue: invoice.balanceDue || 0.00,   // <--- CRITICAL FIX FOR NaN
+        // Ensure description is a string
+        description: invoice.description || '',
+    });
+
+
+    // Determine if we are in Edit Mode
+    const isEditMode = !!selectedInvoice;
+
+    // --- STATE ---
+    // Apply the safe initializer if in edit mode, otherwise use the standard initial state
+    const [header, setHeader] = useState<InvoiceHeader>(
+        isEditMode ? safeHeaderInit(selectedInvoice!) : initialInvoiceHeader
+    );
+    const [lineItems, setLineItems] = useState<InvoiceLineItem[]>(() => getInitialLineItems(selectedInvoice)); 
+    // Use header.description for initial state to correctly reflect existing invoice description
+    const [generalDescription, setGeneralDescription] = useState(selectedInvoice?.description || ''); 
+
+    const [allStudents, setAllStudents] = useState<StudentInfo[]>([]);
+    // 🎯 NEW STATE: To hold the list of all classes for the lookup in BatchCreate
+    const [classesList, setClassesList] = useState<ClassDropdownItem[]>([]); 
+    
+    const [searchQuery, setSearchQuery] = useState('');
+    const [isSearching, setIsSearching] = useState(false);
+    const [loadingStudents, setLoadingStudents] = useState(true);
+    const [masterItems, setMasterItems] = useState<ItemMaster[]>([]);
+    const [loadingItems, setLoadingItems] = useState(true);
+    const [loadingLineItems, setLoadingLineItems] = useState(false); 
+    const [overdueInvoices, setOverdueInvoices] = useState<any[]>([]); 
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    
+    // 🎯 FIX: If in edit mode, default to 'Single Invoice' and disable switching
+    const [activeTab, setActiveTab] = useState<InvoiceFormTab>('Single Invoice'); 
+
+    // --- CALCULATION LOGIC ---
+    const calculateLineTotal = useCallback((item: InvoiceLineItem): number => {
+        const discountFactor = 1 - ((item.discount || 0) / 100); 
+        return (item.unitPrice || 0) * (item.quantity || 0) * discountFactor;
+    }, []);
+
+    const { lineItemsSubtotal, grandTotal, broughtForwardAmount } = useMemo(() => {
+        // Filter out any line items that are invalid (e.g., missing name or quantity 0)
+        const validLineItems = lineItems.filter(item => item.itemName && item.quantity > 0 && item.unitPrice >= 0);
+        
+        const subtotal = validLineItems.reduce((sum, item) => sum + calculateLineTotal(item), 0); 
+        const bfa = header.broughtforward_amount || 0.00;
+        const total = subtotal + bfa;
+        return { lineItemsSubtotal: subtotal, grandTotal: total, broughtForwardAmount: bfa };
+    }, [lineItems, header.broughtforward_amount, calculateLineTotal]); 
+
+    // Update totals in the header state
+    useEffect(() => {
+        // Ensure paymentMade is treated as a number (0.00 if null/undefined, though safeHeaderInit covers the initial load)
+        const currentPaymentMade = header.paymentMade || 0.00;
+        
+        setHeader(prev => ({ 
+            ...prev, 
+            subtotal: parseFloat(lineItemsSubtotal.toFixed(2)),
+            totalAmount: parseFloat(grandTotal.toFixed(2)),
+            // Balance is calculated as Total - PaymentMade (paymentMade can be 0 or current value)
+            balanceDue: parseFloat((grandTotal - currentPaymentMade).toFixed(2)),
+        }));
+    }, [lineItemsSubtotal, grandTotal, header.paymentMade]); // Include header.paymentMade as dependency
+
+    // --- EFFECT: Load All Data (Students, Master Items, and Classes) ---
+    useEffect(() => {
+        const loadInitialData = async () => {
+            try {
+                // 🎯 FIX: Add mockFetchClasses to the Promise.all
+                const [studentData, itemData, classData] = await Promise.all([
+                    fetchStudents(),
+                    fetchMasterItems(),
+                    mockFetchClasses() // <--- Fetch the Class Lookup List here
+                ]);
+
+                setAllStudents(studentData);
+                setMasterItems(itemData);
+                setClassesList(classData); // <--- Store the Class Lookup List
+
+                if (selectedInvoice) {
+                    setSearchQuery(`${selectedInvoice.admission_number} - ${selectedInvoice.name}`);
+                    setOverdueInvoices(mockOverdueInvoices(selectedInvoice.admission_number)); 
+                }
+            } catch (err) {
+                console.error("Failed to load initial data:", err);
+            } finally {
+                setLoadingStudents(false);
+                setLoadingItems(false);
+            }
+        };
+        loadInitialData();
+    }, [selectedInvoice]);
+
+
+    // ----------------------------------------------------------------
+    // --- Dedicated EFFECT to Load Line Items for EDIT mode only ---
+    // ----------------------------------------------------------------
+    useEffect(() => {
+        if (isEditMode && selectedInvoice?.invoice_number) {
+            setLoadingLineItems(true);
+            const loadLineItems = async () => {
+                try {
+                    const fullInvoiceData = await fetchFullInvoice(selectedInvoice.invoice_number); 
+                    
+                    if (fullInvoiceData && fullInvoiceData.line_items) {
+                        const recalculatedLineItems = fullInvoiceData.line_items.map(item => ({
+                            ...item,
+                            lineTotal: calculateLineTotal(item) 
+                        }));
+                        
+                        setLineItems(recalculatedLineItems);
+                    } else {
+                        setLineItems([]);
+                    }
+
+                } catch (error) {
+                    console.error("Failed to load invoice line items:", error);
+                    alert("Could not load existing invoice items.");
+                } finally {
+                    setLoadingLineItems(false);
+                }
+            };
+            loadLineItems();
+        }
+    }, [isEditMode, selectedInvoice, calculateLineTotal]);
+    // ----------------------------------------------------------------
+
+    // --- HANDLERS ---
+
+    const handleSelectStudent = (student: StudentInfo) => {
+        setHeader(prev => ({
+            ...prev,
+            admission_number: student.admission_number,
+            name: student.name,
+        }));
+        setSearchQuery(`${student.admission_number} - ${student.name}`); 
+        setIsSearching(false);
+        setOverdueInvoices(mockOverdueInvoices(student.admission_number));
+    };
+
+    const handleHeaderChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        // In Edit Mode, only due_date is meant to be editable here as per requirements.
+        if (name === 'due_date' || (!isEditMode && name === 'invoice_date')) {
+            setHeader(prev => ({ ...prev, [name]: value }));
+        }
+    };
+    
+    const handleBFSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        // This function is disabled in Edit Mode as per requirements, but kept for clarity.
+        if (isEditMode) return;
+        
+        const invoiceNumber = e.target.value;
+        const selectedInv = overdueInvoices.find(inv => inv.invoice_number === invoiceNumber);
+        
+        if (selectedInv) {
+            setHeader(prev => ({ 
+                ...prev, 
+                broughtforward_description: `Balance from ${invoiceNumber}`, 
+                broughtforward_amount: selectedInv.balanceDue
+            }));
+        } else {
+            const totalBalance = overdueInvoices.reduce((sum, inv) => sum + inv.balanceDue, 0); 
+            
+            setHeader(prev => ({ 
+                ...prev, 
+                broughtforward_description: totalBalance > 0 ? `Total Balance Carried Forward (${overdueInvoices.length} invoices)` : null, 
+                broughtforward_amount: totalBalance > 0 ? totalBalance : null 
+            }));
+        }
+    };
+
+    const handleAddItem = () => {
+        setLineItems(prev => [...prev, getNewDefaultLineItem()]);
+    };
+
+    const handleRemoveItem = (index: number) => {
+        // In Edit Mode, removal is disabled as per requirements.
+        if (isEditMode) {
+             alert("Deletion of line items is not permitted in Edit Mode. You can only modify existing items or add new ones.");
+             return;
+        }
+        setLineItems(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const handleLineItemChange = (index: number, e: React.ChangeEvent<HTMLSelectElement | HTMLInputElement>) => {
+        const { name, value } = e.target;
+        
+        setLineItems(prev => {
+            const newList = [...prev];
+            const item = { ...newList[index] }; 
+            newList[index] = item; 
+            
+            let numericValue = (name === 'quantity' || name === 'discount') ? parseInt(value) : parseFloat(value);
+            
+            if (name === 'item_master_id') {
+                const selectedItem = masterItems.find(i => i.id === value);
+                if (selectedItem) {
+                    item.item_master_id = value;
+                    item.itemName = selectedItem.item_name; 
+                    item.description = selectedItem.description; 
+                    item.unitPrice = selectedItem.current_unit_price;
+                } else {
+                    item.item_master_id = '';
+                    item.itemName = '';
+                    item.description = null;
+                    item.unitPrice = 0.00;
+                }
+            } else {
+                const finalValue = isNaN(numericValue) ? 0 : numericValue;
+                (item as any)[name] = finalValue; 
+            }
+
+            item.lineTotal = calculateLineTotal(item);
+            
+            return newList;
+        });
+    };
+    
+    // --- SUBMISSION LOGIC (CRITICAL FIX APPLIED HERE) ---
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        
+        if (!header.admission_number) {
+            alert("Please select a valid Student.");
+            return;
+        }
+        
+        // Safety check for line items.
+        if (lineItems.filter(item => item.item_master_id).length === 0 && grandTotal === 0.00) {
+             // Allow update if totals are zero
+        } else if (lineItems.filter(item => item.item_master_id).length === 0) {
+            alert("Please add at least one line item (or zero the totals) to the invoice.");
+            return;
+        }
+
+        setIsSubmitting(true);
+        
+        try {
+            // Filter line items: exclude invalid ones and the client-side calculated 'lineTotal'
+            const lineItemsPayload: InvoiceLineItem[] = lineItems
+                .filter(item => item.item_master_id)
+                .map(({ lineTotal, ...rest }) => rest); 
+            
+            let result: InvoiceHeader;
+
+            if (isEditMode) {
+                // 🎯 CRITICAL FIX: Destructure to OMIT the paymentMade field from the update payload.
+                // This ensures the backend update does not touch the existing payment amount.
+                const { paymentMade, ...headerFieldsForUpdate } = header; 
+                
+                // Construct the header payload, using the remaining fields + explicit updates
+                const headerPayload = {
+                    ...headerFieldsForUpdate, // Includes admission_number, name, status, etc.
+                    // Explicitly update only the editable/calculated fields:
+                    description: generalDescription,
+                    due_date: header.due_date,
+                    subtotal: lineItemsSubtotal,
+                    totalAmount: grandTotal,
+                    balanceDue: header.balanceDue, // Use the state-calculated value
+                    broughtforward_description: header.broughtforward_description,
+                    broughtforward_amount: header.broughtforward_amount,
+                    
+                    // IMPORTANT: paymentMade is explicitly excluded here.
+                };
+
+                // The submission data object for update
+                const submissionData: InvoiceSubmissionData = {
+                    header: headerPayload as InvoiceHeader, // Cast back to full type for the update service
+                    line_items: lineItemsPayload,
+                };
+                
+                // *** EDIT MODE: CALL THE UPDATE FUNCTION ***
+                result = await updateInvoice(selectedInvoice!.invoice_number, submissionData);
+                alert(`Invoice ${result.invoice_number} successfully UPDATED!`);
+
+            } else {
+                // *** CREATE MODE: CALL THE CREATE FUNCTION ***
+                // In create mode, we need all fields, including paymentMade (which should be 0)
+                const submissionData: InvoiceSubmissionData = {
+                    header: {
+                        ...header,
+                        description: generalDescription,
+                        // paymentMade: 0.00 (included from initial state)
+                        // All totals are correctly calculated in the header state
+                    },
+                    line_items: lineItemsPayload,
+                };
+
+                result = await createInvoice(submissionData as InvoiceSubmissionData);
+                alert(`Invoice successfully CREATED! Number: ${result.invoice_number}`);
+            }
+            
+            onClose();
+
+        } catch (error: any) {
+            console.error("Invoice submission failed:", error);
+            alert(`Submission Error: ${error.response?.data?.error || error.message || "Could not save the invoice. Check console for details."}`);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+    
+    // --- Search Logic ---
+    const filteredStudents = useMemo(() => {
+        if (!searchQuery || loadingStudents) return allStudents;
+        const query = searchQuery.toLowerCase();
+        return allStudents.filter(student => 
+            student.admission_number.toLowerCase().includes(query) ||
+            student.name.toLowerCase().includes(query)
+        );
+    }, [allStudents, searchQuery, loadingStudents]);
+
+    const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        setSearchQuery(value);
+        if (!value || !value.includes(header.admission_number)) {
+             setHeader(prev => ({ ...prev, admission_number: '', name: '', broughtforward_amount: null, broughtforward_description: null }));
+             setOverdueInvoices([]); 
+        }
+        setIsSearching(true);
+    };
+
+    const handleSearchInputFocus = () => {
+        if (!header.admission_number && !isEditMode) {
+            setIsSearching(true);
+        }
+    };
+
+    const handleBlur = () => {
+        setTimeout(() => setIsSearching(false), 200);
+    };
+    
+    // Show a loading screen if we're in edit mode and line items are still fetching
+    if (isEditMode && loadingLineItems) {
+        return (
+             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                 <div className="bg-white rounded-lg p-10 shadow-xl">
+                     <p className="text-lg font-medium text-gray-700">Loading invoice details...</p>
+                     <div className="mt-4 flex justify-center">
+                         <svg className="animate-spin h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                         </svg>
+                     </div>
+                 </div>
+             </div>
+        );
+    }
+
+    // Helper for reusable tab button styling
+    const getTabClassName = (tabName: InvoiceFormTab) => 
+        `px-4 py-2 text-sm font-medium transition-colors ${
+             activeTab === tabName 
+                 ? 'text-blue-600 border-b-2 border-blue-600' 
+                 : 'text-gray-500 hover:text-blue-600'
+        }`;
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-xl font-bold text-gray-800">
+                        {isEditMode ? `Edit Invoice ${selectedInvoice!.invoice_number}` : 'Invoice Management'}
+                    </h2>
+                    <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+                        &times;
+                    </button>
+                </div>
+
+                {/* --- TAB NAVIGATION --- */}
+                {/* 🎯 EDIT MODE: Hide/Disable other tabs */}
+                <div className="flex border-b border-gray-200 mb-6 -mx-6 px-6 overflow-x-auto">
+                    <button 
+                        onClick={() => setActiveTab('Single Invoice')} 
+                        className={getTabClassName('Single Invoice')}
+                        disabled={isEditMode} // Cannot switch tabs in edit mode
+                    >
+                        {isEditMode ? 'Single Invoice (Editing)' : 'Single Invoice'}
+                    </button>
+                    {!isEditMode && (
+                        <>
+                            <button 
+                                onClick={() => setActiveTab('Batch Creation')} 
+                                className={getTabClassName('Batch Creation')}
+                            >
+                                Batch Creation
+                            </button>
+                            <button 
+                                onClick={() => setActiveTab('Batch Export')} 
+                                className={getTabClassName('Batch Export')}
+                            >
+                                Batch Export
+                            </button>
+                            <button 
+                                onClick={() => setActiveTab('Invoice Items')} 
+                                className={getTabClassName('Invoice Items')}
+                            >
+                                Invoice Items
+                            </button>
+                        </>
+                    )}
+                </div>
+
+                {/* --- TAB CONTENT --- */}
+                {activeTab === 'Single Invoice' && (
+                    <form className="space-y-6" onSubmit={handleSubmit}>
+                    
+                        {/* --- HEADER FIELDS --- */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="relative">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Student</label>
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                    <input
+                                        type="text"
+                                        placeholder={loadingStudents ? "Loading students..." : "Search by Name or Adm number"}
+                                        value={searchQuery}
+                                        onChange={handleSearchChange}
+                                        onFocus={handleSearchInputFocus}
+                                        onBlur={handleBlur}
+                                        className="w-full p-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        // 🎯 FIX: Disable search/input in edit mode
+                                        disabled={loadingStudents || isEditMode || isSubmitting}
+                                    />
+                                </div>
+                                {/* Student Search Results are only shown if NOT in edit mode */}
+                                {!isEditMode && isSearching && searchQuery.length > 0 && (
+                                    <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 max-h-48 overflow-y-auto shadow-lg">
+                                        {filteredStudents.length > 0 ? (
+                                            filteredStudents.map(student => (
+                                                <li
+                                                    key={student.admission_number}
+                                                    onMouseDown={() => handleSelectStudent(student)}
+                                                    className="p-3 cursor-pointer hover:bg-blue-50 flex justify-between items-center"
+                                                >
+                                                    <span className="font-medium text-gray-900">{student.name}</span>
+                                                    <span className="text-sm text-gray-500">{student.admission_number}</span>
+                                                </li>
+                                            ))
+                                        ) : (
+                                            <li className="p-3 text-gray-500 italic">No students found matching "{searchQuery}".</li>
+                                        )}
+                                    </ul>
+                                )}
+                            </div>
+                            
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Invoice Date</label>
+                                <input
+                                    type="date"
+                                    name="invoice_date"
+                                    value={header.invoice_date}
+                                    onChange={handleHeaderChange}
+                                    className="w-full p-3 border border-gray-300 rounded-lg bg-gray-100"
+                                    // 🎯 FIX: Disable Invoice Date in edit mode
+                                    disabled={isEditMode || isSubmitting}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+                                <input
+                                    type="date"
+                                    name="due_date"
+                                    value={header.due_date}
+                                    onChange={handleHeaderChange}
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    disabled={isSubmitting}
+                                />
+                            </div>
+                            {isEditMode && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                                    <input
+                                        type="text"
+                                        value={header.status}
+                                        className="w-full p-3 border border-gray-300 rounded-lg bg-gray-100"
+                                        disabled={true}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* General Description */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                            <input
+                                type="text"
+                                name="description"
+                                placeholder="e.g., Q1 Term Fees"
+                                value={generalDescription || ''}
+                                onChange={(e) => setGeneralDescription(e.target.value)}
+                                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                disabled={isSubmitting}
+                            />
+                        </div>
+                        
+                        {/* --- LINE ITEMS SECTION (REFACTORED) --- */}
+                        <InvoiceFormLineItems
+                            lineItems={lineItems}
+                            masterItems={masterItems}
+                            loadingItems={loadingItems || loadingLineItems} 
+                            isSubmitting={isSubmitting}
+                            lineItemsSubtotal={lineItemsSubtotal}
+                            handleAddItem={handleAddItem}
+                            handleRemoveItem={handleRemoveItem}
+                            handleLineItemChange={handleLineItemChange}
+                            calculateLineTotal={calculateLineTotal}
+                            // 🎯 CRITICAL: Pass flag to disable line item deletion in Edit Mode
+                            isEditMode={isEditMode} 
+                        />
+                        
+                        {/* --- BALANCE BROUGHT FORWARD SECTION (REFACTORED) --- */}
+                        {/* 🎯 FIX: Disable this section completely in Edit Mode as per requirements */}
+                        {!isEditMode && (
+                            <InvoiceFormBalanceBF
+                                header={header}
+                                overdueInvoices={overdueInvoices}
+                                isSubmitting={isSubmitting}
+                                handleBFSelect={handleBFSelect}
+                                broughtForwardAmount={broughtForwardAmount}
+                            />
+                        )}
+
+                        {/* --- FINAL TOTAL --- */}
+                        <div className="border-t pt-4">
+                            <div className="flex justify-between items-center">
+                                <span className="text-xl font-semibold text-gray-800">TOTAL INVOICE AMOUNT:</span>
+                                <span className="text-2xl font-bold text-blue-600">
+                                    {/* 🎯 CURRENCY FIX: Change $ to Ksh. */}
+                                    Ksh.{(grandTotal).toFixed(2)}
+                                </span>
+                            </div>
+                            {isEditMode && (
+                                <div className="flex justify-between items-center text-sm pt-2 text-gray-600">
+                                    <span>Payment Made:</span>
+                                    {/* Displaying the existing paymentMade for context, but it's excluded from the update payload */}
+                                    {/* 🎯 CURRENCY FIX: Change $ to Ksh. (and NaN fix ensures it's a number) */}
+                                    <span className="font-medium">Ksh.{header.paymentMade.toFixed(2)}</span> 
+                                </div>
+                            )}
+                            <div className="flex justify-between items-center text-sm pt-2 text-gray-600">
+                                <span>Balance Due:</span>
+                                {/* 🎯 CURRENCY FIX: Change $ to Ksh. (and NaN fix ensures it's a number) */}
+                                <span className="font-medium">Ksh.{header.balanceDue.toFixed(2)}</span>
+                            </div>
+                        </div>
+                        
+                        {/* --- Action Buttons --- */}
+                        <div className="flex justify-end space-x-3 pt-4">
+                            <button type="button" onClick={onClose} className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50" disabled={isSubmitting}>
+                                Cancel
+                            </button>
+                            <button 
+                                type="submit" 
+                                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-400"
+                                disabled={!header.admission_number || lineItems.length === 0 || isSubmitting || loadingLineItems} 
+                            >
+                                {isSubmitting ? (isEditMode ? 'Saving Changes...' : 'Creating Invoice...') : 
+                                loadingLineItems ? 'Loading Items...' :
+                                (isEditMode ? 'Update Invoice' : 'Create Invoice')}
+                            </button>
+                        </div>
+                    </form>
+                )}
+                
+                {/* --- BATCH CREATION CONTENT --- */}
+                {activeTab === 'Batch Creation' && (
+                    <InvoiceBatchCreate 
+                        masterItems={masterItems} 
+                        loadingItems={loadingItems} 
+                        allStudents={allStudents} 
+                        loadingStudents={loadingStudents}
+                        // 🎯 CRITICAL FIX: Pass the class list for the frontend lookup
+                        classesLookupList={classesList} 
+                        onClose={() => setActiveTab('Single Invoice')} 
+                    />
+                )}
+
+                {/* --- BATCH EXPORT CONTENT --- */}
+                {activeTab === 'Batch Export' && (
+                    <InvoiceBatchExport
+                        allStudents={allStudents}
+                        loadingStudents={loadingStudents}
+                        onClose={() => setActiveTab('Single Invoice')}
+                    />
+                )}
+
+                {/* --- INVOICE ITEMS CONTENT --- */}
+                {activeTab === 'Invoice Items' && (
+                    <InvoiceItems
+                        masterItems={masterItems}
+                        setMasterItems={setMasterItems}
+                        loadingItems={loadingItems}
+                    />
+                )}
+            </div>
+        </div>
+    );
+};
