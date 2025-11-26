@@ -175,6 +175,89 @@ export interface PaymentSubmissionData {
     }>;
 }
 
+// ----------------------------------------------------------------------
+// --- 4. Expenses Module Types ---
+// ----------------------------------------------------------------------
+
+// Expense Category Interface
+export interface ExpenseCategory {
+    id: number;
+    name: string;
+    sort_order: number;
+    is_active: boolean;
+    created_at?: string;
+    updated_at?: string;
+}
+
+// Expense Description Interface (category-specific)
+export interface ExpenseDescription {
+    id: number;
+    name: string;
+    category_id: number;
+    sort_order: number;
+    is_active: boolean;
+    created_at?: string;
+    updated_at?: string;
+}
+
+// Expense Vendor Interface
+export interface ExpenseVendor {
+    id: number;
+    name: string;
+    sort_order: number;
+    is_active: boolean;
+    created_at?: string;
+    updated_at?: string;
+}
+
+// Expense Paid Through Interface
+export interface ExpensePaidThrough {
+    id: number;
+    name: string;
+    sort_order: number;
+    is_active: boolean;
+    created_at?: string;
+    updated_at?: string;
+}
+
+// Expense Interface (main expense record)
+export interface Expense {
+    id: number;
+    internal_reference: string;
+    expense_date: string;
+    category_id: number;
+    description_id?: number | null;
+    amount: number;
+    vendor_id?: number | null;
+    paid_through_id?: number | null;
+    payment_status: 'Paid' | 'Unpaid';
+    due_date?: string | null;
+    date_paid?: string | null;
+    payment_reference_no?: string | null;
+    is_voided: boolean;
+    created_at?: string;
+    updated_at?: string;
+    // Joined fields from view
+    category_name?: string;
+    description_name?: string;
+    vendor_name?: string;
+    paid_through_name?: string;
+}
+
+// Expense Submission Data (for creating/updating expenses)
+export interface ExpenseSubmissionData {
+    expense_date: string;
+    category_id: number;
+    description_id?: number | null;
+    amount: number;
+    vendor_id?: number | null;
+    paid_through_id?: number | null;
+    payment_status: 'Paid' | 'Unpaid';
+    due_date?: string | null;
+    date_paid?: string | null;
+    payment_reference_no?: string | null;
+}
+
 // Data Submission Type: What the client actually sends to the API for creation/update.
 export interface InvoiceSubmissionData {
     // Omit DB-managed fields and the calculated fields that the client is expected to re-calculate/submit

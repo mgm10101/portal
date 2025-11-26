@@ -24,10 +24,52 @@ const formatDate = (dateString: string) => {
 
 // Receipt Preview Component
 const ReceiptPreview: React.FC<{ payment: Payment; onClose: () => void }> = ({ payment, onClose }) => {
+  const [isHovering, setIsHovering] = useState(false);
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+
+  // Keyboard navigation for scrolling
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isHovering || !scrollContainerRef.current) return;
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        scrollContainerRef.current.scrollBy({
+          top: -100,
+          behavior: 'smooth'
+        });
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        scrollContainerRef.current.scrollBy({
+          top: 100,
+          behavior: 'smooth'
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isHovering]);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <style>
+        {`
+          .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+          }
+          .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+          }
+        `}
+      </style>
+      <div 
+        ref={scrollContainerRef}
+        onMouseEnter={() => setIsHovering(true)}
+        onMouseLeave={() => setIsHovering(false)}
+        className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto scrollbar-hide"
+      >
         <div className="p-8">
           {/* Header */}
           <div className="text-center mb-8">
@@ -193,6 +235,8 @@ export const PaymentsReceived: React.FC = () => {
   const [filterAmountMax, setFilterAmountMax] = useState<string>('');
   const [filterAccount, setFilterAccount] = useState<number | undefined>(undefined);
   const filterStudentDropdownRef = useRef<HTMLDivElement>(null);
+  const filterContainerRef = useRef<HTMLDivElement>(null);
+  const [isFilterHovering, setIsFilterHovering] = useState(false);
 
   // Auto-allocate payment based on priority (oldest due date first)
   const autoAllocatePayment = useCallback((amount: number, invoices: InvoiceHeader[]) => {
@@ -569,11 +613,60 @@ export const PaymentsReceived: React.FC = () => {
     console.log('🟣 [DEBUG] overpayment calculated:', over);
     return over;
   }, [paymentAmount, totalAllocated]);
-  
-  const canSubmit = overpayment >= 0;
 
   const formScrollRef = useRef<number>(0);
   const formContainerRef = useRef<HTMLDivElement>(null);
+  const [isFormHovering, setIsFormHovering] = useState(false);
+
+  // Keyboard navigation for scrolling in payment form
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isFormHovering || !formContainerRef.current) return;
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        formContainerRef.current.scrollBy({
+          top: -100,
+          behavior: 'smooth'
+        });
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        formContainerRef.current.scrollBy({
+          top: 100,
+          behavior: 'smooth'
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFormHovering]);
+
+  // Keyboard navigation for scrolling in filter modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isFilterHovering || !filterContainerRef.current) return;
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        filterContainerRef.current.scrollBy({
+          top: -100,
+          behavior: 'smooth'
+        });
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        filterContainerRef.current.scrollBy({
+          top: 100,
+          behavior: 'smooth'
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFilterHovering]);
+  
+  const canSubmit = overpayment >= 0;
 
   // Fetch outstanding fees on mount
   useEffect(() => {
@@ -1064,13 +1157,13 @@ export const PaymentsReceived: React.FC = () => {
                           className="px-6 py-4 whitespace-nowrap text-sm font-medium"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <button
+                            <button
                             onClick={() => handleVoidPayment(payment.id)}
                             className="px-3 py-1 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-300 rounded-lg transition-colors"
                             title="Void Payment"
-                          >
+                            >
                             Void
-                          </button>
+                        </button>
                     </td>
                   </tr>
                     );
@@ -1083,6 +1176,17 @@ export const PaymentsReceived: React.FC = () => {
 
         {showForm && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <style>
+              {`
+                .scrollbar-hide::-webkit-scrollbar {
+                  display: none;
+                }
+                .scrollbar-hide {
+                  -ms-overflow-style: none;
+                  scrollbar-width: none;
+                }
+              `}
+            </style>
             <div 
               ref={(node) => {
                 formContainerRef.current = node;
@@ -1097,7 +1201,9 @@ export const PaymentsReceived: React.FC = () => {
               onScroll={(e) => {
                 formScrollRef.current = e.currentTarget.scrollTop;
               }}
-              className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto"
+              onMouseEnter={() => setIsFormHovering(true)}
+              onMouseLeave={() => setIsFormHovering(false)}
+              className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto scrollbar-hide"
             >
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-bold text-gray-800">
@@ -1632,7 +1738,23 @@ export const PaymentsReceived: React.FC = () => {
         {/* Filter Modal */}
         {showFilterModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <style>
+              {`
+                .scrollbar-hide::-webkit-scrollbar {
+                  display: none;
+                }
+                .scrollbar-hide {
+                  -ms-overflow-style: none;
+                  scrollbar-width: none;
+                }
+              `}
+            </style>
+            <div 
+              ref={filterContainerRef}
+              onMouseEnter={() => setIsFilterHovering(true)}
+              onMouseLeave={() => setIsFilterHovering(false)}
+              className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto scrollbar-hide"
+            >
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-bold text-gray-800">Filter Payments</h2>
                 <button

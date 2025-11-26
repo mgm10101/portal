@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Users, DollarSign, Star, TrendingUp, AlertCircle, Calendar, TrendingDown, Clock, ArrowUpRight, HandCoins, BarChart3, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { fetchInvoices } from '../services/financialService';
+import { fetchExpenses } from '../services/expenseService';
+import { Expense } from '../types/database';
 
 interface DashboardProps {
   onSectionChange?: (section: string) => void;
@@ -13,6 +15,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSectionChange }) => {
   const [outstandingFees, setOutstandingFees] = useState<number>(0);
   const [totalReceivables, setTotalReceivables] = useState<number>(0);
   const [isLoadingFees, setIsLoadingFees] = useState(true);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
 
   // Fetch total student count from database (Active students only)
   useEffect(() => {
@@ -67,6 +71,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSectionChange }) => {
     fetchInvoiceData();
   }, []);
 
+  // Fetch expenses for weekly spending calculation
+  useEffect(() => {
+    const loadExpenses = async () => {
+      setIsLoadingExpenses(true);
+      try {
+        const expensesData = await fetchExpenses();
+        // Filter out voided expenses
+        setExpenses(expensesData.filter(e => !e.is_voided));
+      } catch (error) {
+        console.error('Error fetching expenses:', error);
+        setExpenses([]);
+      } finally {
+        setIsLoadingExpenses(false);
+      }
+    };
+
+    loadExpenses();
+  }, []);
+
   // Calculate percentage for outstanding fees
   const outstandingFeesPercentage = totalReceivables > 0 
     ? (outstandingFees / totalReceivables) * 100 
@@ -119,16 +142,73 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSectionChange }) => {
     color: 'purple'
   };
 
-  // Weekly spending data for past 4 weeks
-  const weeklySpending = [
-    { week: 'Week 1', amount: 12500, label: '3 weeks ago' },
-    { week: 'Week 2', amount: 15200, label: '2 weeks ago' },
-    { week: 'Week 3', amount: 11300, label: 'Last week' },
-    { week: 'Week 4', amount: 13400, label: 'This week' }
-  ];
+  // Calculate weekly spending data for past 4 weeks from real expense data
+  const calculateWeeklySpending = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Get the start of the current week (Sunday)
+    const currentWeekStart = new Date(today);
+    currentWeekStart.setDate(today.getDate() - today.getDay());
+    currentWeekStart.setHours(0, 0, 0, 0);
+    
+    const weeks = [];
+    
+    // Calculate spending for each of the past 4 weeks
+    for (let i = 3; i >= 0; i--) {
+      const weekStart = new Date(currentWeekStart);
+      weekStart.setDate(currentWeekStart.getDate() - (i * 7));
+      
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+      weekEnd.setHours(23, 59, 59, 999);
+      
+      // Filter expenses for this week
+      const weekExpenses = expenses.filter(expense => {
+        const expenseDate = new Date(expense.expense_date);
+        expenseDate.setHours(0, 0, 0, 0);
+        return expenseDate >= weekStart && expenseDate <= weekEnd;
+      });
+      
+      // Sum up the amounts for this week
+      const weekAmount = weekExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+      
+      // Determine label
+      let label = '';
+      if (i === 0) {
+        label = 'This week';
+      } else if (i === 1) {
+        label = 'Last week';
+      } else if (i === 2) {
+        label = '2 weeks ago';
+      } else {
+        label = '3 weeks ago';
+      }
+      
+      weeks.push({
+        week: `Week ${4 - i}`,
+        amount: weekAmount,
+        label: label
+      });
+    }
+    
+    return weeks;
+  };
 
-  // Find max amount for scaling the bars
-  const maxAmount = Math.max(...weeklySpending.map(w => w.amount));
+  const weeklySpending = isLoadingExpenses 
+    ? [
+        { week: 'Week 1', amount: 0, label: '3 weeks ago' },
+        { week: 'Week 2', amount: 0, label: '2 weeks ago' },
+        { week: 'Week 3', amount: 0, label: 'Last week' },
+        { week: 'Week 4', amount: 0, label: 'This week' }
+      ]
+    : calculateWeeklySpending();
+
+  // Find max amount for scaling the bars (ensure at least 1 to avoid division by zero)
+  const maxAmount = Math.max(1, ...weeklySpending.map(w => w.amount));
+  
+  // Check if all values are zero
+  const allValuesZero = weeklySpending.every(w => w.amount === 0);
 
   // Colorful but harmonious color palette (4 colors)
   const barColors = [
@@ -140,6 +220,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSectionChange }) => {
 
   // Generate y-axis labels
   const generateYAxisLabels = () => {
+    // When all values are zero, use fixed labels: 1000, 800, 600, 400, 200, 0
+    if (allValuesZero) {
+      return [1000, 800, 600, 400, 200, 0];
+    }
+    
+    // Otherwise, generate labels based on maxAmount
     const labels = [];
     const steps = 5; // 5 horizontal lines
     for (let i = 0; i <= steps; i++) {
@@ -150,6 +236,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSectionChange }) => {
   };
 
   const yAxisLabels = generateYAxisLabels();
+  
+  // Use fixed max for scaling when all values are zero (for grid lines)
+  const scaleMaxAmount = allValuesZero ? 1000 : maxAmount;
 
   const scheduledTasks = [
     {
@@ -340,7 +429,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSectionChange }) => {
                     <div
                       key={index}
                       className="absolute left-0 right-0 border-t border-gray-200"
-                      style={{ bottom: `${(label / maxAmount) * 100}%` }}
+                      style={{ bottom: `${(label / scaleMaxAmount) * 100}%` }}
                     />
                   ))}
                 </div>
@@ -348,7 +437,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSectionChange }) => {
                 {/* Bars container with left padding for spacing from y-axis - bars aligned to x-axis at bottom */}
                 <div className="flex items-end justify-between gap-8 pl-4 absolute bottom-8 left-0 right-0" style={{ height: 'calc(100% - 2.5rem)' }}>
                   {weeklySpending.map((week, index) => {
-                    const barHeight = (week.amount / maxAmount) * 100;
+                    const barHeight = (week.amount / scaleMaxAmount) * 100;
                     const colors = barColors[index % barColors.length];
                     return (
                       <div key={index} className="flex-1 flex flex-col items-center h-full relative z-10">

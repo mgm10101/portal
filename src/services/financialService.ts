@@ -16,7 +16,14 @@ import {
     Account,
     PaymentAllocation,
     FullPayment,
-    PaymentSubmissionData
+    PaymentSubmissionData,
+    // Expenses module types
+    Expense,
+    ExpenseCategory,
+    ExpenseDescription,
+    ExpenseVendor,
+    ExpensePaidThrough,
+    ExpenseSubmissionData
 } from '../types/database'; 
 
 // Helper types to represent the raw data returned by Supabase 

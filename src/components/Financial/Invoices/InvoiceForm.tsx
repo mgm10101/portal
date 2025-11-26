@@ -1,6 +1,6 @@
 // src/components/Financial/Invoices/InvoiceForm.tsx
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Search } from 'lucide-react';
 import { 
     ItemMaster, 
@@ -106,6 +106,32 @@ const getInitialLineItems = (selectedInvoice: InvoiceHeader | null): InvoiceLine
 type InvoiceFormTab = 'Single Invoice' | 'Batch Creation' | 'Batch Export' | 'Invoice Items' | 'Invoice Details';
 
 export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClose }) => {
+    const [isHovering, setIsHovering] = useState(false);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    
+    // Keyboard navigation for scrolling
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (!isHovering || !scrollContainerRef.current) return;
+
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                scrollContainerRef.current.scrollBy({
+                    top: -100,
+                    behavior: 'smooth'
+                });
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                scrollContainerRef.current.scrollBy({
+                    top: 100,
+                    behavior: 'smooth'
+                });
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isHovering]);
     
     // 🎯 FIX: Helper to safely convert potentially null/undefined numeric fields from the database to 0
     const safeHeaderInit = (invoice: InvoiceHeader): InvoiceHeader => ({
@@ -572,7 +598,23 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <style>
+                {`
+                    .scrollbar-hide::-webkit-scrollbar {
+                        display: none;
+                    }
+                    .scrollbar-hide {
+                        -ms-overflow-style: none;
+                        scrollbar-width: none;
+                    }
+                `}
+            </style>
+            <div 
+                ref={scrollContainerRef}
+                onMouseEnter={() => setIsHovering(true)}
+                onMouseLeave={() => setIsHovering(false)}
+                className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto scrollbar-hide"
+            >
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-xl font-bold text-gray-800">
                         {isEditMode ? `Edit Invoice ${selectedInvoice!.invoice_number}` : 'Invoice Management'}

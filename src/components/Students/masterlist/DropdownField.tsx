@@ -21,6 +21,9 @@ interface DropdownFieldProps {
   onOpenModal: () => void;
   onSelect?: (id: number) => void;
   tableName: string;
+  disableFetch?: boolean; // If true, skip Supabase fetch and use items prop only
+  placeholder?: string; // Custom placeholder text
+  disabled?: boolean; // Disable the dropdown
 }
 
 export const DropdownField: React.FC<DropdownFieldProps> = ({
@@ -32,6 +35,9 @@ export const DropdownField: React.FC<DropdownFieldProps> = ({
   onOpenModal,
   onSelect,
   tableName,
+  disableFetch = false,
+  placeholder,
+  disabled = false,
 }) => {
   const [open, setOpen] = useState(false);
   const [dropdownItems, setDropdownItems] = useState<DropdownItem[]>([]);
@@ -41,18 +47,45 @@ export const DropdownField: React.FC<DropdownFieldProps> = ({
   );
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Sync localSelected when items or selectedId changes
   useEffect(() => {
-    if (!open) return;
+    const sortedItems = [...items].sort((a: any, b: any) => {
+      if (a.sort_order !== undefined && b.sort_order !== undefined) {
+        return a.sort_order - b.sort_order;
+      }
+      return a.id - b.id;
+    });
+    const options = dropdownItems.length > 0 ? dropdownItems : sortedItems;
+    const found = options.find(i => i.id === selectedId);
+    if (found) {
+      setLocalSelected(found);
+    } else if (!selectedId) {
+      setLocalSelected(null);
+    }
+  }, [items, selectedId, dropdownItems]);
+
+  useEffect(() => {
+    if (!open || disableFetch) return;
     const fetchItems = async () => {
-      const { data, error} = await supabase
-        .from(tableName)
-        .select('id,name,sort_order')
-        .order('sort_order', { ascending: true, nullsLast: true })
-        .order('id', { ascending: true });
-      if (!error && data) setDropdownItems(data);
+      try {
+        const { data, error} = await supabase
+          .from(tableName)
+          .select('id,name,sort_order')
+          .order('sort_order', { ascending: true, nullsLast: true })
+          .order('id', { ascending: true });
+        if (!error && data) {
+          setDropdownItems(data);
+        } else if (error) {
+          // Silently fail for 404s (table doesn't exist yet) - will use items prop instead
+          console.debug(`Table ${tableName} not found, using provided items`);
+        }
+      } catch (err) {
+        // Silently fail - will use items prop instead
+        console.debug(`Error fetching from ${tableName}, using provided items`);
+      }
     };
     fetchItems();
-  }, [open, tableName]);
+  }, [open, tableName, disableFetch]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -93,6 +126,7 @@ export const DropdownField: React.FC<DropdownFieldProps> = ({
 
   // Custom placeholder text for class fields
   const getPlaceholder = () => {
+    if (placeholder) return placeholder;
     if (label === "Class Admitted To" || label === "Current Class") {
       return "Select class...";
     }
@@ -113,20 +147,37 @@ export const DropdownField: React.FC<DropdownFieldProps> = ({
         {label}
       </label>
 
-      <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden">
+      <div className={`flex items-center border border-gray-300 rounded-lg overflow-hidden ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
         <div
-          className={`flex-1 px-3 py-2 cursor-pointer ${
+          className={`flex-1 px-3 py-2 ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${
             current ? 'text-gray-900' : 'text-gray-400'
           }`}
-          onClick={() => setOpen(o => !o)}
+          onMouseDown={(e) => {
+            if (!disabled) e.preventDefault();
+          }}
+          onClick={(e) => {
+            if (disabled) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen(o => !o);
+          }}
         >
           {current?.name || getPlaceholder()}
         </div>
 
         <button
           type="button"
-          className="px-3 text-gray-500 hover:bg-gray-50"
-          onClick={() => setOpen(o => !o)}
+          className={`px-3 text-gray-500 ${disabled ? 'cursor-not-allowed' : 'hover:bg-gray-50'}`}
+          disabled={disabled}
+          onMouseDown={(e) => {
+            if (!disabled) e.preventDefault();
+          }}
+          onClick={(e) => {
+            if (disabled) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen(o => !o);
+          }}
         >
           <ChevronDown
             className={`w-4 h-4 transform transition-transform ${
@@ -145,24 +196,43 @@ export const DropdownField: React.FC<DropdownFieldProps> = ({
       </div>
 
       {open && (
-        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-b-lg shadow-lg">
+        <div 
+          className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-b-lg shadow-lg"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
           <input
             type="text"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             placeholder="Search..."
             className="w-full px-3 py-2 border-b border-gray-300 focus:outline-none"
+            onFocus={(e) => e.stopPropagation()}
           />
           <ul className="max-h-60 overflow-auto text-gray-900">
             {filtered.map(item => (
               <li
                 key={item.id}
                 className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
-                onClick={() => {
-                  setLocalSelected(item);
-                  onSelect?.(item.id);
-                  setOpen(false);
-                  setSearchTerm('');
+                tabIndex={-1}
+                onMouseDown={(e) => {
+                  // Prevent form submission or scroll jump
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  // Use setTimeout to prevent scroll jump during state update
+                  setTimeout(() => {
+                    setLocalSelected(item);
+                    onSelect?.(item.id);
+                    setOpen(false);
+                    setSearchTerm('');
+                  }, 0);
+                }}
+                onFocus={(e) => {
+                  // Prevent focus from causing scroll
+                  e.preventDefault();
                 }}
               >
                 {item.name}

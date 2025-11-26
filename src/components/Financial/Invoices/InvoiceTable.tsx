@@ -72,7 +72,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onEdit, on
             alert(`Failed to delete invoice: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     };
-
+    
     // --- Void Handler ---
     const handleVoid = async (invoice: InvoiceHeader) => {
         if (!window.confirm(`Are you sure you want to void invoice ${invoice.invoice_number}? This action cannot be undone.`)) {
@@ -290,13 +290,13 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onEdit, on
                                     className="px-6 py-4 whitespace-nowrap text-sm font-medium"
                                     onClick={(e) => e.stopPropagation()}
                                 >
-                                    <button
+                                        <button 
                                         onClick={() => handleVoid(invoice)}
                                         className="px-3 py-1 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-300 rounded-lg transition-colors"
                                         title="Void Invoice"
                                     >
                                         Void
-                                    </button>
+                                        </button>
                                 </td>
                             </tr>
                         ))}
