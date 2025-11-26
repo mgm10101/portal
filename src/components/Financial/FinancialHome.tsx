@@ -33,7 +33,7 @@ export const FinancialHome: React.FC = () => {
     trendValue?: string;
     color?: string;
   }) => (
-    <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+    <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm text-gray-600 mb-1">{title}</p>
@@ -63,17 +63,11 @@ export const FinancialHome: React.FC = () => {
   );
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
+    <div className="p-6 md:p-3 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">Financial Overview</h1>
-          <p className="text-gray-600">
-            Monitor your school's financial health at a glance
-          </p>
-        </div>
 
         {/* Key Metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-3 mb-8 md:mb-4">
           <StatCard
             title="Total Unpaid Invoices"
             value={financialData.unpaidInvoices}
@@ -107,9 +101,9 @@ export const FinancialHome: React.FC = () => {
         </div>
 
         {/* Charts Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-3 mb-8 md:mb-4">
           {/* Cash Flow Chart */}
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
             <h3 className="text-lg font-semibold text-gray-800 mb-4">Monthly Cash Flow</h3>
             <div className="flex items-end justify-center space-x-8 h-48">
               <div className="flex flex-col items-center">
@@ -142,7 +136,7 @@ export const FinancialHome: React.FC = () => {
           </div>
 
           {/* Top 5 Expense Categories */}
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
             <h3 className="text-lg font-semibold text-gray-800 mb-4">
               Top Expense Categories
             </h3>
@@ -173,7 +167,7 @@ export const FinancialHome: React.FC = () => {
         </div>
 
         {/* Recent Activity */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+        <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
           <h3 className="text-lg font-semibold text-gray-800 mb-4">
             Recent Financial Activity
           </h3>

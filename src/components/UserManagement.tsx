@@ -38,7 +38,7 @@ export const UserManagement: React.FC = () => {
   const UserForm = () => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-center mb-6 md:mb-3">
           <h2 className="text-xl font-bold text-gray-800">
             {selectedUser ? 'Edit User' : 'Add New User'}
           </h2>
@@ -156,9 +156,9 @@ export const UserManagement: React.FC = () => {
   );
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
+    <div className="p-6 md:p-3 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-center mb-6 md:mb-3">
           <div>
             <h1 className="text-3xl font-bold text-gray-800 mb-2">User Management</h1>
             <p className="text-gray-600">Manage user accounts and permissions</p>
@@ -173,8 +173,8 @@ export const UserManagement: React.FC = () => {
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-3 mb-6 md:mb-3">
+          <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center">
               <Shield className="w-8 h-8 text-blue-600 mr-3" />
               <div>
@@ -183,7 +183,7 @@ export const UserManagement: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center">
               <User className="w-8 h-8 text-green-600 mr-3" />
               <div>
@@ -192,7 +192,7 @@ export const UserManagement: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center">
               <Shield className="w-8 h-8 text-purple-600 mr-3" />
               <div>
@@ -201,7 +201,7 @@ export const UserManagement: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center">
               <User className="w-8 h-8 text-yellow-600 mr-3" />
               <div>

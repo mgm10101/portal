@@ -1,7 +1,7 @@
 // src/components/Students/masterlist/CoreStudentInfoForm.tsx
 
 import React from 'react';
-import { Plus, User, Upload } from 'lucide-react';
+import { Plus, User, Upload, TrendingUp } from 'lucide-react';
 import { DropdownField, DropdownItem } from './DropdownField';
 
 interface CoreStudentInfoFormProps {
@@ -26,6 +26,7 @@ interface CoreStudentInfoFormProps {
   setStreamId: (id: number) => void;
   teamColourId?: number;
   setTeamColourId: (id: number) => void;
+  onOpenProgressionModal?: () => void;
 }
 
 export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
@@ -47,9 +48,20 @@ export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
   setStreamId,
   teamColourId,
   setTeamColourId,
+  onOpenProgressionModal,
 }) => {
   return (
     <>
+      <style>
+        {`
+          input[type="date"] {
+            cursor: text;
+          }
+          input[type="date"]::-webkit-calendar-picker-indicator {
+            cursor: pointer;
+          }
+        `}
+      </style>
       {/* Hidden inputs to include dropdown IDs in form submission */}
       <input
         type="hidden"
@@ -73,17 +85,29 @@ export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
       />
 
       {/* Profile Picture */}
-      <div className="flex items-center space-x-4">
-        <div className="w-20 h-20 rounded-full bg-gray-200 flex items-center justify-center">
-          <User className="w-10 h-10 text-gray-500" />
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-4">
+          <div className="w-20 h-20 rounded-full bg-gray-200 flex items-center justify-center">
+            <User className="w-10 h-10 text-gray-500" />
+          </div>
+          <button
+            type="button"
+            className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            <Upload className="w-4 h-4 mr-2" />
+            Upload Photo
+          </button>
         </div>
-        <button
-          type="button"
-          className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-        >
-          <Upload className="w-4 h-4 mr-2" />
-          Upload Photo
-        </button>
+        {onOpenProgressionModal && !selectedStudent && (
+          <button
+            type="button"
+            onClick={onOpenProgressionModal}
+            className="flex items-center px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+          >
+            <TrendingUp className="w-4 h-4 mr-2" />
+            Batch Progress Students
+          </button>
+        )}
       </div>
 
       {/* Basic Information */}
@@ -196,10 +220,10 @@ export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
             tableName="streams"
           />
 
-          {/* Team Colour */}
+          {/* Team */}
           <DropdownField
             name="team_colour_id"
-            label="Team Colour"
+            label="Team"
             items={teamColoursList}
             selectedId={teamColourId}
             clearIfInvalid={clearIfInvalid}

@@ -14,7 +14,9 @@ import {
     fetchStudents, 
     createInvoice,
     updateInvoice, 
-    fetchFullInvoice 
+    fetchFullInvoice,
+    fetchOutstandingBalances,
+    markInvoicesAsForwarded
 } from '../../../services/financialService';
 
 // IMPORT THE NEW REFACTORED COMPONENTS
@@ -25,6 +27,7 @@ import { InvoiceFormBalanceBF } from './InvoiceFormBalanceBF';
 import { InvoiceBatchCreate } from './InvoiceBatchCreate';
 import { InvoiceBatchExport } from './InvoiceBatchExport'; 
 import { InvoiceItems } from './InvoiceItems';
+import { InvoiceDetails } from './InvoiceDetails';
 // --- NEW IMPORTS END ---
 
 // 🎯 NEW TYPE DEFINITION for the Class Lookup List (as per previous discussion)
@@ -56,15 +59,7 @@ interface InvoiceFormProps {
 }
 
 // Mock data for overdue invoices (replace with real fetchOverdueInvoices(admissionNumber))
-const mockOverdueInvoices = (admissionNumber: string) => {
-    if (admissionNumber === 'ADM1001') {
-        return [
-            { invoice_number: 'INV-2024-001', balanceDue: 150.00 },
-            { invoice_number: 'INV-2024-005', balanceDue: 25.50 },
-        ];
-    }
-    return [];
-};
+// Removed mock function - now fetching real data from Supabase
 
 // Initial state for a new invoice (matched to the database type)
 const initialInvoiceHeader: InvoiceHeader = {
@@ -89,8 +84,8 @@ const initialInvoiceHeader: InvoiceHeader = {
 const getNewDefaultLineItem = (): InvoiceLineItem => ({
     // ID is undefined for new items
     id: undefined, // Explicitly undefined for new items
-    item_master_id: '',
-    itemName: '',
+    itemName: '', // Item name stored in DB
+    selectedItemId: '', // Item ID used for dropdown selection (not stored in DB)
     description: null,
     unitPrice: 0.00,
     quantity: 1,
@@ -108,7 +103,7 @@ const getInitialLineItems = (selectedInvoice: InvoiceHeader | null): InvoiceLine
 };
 
 // Define tab types for the new feature
-type InvoiceFormTab = 'Single Invoice' | 'Batch Creation' | 'Batch Export' | 'Invoice Items';
+type InvoiceFormTab = 'Single Invoice' | 'Batch Creation' | 'Batch Export' | 'Invoice Items' | 'Invoice Details';
 
 export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClose }) => {
     
@@ -127,6 +122,9 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
 
     // Determine if we are in Edit Mode
     const isEditMode = !!selectedInvoice;
+    
+    // Check if invoice is Forwarded (cannot be edited)
+    const isForwarded = isEditMode && selectedInvoice?.status === 'Forwarded';
 
     // --- STATE ---
     // Apply the safe initializer if in edit mode, otherwise use the standard initial state
@@ -148,6 +146,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
     const [loadingItems, setLoadingItems] = useState(true);
     const [loadingLineItems, setLoadingLineItems] = useState(false); 
     const [overdueInvoices, setOverdueInvoices] = useState<any[]>([]); 
+    const [includeBBF, setIncludeBBF] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     
     // 🎯 FIX: If in edit mode, default to 'Single Invoice' and disable switching
@@ -200,7 +199,17 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
 
                 if (selectedInvoice) {
                     setSearchQuery(`${selectedInvoice.admission_number} - ${selectedInvoice.name}`);
-                    setOverdueInvoices(mockOverdueInvoices(selectedInvoice.admission_number)); 
+                    // Fetch real overdue invoices
+                    try {
+                        const overdueData = await fetchOutstandingBalances([selectedInvoice.admission_number]);
+                        setOverdueInvoices(overdueData.map(inv => ({
+                            invoice_number: inv.invoice_number,
+                            balanceDue: inv.balance_due
+                        })));
+                    } catch (error) {
+                        console.error('Error fetching overdue invoices:', error);
+                        setOverdueInvoices([]);
+                    }
                 }
             } catch (err) {
                 console.error("Failed to load initial data:", err);
@@ -248,7 +257,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
 
     // --- HANDLERS ---
 
-    const handleSelectStudent = (student: StudentInfo) => {
+    const handleSelectStudent = async (student: StudentInfo) => {
         setHeader(prev => ({
             ...prev,
             admission_number: student.admission_number,
@@ -256,7 +265,18 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
         }));
         setSearchQuery(`${student.admission_number} - ${student.name}`); 
         setIsSearching(false);
-        setOverdueInvoices(mockOverdueInvoices(student.admission_number));
+        
+        // Fetch real overdue invoices
+        try {
+            const overdueData = await fetchOutstandingBalances([student.admission_number]);
+            setOverdueInvoices(overdueData.map(inv => ({
+                invoice_number: inv.invoice_number,
+                balanceDue: inv.balance_due
+            })));
+        } catch (error) {
+            console.error('Error fetching overdue invoices:', error);
+            setOverdueInvoices([]);
+        }
     };
 
     const handleHeaderChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -267,26 +287,26 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
         }
     };
     
-    const handleBFSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        // This function is disabled in Edit Mode as per requirements, but kept for clarity.
+    const handleToggleBBF = (include: boolean) => {
+        // This function is disabled in Edit Mode as per requirements
         if (isEditMode) return;
         
-        const invoiceNumber = e.target.value;
-        const selectedInv = overdueInvoices.find(inv => inv.invoice_number === invoiceNumber);
+        setIncludeBBF(include);
         
-        if (selectedInv) {
-            setHeader(prev => ({ 
-                ...prev, 
-                broughtforward_description: `Balance from ${invoiceNumber}`, 
-                broughtforward_amount: selectedInv.balanceDue
-            }));
-        } else {
-            const totalBalance = overdueInvoices.reduce((sum, inv) => sum + inv.balanceDue, 0); 
+        if (include && overdueInvoices.length > 0) {
+            const totalBalance = overdueInvoices.reduce((sum, inv) => sum + inv.balanceDue, 0);
+            const invoiceNumbers = overdueInvoices.map(inv => inv.invoice_number).join(', ');
             
             setHeader(prev => ({ 
                 ...prev, 
-                broughtforward_description: totalBalance > 0 ? `Total Balance Carried Forward (${overdueInvoices.length} invoices)` : null, 
+                broughtforward_description: `Invoices: ${invoiceNumbers}`, 
                 broughtforward_amount: totalBalance > 0 ? totalBalance : null 
+            }));
+        } else {
+            setHeader(prev => ({ 
+                ...prev, 
+                broughtforward_description: null, 
+                broughtforward_amount: null 
             }));
         }
     };
@@ -314,15 +334,16 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
             
             let numericValue = (name === 'quantity' || name === 'discount') ? parseInt(value) : parseFloat(value);
             
-            if (name === 'item_master_id') {
+            if (name === 'selectedItemId') {
+                // Find item by ID (unique identifier) to handle duplicate names correctly
                 const selectedItem = masterItems.find(i => i.id === value);
                 if (selectedItem) {
-                    item.item_master_id = value;
-                    item.itemName = selectedItem.item_name; 
+                    item.selectedItemId = selectedItem.id;
+                    item.itemName = selectedItem.item_name; // Store the name for DB
                     item.description = selectedItem.description; 
                     item.unitPrice = selectedItem.current_unit_price;
                 } else {
-                    item.item_master_id = '';
+                    item.selectedItemId = '';
                     item.itemName = '';
                     item.description = null;
                     item.unitPrice = 0.00;
@@ -342,15 +363,21 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         
+        // Prevent editing Forwarded invoices
+        if (isForwarded) {
+            alert("Forwarded invoices cannot be edited. This invoice has been brought forward to a new invoice.");
+            return;
+        }
+        
         if (!header.admission_number) {
             alert("Please select a valid Student.");
             return;
         }
         
         // Safety check for line items.
-        if (lineItems.filter(item => item.item_master_id).length === 0 && grandTotal === 0.00) {
+        if (lineItems.filter(item => item.itemName).length === 0 && grandTotal === 0.00) {
              // Allow update if totals are zero
-        } else if (lineItems.filter(item => item.item_master_id).length === 0) {
+        } else if (lineItems.filter(item => item.itemName).length === 0) {
             alert("Please add at least one line item (or zero the totals) to the invoice.");
             return;
         }
@@ -360,7 +387,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
         try {
             // Filter line items: exclude invalid ones and the client-side calculated 'lineTotal'
             const lineItemsPayload: InvoiceLineItem[] = lineItems
-                .filter(item => item.item_master_id)
+                .filter(item => item.itemName)
                 .map(({ lineTotal, ...rest }) => rest); 
             
             let result: InvoiceHeader;
@@ -397,6 +424,55 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
 
             } else {
                 // *** CREATE MODE: CALL THE CREATE FUNCTION ***
+                
+                // Add BBF as a line item if enabled and there are overdue invoices
+                let finalLineItems = [...lineItemsPayload];
+                if (includeBBF && overdueInvoices.length > 0 && broughtForwardAmount > 0) {
+                    // Find or auto-create "Balance Brought Forward" item
+                    let bbfItem = masterItems.find(item => item.item_name === 'Balance Brought Forward');
+                    
+                    if (!bbfItem) {
+                        // Create the BBF item in the database
+                        console.log('🔧 [DEBUG] Creating system "Balance Brought Forward" item...');
+                        const { data: newBbfItem, error: createError } = await supabase
+                            .from('item_master')
+                            .insert({
+                                item_name: 'Balance Brought Forward',
+                                current_unit_price: 0,
+                                description: 'System-generated item for carrying forward previous balances'
+                            })
+                            .select()
+                            .single();
+                        
+                        if (createError || !newBbfItem) {
+                            throw new Error('Failed to create Balance Brought Forward item: ' + createError?.message);
+                        }
+                        
+                        bbfItem = {
+                            id: newBbfItem.id,
+                            item_name: newBbfItem.item_name,
+                            current_unit_price: parseFloat(newBbfItem.current_unit_price),
+                            description: newBbfItem.description,
+                            created_at: newBbfItem.created_at
+                        };
+                        
+                        // Add to local masterItems so it's available for future use
+                        setMasterItems(prev => [...prev, bbfItem!]);
+                    }
+                    
+                    const invoiceNumbers = overdueInvoices.map(inv => inv.invoice_number).join(', ');
+                    
+                    // Add BBF line item (now using itemName directly)
+                    finalLineItems.push({
+                        itemName: 'Balance Brought Forward',
+                        unitPrice: broughtForwardAmount,
+                        quantity: 1,
+                        discount: 0,
+                        description: `Invoices: ${invoiceNumbers}`,
+                        lineTotal: broughtForwardAmount
+                    });
+                }
+                
                 // In create mode, we need all fields, including paymentMade (which should be 0)
                 const submissionData: InvoiceSubmissionData = {
                     header: {
@@ -405,10 +481,26 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
                         // paymentMade: 0.00 (included from initial state)
                         // All totals are correctly calculated in the header state
                     },
-                    line_items: lineItemsPayload,
+                    line_items: finalLineItems,
                 };
 
                 result = await createInvoice(submissionData as InvoiceSubmissionData);
+                
+                // IMPORTANT: Mark the old invoices as 'Forwarded' if balance was brought forward
+                // This ensures data integrity - the old invoices should not appear in outstanding balances
+                if (includeBBF && overdueInvoices.length > 0 && broughtForwardAmount > 0) {
+                    try {
+                        const invoiceNumbersToForward = overdueInvoices.map(inv => inv.invoice_number);
+                        await markInvoicesAsForwarded(invoiceNumbersToForward);
+                        console.log(`✅ [DEBUG] Marked ${invoiceNumbersToForward.length} invoices as 'Forwarded'`);
+                    } catch (forwardError: any) {
+                        // Log the error but don't fail the entire operation
+                        // The new invoice was created successfully, but the status update failed
+                        console.error("⚠️ [WARNING] Failed to mark invoices as Forwarded:", forwardError);
+                        alert(`Invoice created successfully, but failed to mark old invoices as 'Forwarded'. Please update them manually.\nError: ${forwardError.message}`);
+                    }
+                }
+                
                 alert(`Invoice successfully CREATED! Number: ${result.invoice_number}`);
             }
             
@@ -437,7 +529,8 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
         setSearchQuery(value);
         if (!value || !value.includes(header.admission_number)) {
              setHeader(prev => ({ ...prev, admission_number: '', name: '', broughtforward_amount: null, broughtforward_description: null }));
-             setOverdueInvoices([]); 
+             setOverdueInvoices([]);
+             setIncludeBBF(false);
         }
         setIsSearching(true);
     };
@@ -489,6 +582,30 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
                     </button>
                 </div>
 
+                {/* Warning message for Forwarded invoices */}
+                {isForwarded && (
+                    <div className="mb-6 p-4 bg-blue-50 border-l-4 border-blue-500 rounded">
+                        <div className="flex items-start">
+                            <div className="flex-shrink-0">
+                                <svg className="h-5 w-5 text-blue-500" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                                </svg>
+                            </div>
+                            <div className="ml-3">
+                                <h3 className="text-sm font-medium text-blue-800">
+                                    Forwarded Invoice - Read Only
+                                </h3>
+                                <div className="mt-2 text-sm text-blue-700">
+                                    <p>
+                                        This invoice has been marked as "Forwarded" because its balance has been brought forward to a new invoice. 
+                                        Forwarded invoices cannot be edited or deleted to maintain data integrity.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* --- TAB NAVIGATION --- */}
                 {/* 🎯 EDIT MODE: Hide/Disable other tabs */}
                 <div className="flex border-b border-gray-200 mb-6 -mx-6 px-6 overflow-x-auto">
@@ -519,6 +636,12 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
                             >
                                 Invoice Items
                             </button>
+                            <button 
+                                onClick={() => setActiveTab('Invoice Details')} 
+                                className={getTabClassName('Invoice Details')}
+                            >
+                                Invoice Details
+                            </button>
                         </>
                     )}
                 </div>
@@ -541,8 +664,8 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
                                         onFocus={handleSearchInputFocus}
                                         onBlur={handleBlur}
                                         className="w-full p-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                        // 🎯 FIX: Disable search/input in edit mode
-                                        disabled={loadingStudents || isEditMode || isSubmitting}
+                                        // 🎯 FIX: Disable search/input in edit mode or if Forwarded
+                                        disabled={loadingStudents || isEditMode || isSubmitting || isForwarded}
                                     />
                                 </div>
                                 {/* Student Search Results are only shown if NOT in edit mode */}
@@ -574,8 +697,8 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
                                     value={header.invoice_date}
                                     onChange={handleHeaderChange}
                                     className="w-full p-3 border border-gray-300 rounded-lg bg-gray-100"
-                                    // 🎯 FIX: Disable Invoice Date in edit mode
-                                    disabled={isEditMode || isSubmitting}
+                                    // 🎯 FIX: Disable Invoice Date in edit mode or if Forwarded
+                                    disabled={isEditMode || isSubmitting || isForwarded}
                                 />
                             </div>
                         </div>
@@ -589,7 +712,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
                                     value={header.due_date}
                                     onChange={handleHeaderChange}
                                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    disabled={isSubmitting}
+                                    disabled={isSubmitting || isForwarded}
                                 />
                             </div>
                             {isEditMode && (
@@ -615,7 +738,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
                                 value={generalDescription || ''}
                                 onChange={(e) => setGeneralDescription(e.target.value)}
                                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                disabled={isSubmitting}
+                                disabled={isSubmitting || isForwarded}
                             />
                         </div>
                         
@@ -630,8 +753,9 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
                             handleRemoveItem={handleRemoveItem}
                             handleLineItemChange={handleLineItemChange}
                             calculateLineTotal={calculateLineTotal}
-                            // 🎯 CRITICAL: Pass flag to disable line item deletion in Edit Mode
-                            isEditMode={isEditMode} 
+                            // 🎯 CRITICAL: Pass flag to disable line item deletion in Edit Mode or if Forwarded
+                            isEditMode={isEditMode}
+                            isForwarded={isForwarded}
                         />
                         
                         {/* --- BALANCE BROUGHT FORWARD SECTION (REFACTORED) --- */}
@@ -639,10 +763,11 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
                         {!isEditMode && (
                             <InvoiceFormBalanceBF
                                 header={header}
-                                overdueInvoices={overdueInvoices}
+                                includeBBF={includeBBF}
+                                onToggleBBF={handleToggleBBF}
                                 isSubmitting={isSubmitting}
-                                handleBFSelect={handleBFSelect}
                                 broughtForwardAmount={broughtForwardAmount}
+                                overdueInvoiceCount={overdueInvoices.length}
                             />
                         )}
 
@@ -678,10 +803,11 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
                             <button 
                                 type="submit" 
                                 className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-400"
-                                disabled={!header.admission_number || lineItems.length === 0 || isSubmitting || loadingLineItems} 
+                                disabled={!header.admission_number || lineItems.length === 0 || isSubmitting || loadingLineItems || isForwarded} 
                             >
                                 {isSubmitting ? (isEditMode ? 'Saving Changes...' : 'Creating Invoice...') : 
                                 loadingLineItems ? 'Loading Items...' :
+                                isForwarded ? 'Cannot Edit Forwarded Invoice' :
                                 (isEditMode ? 'Update Invoice' : 'Create Invoice')}
                             </button>
                         </div>
@@ -704,8 +830,6 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
                 {/* --- BATCH EXPORT CONTENT --- */}
                 {activeTab === 'Batch Export' && (
                     <InvoiceBatchExport
-                        allStudents={allStudents}
-                        loadingStudents={loadingStudents}
                         onClose={() => setActiveTab('Single Invoice')}
                     />
                 )}
@@ -717,6 +841,11 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
                         setMasterItems={setMasterItems}
                         loadingItems={loadingItems}
                     />
+                )}
+
+                {/* --- INVOICE DETAILS CONTENT --- */}
+                {activeTab === 'Invoice Details' && (
+                    <InvoiceDetails />
                 )}
             </div>
         </div>

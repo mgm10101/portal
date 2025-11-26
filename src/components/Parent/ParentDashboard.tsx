@@ -1,9 +1,15 @@
 import React, { useState } from 'react';
 import { User, FileText, Star, DollarSign, CreditCard, Calendar, TrendingUp } from 'lucide-react';
-import logo from '../../assets/logo.png';
+import { Header } from '../Layout/Header';
+import { ParentSidebar } from './ParentSidebar';
 
-export const ParentDashboard: React.FC = () => {
+interface ParentDashboardProps {
+  onLogout: () => void;
+}
+
+export const ParentDashboard: React.FC<ParentDashboardProps> = ({ onLogout }) => {
   const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Mock student data for parent view
   const studentData = {
@@ -148,31 +154,16 @@ export const ParentDashboard: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <img
-                src={logo}
-                alt="MGM Academy Logo"
-                className="w-[60px] sm:w-[66px] md:w-[72px] h-auto mr-3 rounded"
-              />
-              <h1 className="text-xl font-bold text-gray-800">MGM Academy - Parent Portal</h1>
-            </div>
-            <button className="text-blue-600 hover:text-blue-700 text-sm">
-              Log Out
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className="max-w-7xl mx-auto p-6">
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold text-gray-800 mb-2">Welcome, Parent</h2>
-          <p className="text-gray-600">View your child's academic progress and school information</p>
-        </div>
+    <div className="flex h-screen bg-gray-100">
+      <ParentSidebar 
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        onLogout={onLogout}
+      />
+      <main className="flex-1 overflow-y-auto scroll-smooth w-full">
+        <Header onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)} username="Parent" />
+        <div className="p-6 bg-gray-50 min-h-screen">
+          <div className="max-w-7xl mx-auto">
 
         {/* Student Information */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
@@ -352,7 +343,9 @@ export const ParentDashboard: React.FC = () => {
         </div>
 
         {showPaymentForm && <PaymentForm />}
-      </div>
+          </div>
+        </div>
+      </main>
     </div>
   );
 };

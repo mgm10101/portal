@@ -23,9 +23,9 @@ interface InvoiceBatchCreateProps {
 
 // Factory function for a new default line item
 const getNewDefaultLineItem = (): InvoiceLineItem => ({
-    // NOTE: The IDs are not used in the database insertion logic for line items, but are useful for UI keying
-    item_master_id: '',
+    // NOTE: Using itemName for DB storage, selectedItemId for UI selection
     itemName: '',
+    selectedItemId: '', // Item ID used for dropdown selection (not stored in DB)
     description: null,
     unitPrice: 0.00,
     quantity: 1,
@@ -38,6 +38,7 @@ const getNewDefaultLineItem = (): InvoiceLineItem => ({
 
 /**
  * Generates a unique list of class names for the filter dropdown, relying on the denormalized class_name.
+ * NOTE: Removed 'All Classes' option - students are only shown when a class is selected.
  */
 const getUniqueClasses = (students: StudentInfo[]): string[] => {
     // Rely ONLY on the denormalized class_name for clean filtering
@@ -47,8 +48,8 @@ const getUniqueClasses = (students: StudentInfo[]): string[] => {
 
     const uniqueClasses = Array.from(new Set(classes as string[]));
     
-    // Sort and prepend the 'All Classes' option
-    return ['All Classes', ...uniqueClasses.sort()];
+    // Sort classes (no 'All Classes' option)
+    return uniqueClasses.sort();
 }
 
 
@@ -67,14 +68,9 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
     
     // --- NEW STATE FOR BBF AND CUSTOM ITEMS ---
     const [bbfData, setBbfData] = useState<BalanceBroughtForwardData>({ 
-        includeBalance: false, 
-        bbfItemMasterId: '' // The ID of the item master to use for the BBF line
+        includeBalance: false
     });
     const [conditionalRules, setConditionalRules] = useState<ConditionalLineItemRule[]>([]);
-    // 🌟 STATE FOR CUSTOM LINE ITEM STAGING STATUS 🌟
-    const [isCustomItemsStaged, setIsCustomItemsStaged] = useState(false);
-    // 🌟 NEW STATE FOR STAGING ALERT MODAL 🌟
-    const [showStagingAlert, setShowStagingAlert] = useState(false);
 
 
     // --- ORIGINAL GENERAL BATCH STATE ---
@@ -86,30 +82,12 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
     const [submissionError, setSubmissionError] = useState<string | null>(null); 
     
     // --- New State for Class Filtering ---
-    const [selectedClass, setSelectedClass] = useState('All Classes');
+    // Changed default to empty string - no class selected initially
+    const [selectedClass, setSelectedClass] = useState('');
     
     // Generate unique class list for the filter dropdown
     const uniqueClasses = useMemo(() => getUniqueClasses(allStudents), [allStudents]);
 
-    // 🌟 DEBUGGING CONSOLE LOG 🌟
-    console.log(`[BBF PARENT DEBUG] Student IDs selected: ${selectedStudentIds.length}`);
-
-    // --- NEW MEMOIZED ARRAY OF STUDENT OBJECTS FOR BBF COMPONENT ---
-    // This is the FIX: Map the list of IDs to the full StudentInfo objects required by BalanceBroughtForward.tsx
-    const selectedStudentObjects = useMemo(() => {
-        const selectedObjects = allStudents.filter(student => 
-            selectedStudentIds.includes(student.admission_number)
-        ).map(student => ({
-            student_name: student.name, // Map name to student_name
-            admission_number: student.admission_number, // Map admission_number
-        }));
-        
-        // 🌟 DEBUGGING CONSOLE LOG 🌟
-        console.log(`[BBF PARENT DEBUG] Student Objects for BBF: ${selectedObjects.length} objects`);
-        // console.log(`[BBF PARENT DEBUG] Student Objects details:`, selectedObjects); // Uncomment for full details
-        
-        return selectedObjects;
-    }, [allStudents, selectedStudentIds]);
 
     // --- Handlers & Calculations (ORIGINAL LOGIC) ---
 
@@ -151,15 +129,16 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                 numericValue = 0; 
             }
             
-            if (name === 'item_master_id') {
+            if (name === 'selectedItemId') {
+                // Find item by ID (unique identifier) to handle duplicate names correctly
                 const selectedItem = masterItems.find(i => i.id === value);
                 if (selectedItem) {
-                    item.item_master_id = value;
-                    item.itemName = selectedItem.item_name; 
+                    item.selectedItemId = selectedItem.id;
+                    item.itemName = selectedItem.item_name; // Store the name for DB
                     item.description = selectedItem.description; 
                     item.unitPrice = selectedItem.current_unit_price;
                 } else {
-                    item.item_master_id = '';
+                    item.selectedItemId = '';
                     item.itemName = '';
                     item.description = null;
                     item.unitPrice = 0.00;
@@ -178,17 +157,14 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
         });
     };
     
-    // 🌟 HANDLER FUNCTION FOR CUSTOM LINE ITEM STAGING 🌟
-    const handleCustomStagingStatusChange = (isStaged: boolean) => {
-        setIsCustomItemsStaged(isStaged);
-    }
-    
     /**
      * Filtered Student List based on selected class.
+     * Returns empty array if no class is selected (prevents loading all students).
      */
     const filteredStudents = useMemo(() => {
-        if (selectedClass === 'All Classes') {
-            return allStudents;
+        // Don't show any students until a class is selected
+        if (!selectedClass || selectedClass === '') {
+            return [];
         }
         
         return allStudents.filter(student => student.class_name === selectedClass);
@@ -196,14 +172,26 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
     
     // Student Selection Logic (Simple toggle for now)
     const handleStudentToggle = (admissionNumber: string) => {
-        // Prevent changing students when custom items are staged
-        if (isCustomItemsStaged) return; 
-
         setSelectedStudentIds(prev =>
             prev.includes(admissionNumber)
                 ? prev.filter(id => id !== admissionNumber)
                 : [...prev, admissionNumber]
         );
+    };
+    
+    // Select All students from the filtered list
+    const handleSelectAll = () => {
+        const allFilteredIds = filteredStudents.map(student => student.admission_number);
+        setSelectedStudentIds(prev => {
+            // Combine existing selections with filtered students, removing duplicates
+            const combined = [...new Set([...prev, ...allFilteredIds])];
+            return combined;
+        });
+    };
+    
+    // Drop All selected students
+    const handleDropAll = () => {
+        setSelectedStudentIds([]);
     };
     
     // --- Submission Logic (UPDATED) ---
@@ -216,38 +204,25 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
             return;
         }
 
-        // Logic to check for unstaged conditional items
-        const hasConditionalRules = conditionalRules.length > 0;
+        // --- Validation checks ---
         
-        if (hasConditionalRules && !isCustomItemsStaged) {
-            // Show the custom alert modal
-            setShowStagingAlert(true);
-            return;
-        }
-        
-        // --- Remaining Validation checks ---
-        
-        const hasUnselectedCommonItem = lineItems.some(item => !item.item_master_id);
+        const hasUnselectedCommonItem = lineItems.some(item => !item.itemName);
         if (hasUnselectedCommonItem) {
             alert("Please ensure all Common Line items have a Master Item selected.");
             return;
         }
 
-        if (bbfData.includeBalance && !bbfData.bbfItemMasterId) {
-            alert("Please select a Master Item for the Balance Brought Forward line.");
-            return;
-        }
         
         // This validation should check if *any* rule is defined, not just if there are rules
         // since the rules themselves must have a master item selected.
-        const hasUnselectedConditionalItem = conditionalRules.some(rule => rule.enabled && !rule.item_master_id);
+        const hasUnselectedConditionalItem = conditionalRules.some(rule => rule.enabled && !rule.itemName);
         if (hasUnselectedConditionalItem) {
             alert("Please ensure all enabled Conditional Line rules have a Master Item selected.");
             return;
         }
 
         // Must have at least one way to generate an item
-        const hasAnyItems = lineItems.some(item => !!item.item_master_id) || bbfData.includeBalance || conditionalRules.length > 0;
+        const hasAnyItems = lineItems.some(item => !!item.itemName) || bbfData.includeBalance || conditionalRules.length > 0;
         if (!hasAnyItems) {
             alert("Please define at least one item (Common, BBF, or Conditional) to generate invoices.");
             return;
@@ -260,14 +235,13 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
             // Map Common Line Items for submission (Original Logic)
             // Filter out items that were added but never selected/configured
             const itemsForSubmission = lineItems
-                .filter(item => !!item.item_master_id) 
+                .filter(item => !!item.itemName) 
                 .map(item => ({
-                    item_master_id: item.item_master_id,
+                    itemName: item.itemName,
                     description: item.description,
                     unitPrice: item.unitPrice,
                     quantity: item.quantity,
-                    discount: item.discount,
-                    itemName: item.itemName, 
+                    discount: item.discount, 
                     lineTotal: item.lineTotal, 
                 }));
 
@@ -281,7 +255,6 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                 
                 // --- NEW FIELDS FOR SERVICE LAYER ---
                 includeBalanceBroughtForward: bbfData.includeBalance,
-                bbfItemMasterId: bbfData.bbfItemMasterId,
                 conditionalLineRules: conditionalRules, 
             };
             
@@ -299,8 +272,6 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
             alert(`Submission Error: ${errorMessage}`);
         } finally {
             setIsSubmitting(false);
-            // Reset staging status on submission completion/failure
-            setIsCustomItemsStaged(false);
         }
     };
     
@@ -308,10 +279,6 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
     
     // isReadyToSubmit: requires students selected AND not currently submitting
     const isReadyToSubmit = selectedStudentIds.length > 0 && !isSubmitting;
-    
-    // Determine if sections should be locked/collapsed 
-    // Sections are locked when conditional items are staged to prevent data inconsistency
-    const isSectionLocked = isCustomItemsStaged;
     
     return (
         <div className="space-y-6">
@@ -366,7 +333,7 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                 </div>
 
                 {/* --- 2. Common Line Items Template (ORIGINAL LOGIC) --- */}
-                <div className={`p-4 border rounded-lg shadow-sm ${isSectionLocked ? 'opacity-60 pointer-events-none bg-gray-100' : ''}`}>
+                <div className="p-4 border rounded-lg shadow-sm">
                     <h4 className="text-xl font-semibold mb-3">1. Common Line Items <span className="text-sm font-normal text-blue-600">({selectedStudentIds.length} Students)</span></h4>
                     
                     {/* Item Headers */}
@@ -386,11 +353,11 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                                 {/* Item Name/ID */}
                                 <div className="col-span-3 md:col-span-4">
                                     <select
-                                        name="item_master_id"
-                                        value={item.item_master_id}
+                                        name="selectedItemId"
+                                        value={item.selectedItemId || ''}
                                         onChange={(e) => handleLineItemChange(index, e)}
                                         className="w-full p-2 border rounded-lg text-xs md:text-sm"
-                                        disabled={loadingItems || isSubmitting || isSectionLocked}
+                                        disabled={loadingItems || isSubmitting}
                                         required
                                     >
                                         <option value="">{loadingItems ? 'Loading...' : 'Select Item'}</option>
@@ -410,7 +377,7 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                                     onChange={(e) => handleLineItemChange(index, e)}
                                     className="col-span-1 p-2 border rounded-lg text-xs md:text-sm text-center"
                                     min="1"
-                                    disabled={isSubmitting || isSectionLocked}
+                                    disabled={isSubmitting}
                                 />
                                 {/* Unit Price */}
                                 <input 
@@ -421,7 +388,7 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                                     onChange={(e) => handleLineItemChange(index, e)}
                                     className="col-span-2 p-2 border rounded-lg text-xs md:text-sm text-right"
                                     step="0.01"
-                                    disabled={isSubmitting || isSectionLocked}
+                                    disabled={isSubmitting}
                                 />
                                 {/* Discount */}
                                 <input 
@@ -433,7 +400,7 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                                     className="col-span-1 p-2 border rounded-lg text-xs md:text-sm text-center"
                                     min="0"
                                     max="100"
-                                    disabled={isSubmitting || isSectionLocked}
+                                    disabled={isSubmitting}
                                 />
                                 {/* Total */}
                                 <div className="col-span-2 md:col-span-3 text-right font-medium text-gray-700 text-sm">
@@ -444,7 +411,7 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                                     type="button" 
                                     onClick={() => handleRemoveItem(index)}
                                     className="col-span-1 text-red-500 hover:text-red-700 disabled:opacity-50"
-                                    disabled={lineItems.length === 1 || isSubmitting || isSectionLocked}
+                                    disabled={lineItems.length === 1 || isSubmitting}
                                 >
                                     <X size={16} />
                                 </button>
@@ -455,10 +422,10 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                     {/* Add Item Button & Totals */}
                     <div className="flex justify-between items-center mt-4 pt-4 border-t">
                         <button 
-                            type="button" 
+                            type="button"
                             onClick={handleAddItem} 
                             className="flex items-center text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50 text-sm"
-                            disabled={isSubmitting || isSectionLocked}
+                            disabled={isSubmitting}
                         >
                             <Plus size={16} className="mr-1" /> Add Common Item
                         </button>
@@ -475,33 +442,24 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                     setConditionalRules={setConditionalRules}
                     masterItems={masterItems}
                     isSubmitting={isSubmitting}
-                    // This section receives the IDs and the ALL students list and does its own filtering/mapping
                     selectedStudentIds={selectedStudentIds} 
                     allStudents={allStudents}
-                    onStagingStatusChange={handleCustomStagingStatusChange}
-                    isStaged={isCustomItemsStaged}
                 />
                 
                 {/* --- */}
 
                 {/* === NEW SECTION: BALANCE BROUGHT FORWARD === */}
-                <div className={` ${isSectionLocked ? 'opacity-60 pointer-events-none bg-gray-100 p-4 border rounded-lg' : ''}`}>
-                    <BalanceBroughtForward
-                        bbfData={bbfData}
-                        setBbfData={setBbfData}
-                        // FIX APPLIED HERE: Pass the correctly mapped array of student objects
-                        selectedStudents={selectedStudentObjects}
-                        selectedStudentCount={selectedStudentIds.length}
-                        isSubmitting={isSubmitting || isSectionLocked}
-                        masterItems={masterItems} // This prop is likely used internally by BBF for master item selection
-                        onSaveSuccess={() => { /* Placeholder for save success handler if needed */ }}
-                    />
-                </div>
+                <BalanceBroughtForward
+                    bbfData={bbfData}
+                    setBbfData={setBbfData}
+                    selectedStudentCount={selectedStudentIds.length}
+                    isSubmitting={isSubmitting}
+                />
                 
                 {/* ---------------------------------------------------------------------------------- */}
 
                 {/* --- 3. Student Selection & Filters (UPDATED) --- */}
-                <div className={`p-4 border rounded-lg shadow-sm ${isSectionLocked ? 'opacity-60 pointer-events-none bg-gray-100' : ''}`}>
+                <div className="p-4 border rounded-lg shadow-sm">
                     {/* Filter by Class Dropdown moved to top-right */}
                     <div className="flex justify-between items-start mb-3">
                         <h4 className="text-xl font-semibold">Target Students ({selectedStudentIds.length} Selected)</h4>
@@ -515,8 +473,9 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                                     setSelectedClass(e.target.value);
                                 }}
                                 className="w-full p-2 border border-gray-300 rounded-lg bg-white text-sm"
-                                disabled={loadingStudents || isSubmitting || isSectionLocked}
+                                disabled={loadingStudents || isSubmitting}
                             >
+                                <option value="">-- Select a Class --</option>
                                 {uniqueClasses.map(className => (
                                     <option key={className} value={className}>
                                         {className}
@@ -525,11 +484,43 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                             </select>
                         </div>
                     </div>
+                    
+                    {/* Select All / Drop All buttons - only show when a class is selected */}
+                    {selectedClass && filteredStudents.length > 0 && (
+                        <div className="flex justify-end gap-2 mb-3">
+                            <button
+                                type="button"
+                                onClick={handleSelectAll}
+                                className="px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-300 rounded-lg hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled={isSubmitting || filteredStudents.length === 0}
+                            >
+                                Select All ({filteredStudents.length})
+                            </button>
+                            {selectedStudentIds.length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={handleDropAll}
+                                    className="px-4 py-2 text-sm font-medium text-red-600 bg-red-50 border border-red-300 rounded-lg hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    disabled={isSubmitting}
+                                >
+                                    Drop All ({selectedStudentIds.length})
+                                </button>
+                            )}
+                        </div>
+                    )}
 
                     {/* Student List */}
                     <div className="max-h-60 overflow-y-auto border p-2 rounded-lg bg-white">
                         {loadingStudents ? (
                             <p className="text-center text-gray-500">Loading students...</p>
+                        ) : !selectedClass ? (
+                            <p className="text-center text-gray-500 py-8">
+                                Please select a class to view and select students.
+                            </p>
+                        ) : filteredStudents.length === 0 ? (
+                            <p className="text-center text-gray-500 py-8">
+                                No students found in {selectedClass}.
+                            </p>
                         ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 {filteredStudents.map(student => {
@@ -541,11 +532,10 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                                     return (
                                         <div 
                                             key={student.admission_number}
-                                            // Conditional onClick to prevent selection change when locked
-                                            onClick={() => !isSectionLocked && handleStudentToggle(student.admission_number)}
+                                            onClick={() => handleStudentToggle(student.admission_number)}
                                             className={`p-2 border rounded-lg cursor-pointer flex items-center justify-between transition-colors ${
                                                 isSelected ? 'bg-blue-100 border-blue-500' : 'bg-white hover:bg-gray-50'
-                                            } ${isSectionLocked ? 'cursor-not-allowed' : ''}`}
+                                            }`}
                                         >
                                             <span className={`text-sm ${isSelected ? 'font-medium text-blue-800' : 'text-gray-700'}`}>
                                                 {student.name} ({classDisplay}) - ({student.admission_number})
@@ -556,11 +546,8 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                                 })}
                             </div>
                         )}
-                        {allStudents.length === 0 && !loadingStudents && (
+                        {allStudents.length === 0 && !loadingStudents && selectedClass && (
                             <p className="text-center text-gray-500">No students available.</p>
-                        )}
-                        {filteredStudents.length === 0 && selectedClass !== 'All Classes' && !loadingStudents && (
-                            <p className="text-center text-gray-500">No students found in {selectedClass}.</p>
                         )}
                     </div>
                 </div>
@@ -573,38 +560,13 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                     <button 
                         type="submit" 
                         className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-green-400 font-semibold transition-colors"
-                        // FIX: Allow submission attempt (and therefore staging alert) if students are selected
-                        disabled={!isReadyToSubmit && !showStagingAlert} 
+                        disabled={!isReadyToSubmit} 
                     >
                         {isSubmitting ? 'Creating Invoices...' : `Create ${selectedStudentIds.length} Invoices`}
                     </button>
                 </div>
             </form>
 
-            {/* 🌟 Staging Alert Modal 🌟 */}
-            {showStagingAlert && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white p-6 rounded-lg shadow-2xl w-full max-w-md space-y-4">
-                        <h3 className="text-xl font-bold text-red-700 flex items-center">
-                            <AlertTriangle size={24} className="mr-2 text-red-500" /> Action Required
-                        </h3>
-                        <p className="text-gray-700">
-                            You have defined **Conditional Line Items**, but they have not been staged (saved to the temporary table) yet.
-                        </p>
-                        <p className="text-gray-700 font-medium">
-                            Please go back to the Conditional Line Items section and click the **Save** button to proceed with invoice creation.
-                        </p>
-                        <div className="flex justify-end pt-2">
-                            <button
-                                onClick={() => setShowStagingAlert(false)}
-                                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-                            >
-                                Got it, take me back
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

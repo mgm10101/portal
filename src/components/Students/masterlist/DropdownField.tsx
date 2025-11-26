@@ -1,6 +1,6 @@
 // src/components/Students/masterlist/DropdownField.tsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Plus, ChevronDown } from 'lucide-react';
 import { supabase } from '../../../supabaseClient';
 
@@ -39,19 +39,51 @@ export const DropdownField: React.FC<DropdownFieldProps> = ({
   const [localSelected, setLocalSelected] = useState<DropdownItem | null>(
     () => items.find(i => i.id === selectedId) || null
   );
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const fetchItems = async () => {
-      const { data, error } = await supabase
+      const { data, error} = await supabase
         .from(tableName)
-        .select('id,name');
+        .select('id,name,sort_order')
+        .order('sort_order', { ascending: true, nullsLast: true })
+        .order('id', { ascending: true });
       if (!error && data) setDropdownItems(data);
     };
     fetchItems();
   }, [open, tableName]);
 
-  const options = dropdownItems.length > 0 ? dropdownItems : items;
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!open) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+
+    // Add small delay to prevent immediate closing
+    const timer = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside);
+    }, 0);
+
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [open]);
+
+  // Sort items by sort_order for consistency
+  const sortedItems = [...items].sort((a: any, b: any) => {
+    if (a.sort_order !== undefined && b.sort_order !== undefined) {
+      return a.sort_order - b.sort_order;
+    }
+    return a.id - b.id;
+  });
+
+  const options = dropdownItems.length > 0 ? dropdownItems : sortedItems;
   const filtered = options.filter(item =>
     item.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -59,8 +91,24 @@ export const DropdownField: React.FC<DropdownFieldProps> = ({
   const current =
     localSelected || options.find(i => i.id === selectedId) || null;
 
+  // Custom placeholder text for class fields
+  const getPlaceholder = () => {
+    if (label === "Class Admitted To" || label === "Current Class") {
+      return "Select class...";
+    }
+    return `Select ${label.toLowerCase()}`;
+  };
+
+  // Clear selection handler
+  const handleClear = () => {
+    setLocalSelected(null);
+    onSelect?.(undefined as any);
+    setOpen(false);
+    setSearchTerm('');
+  };
+
   return (
-    <div className="relative">
+    <div className="relative" ref={dropdownRef}>
       <label className="block text-sm font-medium text-gray-700 mb-1">
         {label}
       </label>
@@ -72,7 +120,7 @@ export const DropdownField: React.FC<DropdownFieldProps> = ({
           }`}
           onClick={() => setOpen(o => !o)}
         >
-          {current?.name || `Select ${label.toLowerCase()}`}
+          {current?.name || getPlaceholder()}
         </div>
 
         <button
@@ -97,7 +145,7 @@ export const DropdownField: React.FC<DropdownFieldProps> = ({
       </div>
 
       {open && (
-        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-b-lg">
+        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-b-lg shadow-lg">
           <input
             type="text"
             value={searchTerm}
@@ -121,6 +169,17 @@ export const DropdownField: React.FC<DropdownFieldProps> = ({
               </li>
             ))}
           </ul>
+          {current && (
+            <div className="border-t border-gray-300 bg-gray-50">
+              <button
+                type="button"
+                onClick={handleClear}
+                className="w-full px-3 py-2 text-left text-sm text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                Clear my choice
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

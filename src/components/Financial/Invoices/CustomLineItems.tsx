@@ -1,745 +1,673 @@
 // src/components/Financial/Invoices/CustomLineItems.tsx
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Plus, X, Loader2, Save, Undo2, AlertTriangle, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, X, Info } from 'lucide-react';
+import { ItemMaster } from '../../../types/database';
 import { supabase } from '../../../supabaseClient';
-import { StudentInfo } from '../../../types/database'; // Assuming StudentInfo is imported/accessible
 
-// --- New Interface for Dynamic Custom Fields ---
-interface DropdownCustomField {
-    field_id: string; // The actual column name in the students table (e.g., 'residence_zone')
-    field_name: string; // The display name (e.g., 'Residence Zone')
-    options: string[]; // Parsed array of dropdown options
+// Condition interface for combination rules
+export interface Condition {
+    conditionId: string;
+    field_id: string;
+    field_name: string;
+    field_value: string;
 }
 
-// Note: Updated the interface to include the new 'field_id' field for tracking the actual student column
+// Updated interface to match service layer - supports both single and multiple conditions
 export interface ConditionalLineItemRule {
-    ruleId: string; // Unique ID for React keying and identification
-    field_id: string; // **NEW**: Student table column name (used for batch processing)
-    field_name: string; // The display name (e.g., 'Zone')
-    field_value: string; // The selected option value (e.g., 'Zone1')
-    item_master_id: string;
-    unitPrice: number; // NOTE: We keep this as Unit Price in the state
-    description: string | null; // Changed to allow null/undefined description for better type matching
-    quantity: number; // ADDED: Quantity field
-}
-
-// ⭐ NEW INTERFACE: Represents the FINAL line item to be added to the invoice ⭐
-export interface CalculatedLineItem { // Renaming to CalculatedLineItem for clarity in staging
-    admission_number: string; // Added for the custom_line_items staging table
-    item_name: string; // Fetched from masterItems
-    description: string | null;
-    unit_price: number;
+    ruleId: string;
+    // Legacy single condition fields (for backward compatibility)
+    field_id?: string;
+    field_name?: string;
+    field_value?: string;
+    // New: Array of conditions (all must match - AND logic)
+    conditions?: Condition[];
+    itemName: string; // Item name stored in DB
+    selectedItemId?: string; // Item ID used for dropdown selection (not stored in DB)
+    unitPrice: number;
     quantity: number;
-    line_total: number; // Renamed from total_price to line_total for custom_line_items table match
-    // NOTE: The following are for LOCAL tracking/debugging only, NOT inserted into DB
-    source_rule_id: string;
-    qualified_by_field: string;
-    qualified_by_value: string;
+    discount: number;
+    description: string | null;
 }
 
 interface CustomLineItemsProps {
-    // State and setter from the parent (InvoiceBatchCreate)
     conditionalRules: ConditionalLineItemRule[];
     setConditionalRules: (rules: ConditionalLineItemRule[]) => void;
-    // Contextual props
-    masterItems: any[]; // Use 'any' or import ItemMaster if possible
+    masterItems: ItemMaster[];
     isSubmitting: boolean;
-    // ⭐ NEW PROPS FROM InvoiceBatchCreate.tsx ⭐
     selectedStudentIds: string[];
-    allStudents: StudentInfo[];
-    // ⭐ NEW PROP: Callback to notify parent of save status ⭐
-    onStagingStatusChange: (isStaged: boolean) => void;
+    allStudents: any[];
+    onStagingStatusChange?: (isStaged: boolean) => void; // Optional for backward compatibility
+    isStaged?: boolean; // Optional for backward compatibility
 }
+
+// Factory function for a new default condition
+const getNewDefaultCondition = (): Condition => ({
+    conditionId: Date.now().toString() + Math.random().toString().slice(2, 8),
+    field_id: '',
+    field_name: '',
+    field_value: '',
+});
 
 // Factory function for a new default rule
 const getNewDefaultRule = (): ConditionalLineItemRule => ({
-    ruleId: Date.now().toString() + Math.random().toString().slice(2, 6), // Simple unique ID
-    field_id: '', // Will be set after initial field selection
-    field_name: '', // ⭐ UPDATED: Start with empty string to prevent auto-selection ⭐
-    field_value: '',
-    item_master_id: '',
+    ruleId: Date.now().toString() + Math.random().toString().slice(2, 6),
+    conditions: [getNewDefaultCondition()], // Start with one condition
+    itemName: '', // Item name stored in DB
+    selectedItemId: '', // Item ID used for dropdown selection (not stored in DB)
     unitPrice: 0.00,
-    description: null, // Initializing as null to match ItemMaster structure
-    quantity: 1, // UPDATED: Initialize quantity
+    quantity: 1,
+    discount: 0,
+    description: null,
 });
 
-// --- UPDATED HELPER FUNCTION FOR CONDITIONAL CHECKING (Now returns CALCULATED line items) ---
-const checkStudentForConditionalItems = (
-    student: StudentInfo,
-    rules: ConditionalLineItemRule[],
-    studentCustomFieldsMap: Map<string, any>,
-    masterItems: any[] // ⭐ NEW: Pass masterItems to get the item name ⭐
-): CalculatedLineItem[] => { // Return type changed to CalculatedLineItem[]
-    const qualifiedItems: CalculatedLineItem[] = [];
+// Base student fields for conditional rules
+const BASE_FIELDS = [
+    { id: 'current_class_id', name: 'Current Class', table: 'classes', type: 'system' },
+    { id: 'stream_id', name: 'Stream', table: 'streams', type: 'system' },
+    { id: 'team_colour_id', name: 'Team', table: 'team_colours', type: 'system' },
+];
 
-    // Filter down to only fully defined rules
-    const definedRules = rules.filter(rule =>
-        rule.field_id && rule.field_value && rule.item_master_id && rule.quantity > 0
-    );
+// Transport fields
+const TRANSPORT_FIELDS = [
+    { id: 'transport_zone_id', name: 'Zone', table: 'transport_zones', type: 'transport' },
+    { id: 'transport_type_id', name: 'Transport Type', table: 'transport_types', type: 'transport' },
+];
 
-    // Find the relevant student data (or fall back to the basic student object)
-    const studentDataForCheck = studentCustomFieldsMap.get(student.admission_number) || student;
+// Accommodation fields
+const ACCOMMODATION_FIELDS = [
+    { id: 'boarding_house_id', name: 'House', table: 'boarding_houses', type: 'accommodation' },
+    { id: 'accommodation_type_id', name: 'Accommodation Type', table: 'boarding_accommodation_types', type: 'accommodation' },
+];
 
-    for (const rule of definedRules) {
-        // Access the value using the dynamic field_id
-        const studentCustomValue = (studentDataForCheck as any)[rule.field_id];
-
-        const ruleValue = rule.field_value.toString();
-        const actualValue = studentCustomValue !== undefined && studentCustomValue !== null
-            ? studentCustomValue.toString()
-            : "undefined"; // Handle null/undefined values in the DB
-
-        const masterItem = masterItems.find(i => i.id === rule.item_master_id);
-
-        if (actualValue === ruleValue && masterItem) {
-            const line_total = rule.unitPrice * rule.quantity;
-
-            qualifiedItems.push({
-                admission_number: student.admission_number, // CRITICAL for staging table
-                item_name: masterItem.item_name, // Get the display name
-                description: rule.description,
-                unit_price: rule.unitPrice,
-                quantity: rule.quantity,
-                line_total: line_total, // Changed to line_total
-                // Metadata for LOCAL tracking only
-                source_rule_id: rule.ruleId,
-                qualified_by_field: rule.field_id,
-                qualified_by_value: rule.field_value,
-            });
-        }
-    }
-
-    return qualifiedItems;
-};
-// -----------------------------------------------------------------------------------------
-
-
-// ⭐ EXPORTED HELPER: Calculates ALL items across ALL selected students ⭐
-export const stageAllQualifiedItems = (
-    selectedStudentIds: string[],
-    conditionalRules: ConditionalLineItemRule[],
-    allStudents: StudentInfo[],
-    studentCustomFieldsMap: Map<string, any>,
-    masterItems: any[]
-): CalculatedLineItem[] => {
-    const selectedStudents = allStudents.filter(student =>
-        selectedStudentIds.includes(student.admission_number)
-    );
-
-    const allStagedItems: CalculatedLineItem[] = [];
-
-    selectedStudents.forEach(student => {
-        const studentItems = checkStudentForConditionalItems(
-            student,
-            conditionalRules,
-            studentCustomFieldsMap,
-            masterItems
-        );
-        allStagedItems.push(...studentItems);
-    });
-
-    return allStagedItems;
+interface FieldDefinition {
+    id: string;
+    name: string;
+    table?: string;
+    type: 'system' | 'custom' | 'transport' | 'accommodation';
+    fieldType?: 'Text' | 'Dropdown';
 }
-
-// ⭐ EXPORTED HELPER: Function to insert/delete (FULLY IMPLEMENTED AND CORRECTED) ⭐
-export const insertStagedCustomLineItems = async (stagedItems: CalculatedLineItem[], studentAdmissionNumbers: string[]) => {
-    // 1. Delete existing staged items for the selected students
-    const deleteResult = await supabase
-        .from('custom_line_items')
-        .delete()
-        .in('admission_number', studentAdmissionNumbers);
-
-    if (deleteResult.error) {
-        console.error("Error deleting existing custom line items:", deleteResult.error);
-        return { data: null, error: deleteResult.error };
-    }
-
-    if (stagedItems.length === 0) {
-        console.log("No new items to stage. Deletion successful.");
-        return { data: [], error: null };
-    }
-
-    // 2. Map staged items to the target table schema fields (ONLY THE ONES THAT EXIST)
-    const itemsToInsert = stagedItems.map(item => ({
-        admission_number: item.admission_number,
-        item_name: item.item_name,
-        description: item.description,
-        unit_price: item.unit_price,
-        quantity: item.quantity,
-        line_total: item.line_total,
-        // *** REMOVED NON-EXISTENT DB FIELDS: source_rule_id, qualified_by_field, qualified_by_value ***
-    }));
-
-    // 3. Insert the new staged items
-    const { data, error } = await supabase
-        .from('custom_line_items')
-        .insert(itemsToInsert)
-        .select();
-
-    if (error) {
-        console.error("Error inserting custom line items:", error);
-    } else {
-        console.log(`Successfully staged ${data.length} custom line items.`);
-    }
-
-    return { data, error };
-};
-
 
 export const CustomLineItems: React.FC<CustomLineItemsProps> = ({
     conditionalRules,
     setConditionalRules,
-    masterItems = [],
+    masterItems,
     isSubmitting,
     selectedStudentIds,
-    allStudents,
-    onStagingStatusChange,
 }) => {
-    const [customFieldsData, setCustomFieldsData] = useState<DropdownCustomField[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [studentCustomFieldsMap, setStudentCustomFieldsMap] = useState<Map<string, any>>(new Map());
-    const [isFetchingCustomData, setIsFetchingCustomData] = useState(false);
+    const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
+    const [fieldOptions, setFieldOptions] = useState<Record<string, any[]>>({});
+    const [loadingOptions, setLoadingOptions] = useState(false);
+    const [availableFields, setAvailableFields] = useState<FieldDefinition[]>(BASE_FIELDS);
 
-    // ⭐ NEW STATE: Tracking the staging status and save process ⭐
-    const [isStaged, setIsStaged] = useState<boolean>(false);
-    const [showConfirm, setShowConfirm] = useState<boolean>(false);
-    const [isSaving, setIsSaving] = useState<boolean>(false);
-    // -------------------------------------------------------------
-
-    // --- Data Fetching Logic (UNMODIFIED) ---
-    // ... useEffect to fetch custom fields config ... (Keeping it as is)
+    // Fetch all field definitions and their options on mount
     useEffect(() => {
-        const fetchCustomFields = async () => {
-            setIsLoading(true);
+        const fetchFieldsAndOptions = async () => {
+            setLoadingOptions(true);
             try {
-                // Fetch only dropdown fields
-                const { data, error } = await supabase
+                const options: Record<string, any[]> = {};
+                
+                // Fetch system field options
+                const { data: classes } = await supabase
+                    .from('classes')
+                    .select('id, name')
+                    .order('sort_order', { ascending: true, nullsFirst: true });
+                options['current_class_id'] = classes || [];
+                
+                const { data: streams } = await supabase
+                    .from('streams')
+                    .select('id, name')
+                    .order('sort_order', { ascending: true, nullsFirst: true });
+                options['stream_id'] = streams || [];
+                
+                const { data: teams } = await supabase
+                    .from('team_colours')
+                    .select('id, name')
+                    .order('sort_order', { ascending: true, nullsFirst: true });
+                options['team_colour_id'] = teams || [];
+                
+                // Fetch transport field options
+                try {
+                    const { data: transportZones } = await supabase
+                        .from('transport_zones')
+                        .select('id, name')
+                        .order('name');
+                    options['transport_zone_id'] = transportZones || [];
+                } catch (err) {
+                    console.warn('Could not fetch transport zones:', err);
+                    options['transport_zone_id'] = [];
+                }
+                
+                try {
+                    const { data: transportTypes } = await supabase
+                        .from('transport_types')
+                        .select('id, name')
+                        .order('sort_order', { ascending: true, nullsFirst: true })
+                        .order('id', { ascending: true });
+                    options['transport_type_id'] = transportTypes || [];
+                } catch (err) {
+                    console.warn('Could not fetch transport types:', err);
+                    options['transport_type_id'] = [];
+                }
+                
+                // Fetch accommodation field options
+                try {
+                    const { data: boardingHouses } = await supabase
+                        .from('boarding_houses')
+                        .select('id, name')
+                        .order('name');
+                    options['boarding_house_id'] = boardingHouses || [];
+                } catch (err) {
+                    console.warn('Could not fetch boarding houses:', err);
+                    options['boarding_house_id'] = [];
+                }
+                
+                try {
+                    const { data: accommodationTypes } = await supabase
+                        .from('boarding_accommodation_types')
+                        .select('id, name')
+                        .order('name');
+                    options['accommodation_type_id'] = accommodationTypes || [];
+                } catch (err) {
+                    console.warn('Could not fetch accommodation types:', err);
+                    options['accommodation_type_id'] = [];
+                }
+                
+                // Fetch custom fields
+                const { data: customFields } = await supabase
                     .from('custom_fields')
                     .select('field_id, field_name, field_type, options')
-                    .eq('field_type', 'Dropdown');
-
-                if (error) {
-                    console.error("Supabase Error fetching custom fields config:", error);
-                    throw error;
-                }
-
-                const processedData: DropdownCustomField[] = data.map((item) => {
-                    let parsedOptions: string[] = [];
-                    const rawOptions = item.options;
-
-                    if (rawOptions) {
-                        try {
-                            if (typeof rawOptions !== 'string') {
-                                if (Array.isArray(rawOptions)) {
-                                    parsedOptions = rawOptions as string[];
-                                } else {
-                                    throw new Error("Raw options is not a string or array.");
-                                }
-                            } else {
-                                parsedOptions = JSON.parse(rawOptions);
-                            }
-
-                            if (!Array.isArray(parsedOptions) || parsedOptions.some(p => typeof p !== 'string')) {
-                                throw new Error("Parsed result is not a simple string array.");
-                            }
-
-                        } catch (e) {
-                            parsedOptions = [];
+                    .order('field_name');
+                
+                if (customFields && customFields.length > 0) {
+                    const customFieldDefs: FieldDefinition[] = customFields.map((cf: any) => ({
+                        id: cf.field_id,
+                        name: cf.field_name,
+                        type: 'custom' as const,
+                        fieldType: cf.field_type
+                    }));
+                    
+                    // Add custom field options
+                    customFields.forEach((cf: any) => {
+                        if (cf.field_type === 'Dropdown' && cf.options && Array.isArray(cf.options)) {
+                            // Map string array to {id, name} format
+                            options[cf.field_id] = cf.options.map((opt: string, idx: number) => ({
+                                id: opt, // Use the actual value as ID
+                                name: opt
+                            }));
                         }
-                    }
-
-                    return {
-                        field_id: item.field_id,
-                        field_name: item.field_name,
-                        options: parsedOptions, // Will be the parsed array or []
-                    };
-                });
-
-                setCustomFieldsData(processedData);
-
+                    });
+                    
+                    // Combine base fields with transport, accommodation, and custom fields
+                    setAvailableFields([...BASE_FIELDS, ...TRANSPORT_FIELDS, ...ACCOMMODATION_FIELDS, ...customFieldDefs]);
+                } else {
+                    // If no custom fields, still include transport and accommodation fields
+                    setAvailableFields([...BASE_FIELDS, ...TRANSPORT_FIELDS, ...ACCOMMODATION_FIELDS]);
+                }
+                
+                setFieldOptions(options);
             } catch (error) {
-                console.error("Error fetching custom fields for conditional rules:", error);
-            } finally {
-                setIsLoading(false);
+                console.error('Error fetching field options:', error);
             }
+            setLoadingOptions(false);
         };
 
-        fetchCustomFields();
+        fetchFieldsAndOptions();
     }, []);
 
-    // --- Student Custom Field Data Fetch (UNMODIFIED) ---
-    // ... useEffect to fetch student custom field values ... (Keeping it as is)
-    useEffect(() => {
-        if (selectedStudentIds.length === 0 || isLoading) {
-            setStudentCustomFieldsMap(new Map());
-            return;
-        }
-
-        const fetchStudentCustomData = async () => {
-            setIsFetchingCustomData(true);
-            const selectQuery = [
-                'admission_number',
-                'custom_text1', 'custom_text2', 'custom_text3', 'custom_text4', 'custom_text5',
-                'custom_num1', 'custom_num2', 'custom_num3'
-            ].join(', ');
-
-            try {
-                const { data, error } = await supabase
-                    .from('students')
-                    .select(selectQuery)
-                    .in('admission_number', selectedStudentIds);
-
-                if (error) throw error;
-
-                const newMap = new Map();
-                data.forEach(student => {
-                    newMap.set(student.admission_number, student);
-                });
-
-                setStudentCustomFieldsMap(newMap);
-
-            } catch (e) {
-                console.error("Failed to fetch student custom fields for check:", e);
-                setStudentCustomFieldsMap(new Map());
-            } finally {
-                setIsFetchingCustomData(false);
-            }
-        };
-
-        fetchStudentCustomData();
-
-    }, [selectedStudentIds, isLoading]);
-
-
-    // ⭐ NEW MEMO: Calculate the final list of items for the preview and save operation ⭐
-    const allQualifiedItems: CalculatedLineItem[] = useMemo(() => {
-        if (isFetchingCustomData || selectedStudentIds.length === 0 || conditionalRules.length === 0) {
-            return [];
-        }
-
-        return stageAllQualifiedItems(
-            selectedStudentIds,
-            conditionalRules,
-            allStudents,
-            studentCustomFieldsMap,
-            masterItems
-        );
-    }, [selectedStudentIds, conditionalRules, allStudents, studentCustomFieldsMap, masterItems, isFetchingCustomData]);
-
-
-    // ⭐ NEW EFFECT: Notify parent on staging status change ⭐
-    useEffect(() => {
-        onStagingStatusChange(isStaged);
-    }, [isStaged, onStagingStatusChange]);
-
-
-    // --- IMPLEMENTED Save/Cancel Logic ---
-    const handleSaveConfirm = async () => {
-        setShowConfirm(false);
-        setIsSaving(true);
-
-        const { error } = await insertStagedCustomLineItems(allQualifiedItems, selectedStudentIds);
-
-        if (!error) {
-            setIsStaged(true);
-            console.log("Custom Line Items successfully staged.");
-        } else {
-            // Handle save failure (e.g., show error toast/message)
-            console.error("Failed to stage custom line items.", error);
-            setIsStaged(false);
-        }
-
-        setIsSaving(false);
-    };
-
-
-    const handleCancel = async () => {
-        setIsSaving(true);
-        console.log("Cancel staging logic triggered (deleting items).");
-
-        // The logic to "cancel staging" is simply to delete all staged items
-        // for the currently selected students. We pass an empty array to trigger the delete only.
-        const { error } = await insertStagedCustomLineItems([], selectedStudentIds);
-
-        if (!error) {
-            setIsStaged(false);
-            console.log("Custom Line Items successfully unstaged/deleted.");
-        } else {
-            // Handle delete failure
-            console.error("Failed to cancel staging/delete custom line items.", error);
-        }
-
-        setIsSaving(false);
-    };
-    // --------------------------------------------------------------------
-
-
-    // --- Component Logic (Handlers remain the same) ---
     const handleAddRule = () => {
-        setConditionalRules([...conditionalRules, getNewDefaultRule()]);
-        setIsStaged(false); // New rule invalidates staging
+        const newRule = getNewDefaultRule();
+        setConditionalRules([...conditionalRules, newRule]);
+        // Auto-expand the new rule
+        setExpandedRules(prev => new Set([...prev, newRule.ruleId]));
     };
 
     const handleRemoveRule = (ruleId: string) => {
-        setConditionalRules(conditionalRules.filter(rule => rule.ruleId !== ruleId));
-        setIsStaged(false); // Rule removal invalidates staging
+        setConditionalRules(conditionalRules.filter(r => r.ruleId !== ruleId));
+        setExpandedRules(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(ruleId);
+            return newSet;
+        });
     };
 
-    const handleChange = useCallback((index: number, name: keyof ConditionalLineItemRule, value: string | number) => {
-        setIsStaged(false); // Any change in a rule invalidates staging
-        const newRules = [...conditionalRules];
-
-        let processedValue: string | number = value;
-        if (name === 'quantity') {
-            processedValue = parseInt(value as string) || 0;
-            if (processedValue < 1) processedValue = 1;
-        } else if (name === 'unitPrice') {
-            processedValue = parseFloat(value as string) || 0.00;
-        }
-
-        (newRules[index] as any)[name] = processedValue;
-
-        // Logic to link field_name change to field_id and reset field_value
-        if (name === 'field_name') {
-            const selectedField = customFieldsData.find(f => f.field_name === value);
-            newRules[index].field_id = selectedField ? selectedField.field_id : '';
-            newRules[index].field_value = ''; // Reset the value dropdown when field changes
-
-            if (value === '') {
-                newRules[index].item_master_id = '';
-                newRules[index].unitPrice = 0.00;
-                newRules[index].description = null;
-            }
-        }
-
-        // Auto-fill price and description if item master changes
-        if (name === 'item_master_id') {
-            const selectedItem = masterItems.find(i => i.id === value);
-            if (selectedItem) {
-                newRules[index].unitPrice = selectedItem.current_unit_price;
-                newRules[index].description = selectedItem.description;
-            } else {
-                newRules[index].unitPrice = 0.00;
-                newRules[index].description = null;
-            }
-        }
-
-        setConditionalRules(newRules);
-    }, [conditionalRules, masterItems, customFieldsData, setConditionalRules]);
-
-
-    if (isLoading || isFetchingCustomData) {
-        return (
-            <div className="p-4 border rounded-lg shadow-sm text-center text-gray-500">
-                <Loader2 className="w-5 h-5 animate-spin inline mr-2" />
-                {isLoading ? "Loading custom field configurations..." : "Fetching student custom data for qualification check..."}
-            </div>
+    const handleAddCondition = (ruleId: string) => {
+        setConditionalRules(
+            conditionalRules.map(rule => {
+                if (rule.ruleId !== ruleId) return rule;
+                const conditions = rule.conditions || [];
+                return {
+                    ...rule,
+                    conditions: [...conditions, getNewDefaultCondition()]
+                };
+            })
         );
-    }
+    };
 
-    const hasCustomFields = customFieldsData.length > 0;
-    // CRITERIA FOR SAVE BUTTON: At least one rule must exist
-    const showSaveButton = conditionalRules.length > 0;
-    const canSave = allQualifiedItems.length > 0 && !isStaged && !isSaving;
-    const saveButtonText = isStaged ? "Cancel Staging" : (isSaving ? 'Saving...' : 'Save Custom Items');
-    const saveButtonAction = isStaged ? handleCancel : () => setShowConfirm(true);
+    const handleRemoveCondition = (ruleId: string, conditionId: string) => {
+        setConditionalRules(
+            conditionalRules.map(rule => {
+                if (rule.ruleId !== ruleId) return rule;
+                const conditions = (rule.conditions || []).filter(c => c.conditionId !== conditionId);
+                // Ensure at least one condition exists
+                if (conditions.length === 0) {
+                    return { ...rule, conditions: [getNewDefaultCondition()] };
+                }
+                return { ...rule, conditions };
+            })
+        );
+    };
 
-    // --- Render ---
+    const handleConditionChange = (
+        ruleId: string,
+        conditionId: string,
+        field: keyof Condition,
+        value: any
+    ) => {
+        setConditionalRules(
+            conditionalRules.map(rule => {
+                if (rule.ruleId !== ruleId) return rule;
+                
+                const conditions = (rule.conditions || []).map(condition => {
+                    if (condition.conditionId !== conditionId) return condition;
+                    
+                    const updatedCondition = { ...condition, [field]: value };
+                    
+                    // Auto-populate field_name when field_id changes
+                    if (field === 'field_id') {
+                        const selectedField = availableFields.find(f => f.id === value);
+                        if (selectedField) {
+                            updatedCondition.field_name = selectedField.name;
+                            updatedCondition.field_value = ''; // Reset value when field changes
+                        }
+                    }
+                    
+                    return updatedCondition;
+                });
+                
+                return { ...rule, conditions };
+            })
+        );
+    };
+
+    const handleRuleChange = (
+        ruleId: string,
+        field: keyof ConditionalLineItemRule,
+        value: any
+    ) => {
+        setConditionalRules(
+            conditionalRules.map(rule => {
+                if (rule.ruleId !== ruleId) return rule;
+
+                const updatedRule = { ...rule, [field]: value };
+
+                // Auto-populate item details when selectedItemId changes
+                if (field === 'selectedItemId') {
+                    // Find item by ID (unique identifier) to handle duplicate names correctly
+                    const selectedItem = masterItems.find(i => i.id === value);
+                    if (selectedItem) {
+                        updatedRule.selectedItemId = selectedItem.id;
+                        updatedRule.itemName = selectedItem.item_name; // Store the name for DB
+                        updatedRule.unitPrice = selectedItem.current_unit_price;
+                        updatedRule.description = selectedItem.description;
+                    }
+                }
+
+                return updatedRule;
+            })
+        );
+    };
+
+    const calculateLineTotal = (rule: ConditionalLineItemRule): number => {
+        const discountFactor = 1 - (rule.discount / 100);
+        return rule.unitPrice * rule.quantity * discountFactor;
+    };
+
+    const toggleRuleExpansion = (ruleId: string) => {
+        setExpandedRules(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(ruleId)) {
+                newSet.delete(ruleId);
+            } else {
+                newSet.add(ruleId);
+            }
+            return newSet;
+        });
+    };
+
     return (
-        <div className="p-4 border rounded-lg shadow-sm space-y-4">
-            <div className="flex justify-between items-center">
-                <h4 className="text-xl font-semibold">
-                    2. Conditional Line Items
-                    <span className="text-sm font-normal text-gray-500 ml-2">(Optional)</span>
-                </h4>
-
-                {/* ⭐ SAVE/CANCEL BUTTON SECTION ⭐ */}
-                {showSaveButton && (
-                    <div className="space-x-2">
-                        {isStaged && (
-                            <div className="inline-flex items-center text-sm font-medium text-green-600 bg-green-50 p-2 rounded-lg border border-green-200">
-                                <Save size={16} className="mr-1" /> Items Staged & Ready
-                            </div>
-                        )}
-                        <button
-                            type="button"
-                            onClick={saveButtonAction}
-                            disabled={isSaving || (isStaged ? false : !canSave)}
-                            className={`flex items-center px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 ${
-                                isStaged
-                                    ? 'bg-red-500 text-white hover:bg-red-600'
-                                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                            }`}
-                        >
-                            {isStaged ? <Undo2 size={18} className="mr-2" /> : <Save size={18} className="mr-2" />}
-                            {saveButtonText}
-                        </button>
+        <div className="p-4 border rounded-lg shadow-sm">
+            <div className="flex justify-between items-start mb-4">
+                <div>
+                    <h4 className="text-xl font-semibold">
+                        2. Conditional Line Items 
+                        <span className="text-sm font-normal text-gray-600 ml-2">
+                            ({selectedStudentIds.length} Students Selected)
+                        </span>
+                    </h4>
+                    <div className="flex items-start mt-2 text-sm text-blue-600 bg-blue-50 p-2 rounded">
+                        <Info className="w-4 h-4 mr-2 mt-0.5 flex-shrink-0" />
+                        <span>
+                            Add items that apply only to students matching specific criteria. You can add multiple conditions per rule (all must match).
+                            Example: Zone = "Zone 1" AND Transport Type = "One Way". Rules are evaluated when you submit the batch.
+                        </span>
                     </div>
-                )}
-                {/* ---------------------------------- */}
+                </div>
             </div>
 
-            {/* Conditional Display of Header and Rows */}
-            {conditionalRules.length > 0 && (
-                <>
-                    {/* Header Row */}
-                    <div className="grid grid-cols-12 gap-2 text-base font-semibold text-gray-600 border-b pb-1">
-                        <div className="col-span-4">If Field Is</div>
-                        <div className="col-span-4">Apply Item (Description)</div>
-                        <div className="col-span-1 text-center">Qty</div>
-                        <div className="col-span-2 text-right">Total Price</div>
-                        <div className="col-span-1"></div>
-                    </div>
+            <div className="space-y-3">
+                {conditionalRules.map((rule, index) => {
+                    const isExpanded = expandedRules.has(rule.ruleId);
+                    // Support both old format (field_id) and new format (conditions array)
+                    const conditions = rule.conditions || (rule.field_id ? [{
+                        conditionId: rule.ruleId + '_legacy',
+                        field_id: rule.field_id || '',
+                        field_name: rule.field_name || '',
+                        field_value: rule.field_value || ''
+                    }] : []);
+                    
+                    // Check if rule is complete (all conditions filled + item selected)
+                    const isComplete = conditions.length > 0 && 
+                        conditions.every(c => c.field_id && c.field_value) && 
+                        rule.itemName;
 
-                    {/* Rule Rows */}
-                    <div className="space-y-3">
-                        {conditionalRules.map((rule, index) => {
-                            const currentFieldConfig = customFieldsData.find(f => f.field_name === rule.field_name);
-                            const fieldValues = currentFieldConfig ? currentFieldConfig.options : [];
-                            const totalPrice = rule.unitPrice * rule.quantity;
-                            const isRuleStarted = !!rule.field_name;
+                    // Build rule summary for header
+                    const getRuleSummary = () => {
+                        if (!isComplete || !rule.itemName) return null;
+                        const conditionTexts = conditions.map(condition => {
+                            const fieldDef = availableFields.find(f => f.id === condition.field_id);
+                            const isCustomText = fieldDef?.type === 'custom' && fieldDef?.fieldType === 'Text';
+                            const options = fieldOptions[condition.field_id] || [];
+                            const valueDisplay = isCustomText 
+                                ? `"${condition.field_value}"`
+                                : (options.find(opt => opt.id.toString() === condition.field_value)?.name || condition.field_value);
+                            return `${condition.field_name} = ${valueDisplay}`;
+                        });
+                        return conditionTexts.join(' AND ');
+                    };
 
-                            return (
-                                <div key={rule.ruleId} className={`grid grid-cols-12 gap-2 items-center ${isStaged ? 'opacity-60 pointer-events-none' : ''}`}>
+                    return (
+                        <div key={rule.ruleId} className="border rounded-lg p-4 bg-gray-50">
+                            {/* Rule Header */}
+                            <div className="flex justify-between items-start mb-3">
+                                <button
+                                    type="button"
+                                    onClick={() => toggleRuleExpansion(rule.ruleId)}
+                                    className="text-left flex-1"
+                                >
+                                    <span className="font-medium text-gray-800">
+                                        Rule #{index + 1}
+                                        {isComplete && rule.itemName && (
+                                            <span className="text-sm text-gray-600 ml-2">
+                                                - {rule.itemName} {conditions.length > 1 && `(${conditions.length} conditions)`}
+                                                {getRuleSummary() && (
+                                                    <span className="block text-xs text-gray-500 mt-1">
+                                                        {getRuleSummary()}
+                                                    </span>
+                                                )}
+                                            </span>
+                                        )}
+                                    </span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleRemoveRule(rule.ruleId)}
+                                    className="text-red-500 hover:text-red-700 ml-2"
+                                    disabled={isSubmitting}
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
 
-                                    {/* Field & Value */}
-                                    <div className="col-span-4 flex space-x-2">
-                                        {/* 1. Field Name Dropdown */}
-                                        <select
-                                            value={rule.field_name}
-                                            onChange={(e) => handleChange(index, 'field_name', e.target.value)}
-                                            className="w-1/2 p-2.5 border rounded-lg text-sm disabled:bg-gray-100"
-                                            disabled={isSubmitting || !hasCustomFields || isStaged}
+                            {/* Rule Fields */}
+                            {isExpanded && (
+                                <div className="space-y-4">
+                                    {/* Conditions Section */}
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <label className="block text-sm font-medium text-gray-700">
+                                                Conditions (All must match) <span className="text-red-500">*</span>
+                                            </label>
+                                            {conditions.length > 1 && (
+                                                <span className="text-xs text-gray-500 bg-blue-50 px-2 py-1 rounded">
+                                                    AND logic
+                                                </span>
+                                            )}
+                                        </div>
+                                        
+                                        {conditions.map((condition, condIndex) => {
+                                            const availableOptions = fieldOptions[condition.field_id] || [];
+                                            const selectedFieldDef = availableFields.find(f => f.id === condition.field_id);
+                                            const isCustomTextField = selectedFieldDef?.type === 'custom' && selectedFieldDef?.fieldType === 'Text';
+                                            
+                                            return (
+                                                <div key={condition.conditionId} className="bg-white p-3 rounded-lg border border-gray-200">
+                                                    <div className="flex items-start gap-3">
+                                                        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                            {/* Field Selection */}
+                                                            <div>
+                                                                <label className="block text-xs font-medium text-gray-600 mb-1">
+                                                                    Field {condIndex + 1}
+                                                                </label>
+                                                                <select
+                                                                    value={condition.field_id}
+                                                                    onChange={(e) => handleConditionChange(rule.ruleId, condition.conditionId, 'field_id', e.target.value)}
+                                                                    className="w-full p-2 text-sm border rounded-lg"
+                                                                    disabled={isSubmitting || loadingOptions}
+                                                                >
+                                                                    <option value="">Select field...</option>
+                                                                    <optgroup label="System Fields">
+                                                                        {availableFields.filter(f => f.type === 'system').map(field => (
+                                                                            <option key={field.id} value={field.id}>
+                                                                                {field.name}
+                                                                            </option>
+                                                                        ))}
+                                                                    </optgroup>
+                                                                    {availableFields.some(f => f.type === 'transport') && (
+                                                                        <optgroup label="Transport">
+                                                                            {availableFields.filter(f => f.type === 'transport').map(field => (
+                                                                                <option key={field.id} value={field.id}>
+                                                                                    {field.name}
+                                                                                </option>
+                                                                            ))}
+                                                                        </optgroup>
+                                                                    )}
+                                                                    {availableFields.some(f => f.type === 'accommodation') && (
+                                                                        <optgroup label="Accommodation">
+                                                                            {availableFields.filter(f => f.type === 'accommodation').map(field => (
+                                                                                <option key={field.id} value={field.id}>
+                                                                                    {field.name}
+                                                                                </option>
+                                                                            ))}
+                                                                        </optgroup>
+                                                                    )}
+                                                                    {availableFields.some(f => f.type === 'custom') && (
+                                                                        <optgroup label="Custom Fields">
+                                                                            {availableFields.filter(f => f.type === 'custom').map(field => (
+                                                                                <option key={field.id} value={field.id}>
+                                                                                    {field.name} {field.fieldType === 'Text' ? '(Text)' : ''}
+                                                                                </option>
+                                                                            ))}
+                                                                        </optgroup>
+                                                                    )}
+                                                                </select>
+                                                            </div>
+
+                                                            {/* Field Value */}
+                                                            <div>
+                                                                <label className="block text-xs font-medium text-gray-600 mb-1">
+                                                                    Value
+                                                                </label>
+                                                                {isCustomTextField ? (
+                                                                    <input
+                                                                        type="text"
+                                                                        value={condition.field_value}
+                                                                        onChange={(e) => handleConditionChange(rule.ruleId, condition.conditionId, 'field_value', e.target.value)}
+                                                                        placeholder="Enter value..."
+                                                                        className="w-full p-2 text-sm border rounded-lg"
+                                                                        disabled={!condition.field_id || isSubmitting}
+                                                                    />
+                                                                ) : (
+                                                                    <select
+                                                                        value={condition.field_value}
+                                                                        onChange={(e) => handleConditionChange(rule.ruleId, condition.conditionId, 'field_value', e.target.value)}
+                                                                        className="w-full p-2 text-sm border rounded-lg"
+                                                                        disabled={!condition.field_id || isSubmitting || loadingOptions}
+                                                                    >
+                                                                        <option value="">Select value...</option>
+                                                                        {availableOptions.map(option => (
+                                                                            <option key={option.id} value={option.id.toString()}>
+                                                                                {option.name}
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {/* Remove Condition Button */}
+                                                        {conditions.length > 1 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleRemoveCondition(rule.ruleId, condition.conditionId)}
+                                                                className="text-red-500 hover:text-red-700 mt-6"
+                                                                disabled={isSubmitting}
+                                                                title="Remove condition"
+                                                            >
+                                                                <X size={16} />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                    
+                                                    {/* AND indicator between conditions */}
+                                                    {condIndex < conditions.length - 1 && (
+                                                        <div className="flex items-center justify-center mt-2 mb-1">
+                                                            <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-3 py-1 rounded-full">
+                                                                AND
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                        
+                                        {/* Add Condition Button */}
+                                        <button
+                                            type="button"
+                                            onClick={() => handleAddCondition(rule.ruleId)}
+                                            className="flex items-center text-sm text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50"
+                                            disabled={isSubmitting}
                                         >
-                                            <option value="">Select Field...</option>
-                                            {customFieldsData.map(field => (
-                                                <option key={field.field_id} value={field.field_name}>
-                                                    {field.field_name}
+                                            <Plus size={14} className="mr-1" /> Add Another Condition
+                                        </button>
+                                    </div>
+
+                                    
+                                    {/* Item Selection */}
+                                    <div className="border-t pt-4 mt-4">
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Item to Add <span className="text-red-500">*</span>
+                                        </label>
+                                        <select
+                                            value={rule.selectedItemId || ''}
+                                            onChange={(e) => handleRuleChange(rule.ruleId, 'selectedItemId', e.target.value)}
+                                            className="w-full p-2 border rounded-lg"
+                                            disabled={isSubmitting}
+                                        >
+                                            <option value="">Select item...</option>
+                                            {masterItems.map(item => (
+                                                <option key={item.id} value={item.id}>
+                                                    {item.item_name} - Ksh.{item.current_unit_price.toFixed(2)}
+                                                    {item.description && ` (${item.description})`}
                                                 </option>
                                             ))}
                                         </select>
-
-                                        {/* 2. Field Value Dropdown */}
-                                        <select
-                                            value={rule.field_value}
-                                            onChange={(e) => handleChange(index, 'field_value', e.target.value)}
-                                            className="w-1/2 p-2.5 border rounded-lg text-sm disabled:bg-gray-100"
-                                            disabled={isSubmitting || fieldValues.length === 0 || isStaged}
-                                            required={isRuleStarted}
-                                        >
-                                            <option value="">Select Value</option>
-                                            {fieldValues.map(value => (
-                                                <option key={value} value={value}>{value}</option>
-                                            ))}
-                                        </select>
                                     </div>
 
-                                    {/* Master Item Dropdown */}
-                                    <div className="col-span-4">
-                                        <select
-                                            value={rule.item_master_id}
-                                            onChange={(e) => handleChange(index, 'item_master_id', e.target.value)}
-                                            className="w-full p-2.5 border rounded-lg text-sm disabled:bg-gray-100"
-                                            disabled={isSubmitting || masterItems.length === 0 || isStaged}
-                                            required={isRuleStarted}
-                                        >
-                                            <option value="">Select Item (Unit Price: {rule.unitPrice.toFixed(2)})</option>
-                                            {masterItems.map(mItem => (
-                                                <option key={mItem.id} value={mItem.id}>
-                                                    {mItem.item_name} {mItem.description && `(${mItem.description})`}
-                                                </option>
-                                            ))}
-                                        </select>
+                                    {/* Quantity, Price, Discount */}
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        {/* Quantity */}
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Quantity
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                value={rule.quantity}
+                                                onChange={(e) => handleRuleChange(rule.ruleId, 'quantity', parseInt(e.target.value) || 1)}
+                                                className="w-full p-2 border rounded-lg"
+                                                disabled={isSubmitting}
+                                            />
+                                        </div>
+
+                                        {/* Unit Price */}
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Unit Price (Ksh.)
+                                            </label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                value={rule.unitPrice}
+                                                onChange={(e) => handleRuleChange(rule.ruleId, 'unitPrice', parseFloat(e.target.value) || 0)}
+                                                className="w-full p-2 border rounded-lg"
+                                                disabled={isSubmitting}
+                                            />
+                                        </div>
+
+                                        {/* Discount */}
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Discount (%)
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="100"
+                                                value={rule.discount}
+                                                onChange={(e) => handleRuleChange(rule.ruleId, 'discount', parseInt(e.target.value) || 0)}
+                                                className="w-full p-2 border rounded-lg"
+                                                disabled={isSubmitting}
+                                            />
+                                        </div>
                                     </div>
 
-                                    {/* Quantity Input */}
-                                    <input
-                                        type="number"
-                                        placeholder="Qty"
-                                        value={rule.quantity}
-                                        onChange={(e) => handleChange(index, 'quantity', e.target.value)}
-                                        className="col-span-1 p-2.5 border rounded-lg text-sm text-center disabled:bg-gray-100"
-                                        min="1"
-                                        disabled={isSubmitting || isStaged}
-                                        required={isRuleStarted}
-                                    />
-
-                                    {/* Total Price Display */}
-                                    <div className="col-span-2 p-2.5 text-sm text-right font-semibold text-gray-800 bg-gray-50 border rounded-lg">
-                                        {totalPrice.toFixed(2)}
-                                    </div>
-
-                                    {/* Remove Button */}
-                                    <button
-                                        type="button"
-                                        onClick={() => handleRemoveRule(rule.ruleId)}
-                                        className="col-span-1 text-red-500 hover:text-red-700 disabled:opacity-50"
-                                        disabled={isSubmitting || isStaged}
-                                    >
-                                        <X size={18} />
-                                    </button>
+                                    {/* Line Total Display */}
+                                    {isComplete && (
+                                        <div className="border-t pt-4 mt-4">
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                Line Total
+                                            </label>
+                                            <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg font-medium text-blue-700">
+                                                Ksh.{calculateLineTotal(rule).toFixed(2)}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                            );
-                        })}
-                    </div>
-                </>
-            )}
-
-            {/* No Fields/Rules Message */}
-            {!hasCustomFields && (
-                <div className="text-center text-gray-500 p-4 border rounded-lg bg-yellow-50/50">
-                    No drop-down custom fields found in the database.
-                </div>
-            )}
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
 
             {/* Add Rule Button */}
-            <div className="pt-2">
-                <button
-                    type="button"
-                    onClick={handleAddRule}
-                    className="flex items-center text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50 text-base"
-                    disabled={isSubmitting || !hasCustomFields || isStaged}
-                >
-                    <Plus size={18} className="mr-1" /> Add Conditional Rule
-                </button>
-            </div>
+            <button
+                type="button"
+                onClick={handleAddRule}
+                className="mt-4 flex items-center text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50"
+                disabled={isSubmitting}
+            >
+                <Plus size={16} className="mr-1" /> Add Conditional Rule
+            </button>
 
-            {/* --- Qualified Students Preview Section --- */}
+            {/* Summary */}
             {conditionalRules.length > 0 && (
-                <QualifiedStudentsPreview
-                    allQualifiedItems={allQualifiedItems}
-                    isFetchingCustomData={isFetchingCustomData}
-                    isStaged={isStaged}
-                    // ⭐ PASSING NEW PROP ⭐
-                    allStudents={allStudents} 
-                />
-            )}
-            {/* ------------------------------------------ */}
-
-            {/* Confirmation Pop-up */}
-            {showConfirm && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white p-6 rounded-lg shadow-2xl w-full max-w-sm space-y-4">
-                        <h3 className="text-lg font-bold text-indigo-700 flex items-center">
-                            <AlertTriangle size={20} className="mr-2 text-yellow-500" /> Confirm Item Staging
-                        </h3>
-                        <p className="text-gray-700">
-                            You are about to save **{allQualifiedItems.length}** line item(s) for **{new Set(allQualifiedItems.map(i => i.admission_number)).size}** students.
-                            Confirm that you have finished selecting students and configuring rules.
-                        </p>
-                        <p className="text-sm text-gray-500">
-                            *Saving will lock this section until you press 'Cancel Staging'.
-                        </p>
-                        <div className="flex justify-end space-x-3 pt-2">
-                            <button
-                                onClick={() => setShowConfirm(false)}
-                                disabled={isSaving}
-                                className="px-4 py-2 text-sm border rounded-lg text-gray-600 hover:bg-gray-100"
-                            >
-                                Dismiss
-                            </button>
-                            <button
-                                onClick={handleSaveConfirm}
-                                disabled={isSaving}
-                                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-                            >
-                                {isSaving ? 'Saving...' : 'Confirm & Save'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
-
-export default CustomLineItems;
-
-
-// ------------------------------------------------------------------------------------------
-// ## Qualified Students Preview Component
-// ------------------------------------------------------------------------------------------
-
-interface PreviewProps {
-    allQualifiedItems: CalculatedLineItem[];
-    isFetchingCustomData: boolean;
-    isStaged: boolean;
-    // ⭐ ADDED NEW PROP ⭐
-    allStudents: StudentInfo[]; 
-}
-
-const QualifiedStudentsPreview: React.FC<PreviewProps> = ({ allQualifiedItems, isFetchingCustomData, isStaged, allStudents }) => {
-    
-    // Create a map for quick student name lookup
-    const studentNameMap = useMemo(() => {
-        return new Map(allStudents.map(s => [s.admission_number, s.name]));
-    }, [allStudents]);
-
-    // Group items by admission number for a cleaner display
-    const groupedItems = useMemo(() => {
-        // FIX: Ensure allQualifiedItems is an array before reducing it.
-        if (!Array.isArray(allQualifiedItems)) return new Map<string, CalculatedLineItem[]>();
-
-        return allQualifiedItems.reduce((acc, item) => {
-            const studentGroup = acc.get(item.admission_number) || [];
-            studentGroup.push(item);
-            acc.set(item.admission_number, studentGroup);
-            return acc;
-        }, new Map<string, CalculatedLineItem[]>());
-    }, [allQualifiedItems]);
-    
-    // NOTE: groupedItems is guaranteed to be a Map here due to the defensive check above
-    const totalStudents = groupedItems.size;
-    const totalItems = allQualifiedItems.length; // This check relies on the parent passing an array, which should be the case.
-
-    if (isFetchingCustomData) {
-        return (
-            <div className="p-4 border-t mt-4 text-center text-gray-500">
-                <Loader2 className="w-4 h-4 animate-spin inline mr-2" /> Calculating potential items...
-            </div>
-        );
-    }
-
-    return (
-        <div className="p-4 border-t mt-4 space-y-3">
-            <h5 className="text-lg font-semibold text-gray-700 flex items-center justify-between">
-                <span>
-                    {isStaged ? 'Staged Items Preview' : 'Live Preview'} 
-                </span>
-                <span className={`text-base font-bold ${totalStudents > 0 ? 'text-indigo-600' : 'text-red-500'}`}>
-                    {totalStudents} Student(s) Qualified | {totalItems} Total Item(s)
-                </span>
-            </h5>
-            
-            {totalStudents === 0 ? (
-                <div className={`p-3 rounded-lg text-center font-medium ${isStaged ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                    {isStaged ? 'No items were staged as no students qualified.' : 'No students currently qualify for the conditional items defined above.'}
-                </div>
-            ) : (
-                <div className="max-h-60 overflow-y-auto border rounded-lg p-3 bg-gray-50/50">
-                    <div className="space-y-4">
-                        {Array.from(groupedItems.entries()).map(([admissionNumber, items]) => {
-                            // ⭐ FETCH STUDENT NAME ⭐
-                            const studentName = studentNameMap.get(admissionNumber) || 'Name Not Found';
-                            
-                            return (
-                                <div key={admissionNumber} className="border-b pb-2 last:border-b-0">
-                                    <p className="font-semibold text-sm text-gray-900 mb-1 flex items-center">
-                                        <ArrowRight size={14} className="mr-2 text-indigo-500" />
-                                        {admissionNumber} <span className="ml-2 font-normal text-gray-600">({studentName})</span>
-                                    </p>
-                                    <ul className="list-disc pl-8 text-sm text-gray-700 space-y-0.5">
-                                        {items.map((item, index) => (
-                                            <li key={`${admissionNumber}-${index}`}>
-                                                {item.item_name} ({item.description || 'No Description'}) x {item.quantity} @ {item.unit_price.toFixed(2)} = {item.line_total.toFixed(2)}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            );
-                        })}
-                    </div>
+                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <p className="text-sm text-green-800">
+                        <strong>{conditionalRules.length}</strong> conditional rule(s) configured.
+                        These will be evaluated per student when you submit the batch.
+                    </p>
                 </div>
             )}
         </div>

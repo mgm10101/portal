@@ -1,6 +1,16 @@
 import React, { useState, useEffect } from 'react';
 // 1. Import supabase client (relative path adjusted: two levels up to src, then supabaseClient)
-import { supabase } from '../../../supabaseClient'; 
+import { supabase } from '../../../supabaseClient';
+import logo from '../../../assets/logo.png';
+
+// Invoice settings interface
+interface InvoiceSettings {
+    logo_url: string | null;
+    school_name: string | null;
+    contact_info: string | null;
+    address: string | null;
+    payment_details: string | null;
+} 
 
 // --- Interface Definitions (No Change) ---
 
@@ -27,7 +37,7 @@ export interface InvoiceData {
   balanceDue: number; // This will be overwritten by fetched data
   invoiceDate: string;
   dueDate: string;
-  status: 'Overdue' | 'Paid' | 'Draft' | 'Pending';
+  status: 'Overdue' | 'Paid' | 'Draft' | 'Pending' | 'Forwarded';
   billToName: string;
   billToDescription: string;
   slogan: string;
@@ -44,6 +54,7 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
   const [fetchedPayments, setFetchedPayments] = useState<{ paymentMade: number; balanceDue: number; finalBalance: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings | null>(null);
 
   useEffect(() => {
     async function fetchUpdatedFinancials() {
@@ -54,6 +65,7 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
       const invoiceNumber = data.invoiceNumber;
       
       try {
+        // Fetch invoice financial data
         const { data: dbData, error: fetchError } = await supabase
           .from('invoices')
           .select('payment_made, balance_due') // Fetch only the required fields
@@ -87,13 +99,57 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
         setIsLoading(false);
       }
     }
+
+    async function fetchInvoiceSettings() {
+      try {
+        const { data: settingsData, error: settingsError } = await supabase
+          .from('invoice_settings')
+          .select('logo_url, school_name, contact_info, address, payment_details')
+          .single();
+
+        if (settingsError && settingsError.code !== 'PGRST301') {
+          console.warn('Error fetching invoice settings:', settingsError);
+          // Use defaults if settings not found
+          setInvoiceSettings({
+            logo_url: null,
+            school_name: null,
+            contact_info: null,
+            address: null,
+            payment_details: null
+          });
+        } else if (settingsData) {
+          setInvoiceSettings(settingsData);
+        } else {
+          // No settings found, use defaults
+          setInvoiceSettings({
+            logo_url: null,
+            school_name: null,
+            contact_info: null,
+            address: null,
+            payment_details: null
+          });
+        }
+      } catch (err) {
+        console.error('Failed to fetch invoice settings:', err);
+        // Use defaults on error
+        setInvoiceSettings({
+          logo_url: null,
+          school_name: null,
+          contact_info: null,
+          address: null,
+          payment_details: null
+        });
+      }
+    }
     
-    // Only fetch if data (and thus invoiceNumber) is available
+    // Fetch both invoice data and settings
     if (data.invoiceNumber) {
         fetchUpdatedFinancials();
     } else {
         setIsLoading(false);
     }
+    
+    fetchInvoiceSettings();
     
   }, [data.invoiceNumber]); // Rerun the effect if the invoiceNumber changes
 
@@ -146,21 +202,84 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
         boxSizing: 'border-box',
       }}
     >
-      <div className="p-10">
+      <div style={{ padding: '37.8px' }}>
         <header className="flex justify-between items-start mb-0">
           <div className="flex flex-col relative">
-            {/* ✅ Enlarged logo */}
-            <img
-              src="https://res.cloudinary.com/dr3oqhggp/image/upload/v1758472807/logo_jetvz8.jpg"
-              alt="MGM Academy Logo"
-              className="h-36 w-auto mb-6 object-contain"
-              style={{ maxWidth: '300px' }}
-            />
+            {/* ✅ Logo from invoice settings or fallback */}
+            {invoiceSettings?.logo_url ? (
+              <img
+                src={invoiceSettings.logo_url}
+                alt="School Logo"
+                className="mb-6"
+                style={{ 
+                  height: '144px',
+                  width: 'auto',
+                  maxWidth: '300px',
+                  objectFit: 'contain',
+                  display: 'block',
+                  imageRendering: 'crisp-edges',
+                  flexShrink: 0
+                }}
+                onLoad={(e) => {
+                  // Force natural aspect ratio
+                  const img = e.target as HTMLImageElement;
+                  if (img.naturalWidth && img.naturalHeight) {
+                    const naturalAspect = img.naturalWidth / img.naturalHeight;
+                    const currentHeight = 144;
+                    const calculatedWidth = currentHeight * naturalAspect;
+                    if (calculatedWidth <= 300) {
+                      img.style.width = `${calculatedWidth}px`;
+                    }
+                  }
+                }}
+                onError={(e) => {
+                  // Fallback to default logo if custom logo fails to load
+                  (e.target as HTMLImageElement).src = logo;
+                }}
+              />
+            ) : (
+              <img
+                src={logo}
+                alt="School Logo"
+                className="mb-6"
+                style={{ 
+                  height: '144px',
+                  width: 'auto',
+                  maxWidth: '300px',
+                  objectFit: 'contain',
+                  display: 'block',
+                  imageRendering: 'crisp-edges',
+                  flexShrink: 0
+                }}
+                onLoad={(e) => {
+                  // Force natural aspect ratio
+                  const img = e.target as HTMLImageElement;
+                  if (img.naturalWidth && img.naturalHeight) {
+                    const naturalAspect = img.naturalWidth / img.naturalHeight;
+                    const currentHeight = 144;
+                    const calculatedWidth = currentHeight * naturalAspect;
+                    if (calculatedWidth <= 300) {
+                      img.style.width = `${calculatedWidth}px`;
+                    }
+                  }
+                }}
+              />
+            )}
 
-            {/* ✅ Company info */}
-            <p className="font-bold text-lg mb-1">MGM ACADEMY LIMITED</p>
-            <p className="text-sm">Nairobi, Kenya</p>
-            <p className="text-sm mb-6">info@mgmacademy.org</p>
+            {/* ✅ Company info from invoice settings */}
+            <p className="font-bold text-lg mb-1">
+              {invoiceSettings?.school_name || 'MGM ACADEMY LIMITED'}
+            </p>
+            {invoiceSettings?.address ? (
+              <p className="text-sm whitespace-pre-line">{invoiceSettings.address}</p>
+            ) : (
+              <p className="text-sm">Nairobi, Kenya</p>
+            )}
+            {invoiceSettings?.contact_info ? (
+              <p className="text-sm mb-6 whitespace-pre-line">{invoiceSettings.contact_info}</p>
+            ) : (
+              <p className="text-sm mb-6">info@mgmacademy.org</p>
+            )}
 
             {/* ✅ Bill To moved slightly higher */}
             <div className="mt-16">
@@ -238,21 +357,27 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
         <div className="flex justify-between mt-12">
           <div className="w-1/2 pr-8">
             <h3 className="text-lg font-bold mb-3">Payment Details</h3>
-            <div className="border p-4 bg-gray-50 text-sm space-y-3">
-              {paymentBanks.map((b, i) => (
-                <div key={i} className={i > 0 ? 'border-t pt-3 mt-3' : ''}>
-                  <p className="font-semibold">MGM ACADEMY LIMITED</p>
-                  <p className="text-xs">
-                    {b.bank}, {b.branch}
-                  </p>
-                  <p className="text-xs font-semibold">
-                    ACCOUNT NUMBER: {b.accountNumber}
-                  </p>
-                  <p className="text-xs font-semibold">
-                    PAYBILL NUMBER: {b.paybillNumber}
-                  </p>
+            <div className="border p-4 bg-gray-50 text-sm">
+              {invoiceSettings?.payment_details ? (
+                <p className="whitespace-pre-line">{invoiceSettings.payment_details}</p>
+              ) : (
+                <div className="space-y-3">
+                  {paymentBanks.map((b, i) => (
+                    <div key={i} className={i > 0 ? 'border-t pt-3 mt-3' : ''}>
+                      <p className="font-semibold">MGM ACADEMY LIMITED</p>
+                      <p className="text-xs">
+                        {b.bank}, {b.branch}
+                      </p>
+                      <p className="text-xs font-semibold">
+                        ACCOUNT NUMBER: {b.accountNumber}
+                      </p>
+                      <p className="text-xs font-semibold">
+                        PAYBILL NUMBER: {b.paybillNumber}
+                      </p>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
           </div>
 

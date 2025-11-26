@@ -10,8 +10,6 @@ import {
   ChevronRight,
   Star,
   Plus,
-  Menu,
-  X,
   Calendar,
   DollarSign,
   AlertCircle,
@@ -23,18 +21,49 @@ import {
   Key,
   Activity,
   CalendarClock,
-  LogOut
+  LogOut,
+  LayoutDashboard,
+  GraduationCap,
+  Wallet,
+  BarChart3,
+  Receipt,
+  HandCoins,
+  TrendingDown,
+  ShoppingCart,
+  Package,
+  ClipboardCheck,
+  PackageCheck,
+  Send,
+  Share2,
+  UserPlus,
+  Bed,
+  Bus,
+  CalendarDays,
+  BookOpen,
+  Clock,
+  Wrench,
+  FileEdit,
+  ArrowRightCircle,
+  BookMarked,
+  Hand,
+  BookCheck,
+  Download,
+  Upload,
+  Layers,
+  User,
+  Shield,
+  HeartPulse
 } from 'lucide-react';
-import logo from '../../assets/logo.png';
 
 interface SidebarProps {
   activeSection: string;
   onSectionChange: (section: string) => void;
+  isOpen: boolean;
+  onClose: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [expandedSections, setExpandedSections] = useState<string[]>(['financial']);
+export const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange, isOpen, onClose }) => {
+  const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const toggleSection = (section: string) => {
@@ -55,48 +84,46 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange
     {
       id: 'dashboard',
       label: 'Dashboard',
-      icon: Home,
+      icon: LayoutDashboard,
       children: []
     },
     {
       id: 'students',
       label: 'Students',
-      icon: Users,
+      icon: GraduationCap,
       children: [
         { id: 'masterlist', label: 'Masterlist', icon: Users },
         { id: 'assessments', label: 'Assessments', icon: FileText },
-        { id: 'behaviour', label: 'Behaviour', icon: Star },
-        { id: 'attendance', label: 'Attendance', icon: Calendar }
+        { id: 'behaviour', label: 'Disciplinary', icon: Star },
+        { id: 'attendance', label: 'Attendance', icon: Calendar },
+        { id: 'transport', label: 'Transport', icon: Bus },
+        { id: 'boarding', label: 'Boarding', icon: Bed },
+        { id: 'medical', label: 'Medical', icon: HeartPulse }
       ]
     },
     {
       id: 'financial',
-      label: 'Financial',
-      icon: TrendingUp,
+      label: 'Financials',
+      icon: Wallet,
       children: [
-        { id: 'financial-home', label: 'Overview', icon: Home },
-        { id: 'invoices', label: 'Invoices', icon: FileText },
-        { id: 'payments', label: 'Received', icon: CreditCard },
-        { id: 'expenses', label: 'Expenses', icon: TrendingUp }
+        { id: 'financial-home', label: 'Overview', icon: BarChart3 },
+        { id: 'invoices', label: 'Invoices', icon: DollarSign },
+        { id: 'fee-structure', label: 'Fee Structure', icon: FileText },
+        { id: 'payments', label: 'Received', icon: Receipt },
+        { id: 'expenses', label: 'Expenses', icon: TrendingDown },
+        { id: 'payroll', label: 'Payroll', icon: HandCoins }
       ]
     },
     {
       id: 'inventory',
-      label: 'Inventory',
-      icon: Box,
+      label: 'Procurement',
+      icon: ShoppingCart,
       children: [
-        { id: 'inventory-list', label: 'Inventory List', icon: FileText },
-        { id: 'requisition-records', label: 'Requisitions', icon: FileText },
-        { id: 'asset-issuance', label: 'Asset Issuance', icon: FileText }
-      ]
-    },
-    {
-      id: 'library',
-      label: 'Library',
-      icon: Book,
-      children: [
-        { id: 'books-masterlist', label: 'Books Masterlist', icon: FileText },
-        { id: 'borrowing-records', label: 'Borrowed', icon: FileText }
+        { id: 'inventory-list', label: 'Inventory', icon: Package },
+        { id: 'requisition-records', label: 'Requisitions', icon: ClipboardCheck },
+        { id: 'repair-requests', label: 'Repair Requests', icon: Wrench },
+        { id: 'asset-issuance', label: 'Asset Issuance', icon: Share2 },
+        { id: 'budgets', label: 'Budgets', icon: Wallet }
       ]
     },
     {
@@ -105,15 +132,47 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange
       icon: Users,
       children: [
         { id: 'staff-info', label: 'Staff Info', icon: Users },
-        { id: 'payroll', label: 'Payroll', icon: DollarSign },
         { id: 'leave-management', label: 'Leave', icon: Calendar },
-        { id: 'disciplinary', label: 'Disciplinary', icon: AlertCircle }
+        { id: 'disciplinary', label: 'Disciplinary', icon: AlertCircle },
+        { id: 'performance', label: 'Performance', icon: TrendingUp }
+      ]
+    },
+    {
+      id: 'programs',
+      label: 'Programs',
+      icon: Calendar,
+      children: [
+        { id: 'school-calendar', label: 'School Calendar', icon: CalendarDays },
+        { id: 'lesson-plans', label: 'Lesson Plans', icon: BookOpen },
+        { id: 'shifts', label: 'Shifts', icon: Clock },
+        { id: 'schedules', label: 'Schedules', icon: CalendarClock }
+      ]
+    },
+    {
+      id: 'tasks',
+      label: 'Tasks',
+      icon: CalendarClock,
+      children: []
+    },
+    {
+      id: 'library',
+      label: 'Library',
+      icon: BookOpen,
+      children: [
+        { id: 'books-masterlist', label: 'Books Masterlist', icon: BookMarked },
+        { id: 'borrowing-records', label: 'Borrowed', icon: BookCheck }
       ]
     },
     {
       id: 'custom-records',
       label: 'Custom Records',
-      icon: Plus,
+      icon: FileEdit,
+      children: []
+    },
+    {
+      id: 'leads',
+      label: 'Leads',
+      icon: UserPlus,
       children: []
     },
     {
@@ -123,21 +182,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange
       children: []
     },
     {
-      id: 'task-scheduler',
-      label: 'Task Scheduler',
-      icon: CalendarClock,
-      children: []
-    },
-    {
       id: 'settings',
       label: 'Settings',
       icon: Settings,
       children: [
         { id: 'user-management', label: 'User Management', icon: Users },
-        { id: 'archive', label: 'Archive', icon: Archive },
-        { id: 'delete', label: 'Delete', icon: Trash2 },
-        { id: 'recycle-bin', label: 'Recycle Bin', icon: Trash },
-        { id: 'reset-password', label: 'Reset Password', icon: Key },
+        { id: 'archive', label: 'Import Data', icon: Download },
+        { id: 'delete', label: 'Export Data', icon: Upload },
+        { id: 'recycle-bin', label: 'Modules', icon: Layers },
+        { id: 'reset-password', label: 'Security', icon: Key },
         { id: 'activity-log', label: 'Activity Log', icon: Activity }
       ]
     }
@@ -145,21 +198,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange
 
   const SidebarContent = useMemo(() => (
     <div className="h-full bg-white border-r border-gray-200 flex flex-col">
-      <div className="p-6 border-b border-gray-200">
-        <div className="flex items-center">
-          <img
-            src={logo}
-            alt="MGM Academy Logo"
-            className="w-[60px] sm:w-[66px] md:w-[72px] h-auto mr-3 rounded"
-          />
-          <div className="flex flex-col items-center justify-center leading-tight">
-            <span className="text-xl font-bold text-gray-800">MGM</span>
-            <span className="text-xl font-bold text-gray-800">Academy</span>
-          </div>
-        </div>
-      </div>
-
-      <nav ref={scrollRef} className="flex-1 overflow-y-auto py-4 scroll-smooth">
+      <nav ref={scrollRef} className="flex-1 overflow-y-auto py-4 scroll-smooth scrollbar-hide scrollbar-show-on-hover">
         {menuItems.map(item => (
           <div key={item.id} className="px-4 mb-2">
             <button
@@ -208,7 +247,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange
           </div>
         ))}
 
-        <div className="px-4 mt-4 border-t border-gray-200">
+        <div className="px-4 mt-4 border-t border-gray-200 pt-3">
+          <div className="mb-3 space-y-1 ml-3">
+            <div className="flex items-center text-xs text-gray-500">
+              <User className="w-4 h-4 mr-3" />
+              <span>User: <span className="text-gray-600">Admin</span></span>
+            </div>
+            <div className="flex items-center text-xs text-gray-500">
+              <Shield className="w-4 h-4 mr-3" />
+              <span>Role: <span className="text-gray-600">Superadmin</span></span>
+            </div>
+          </div>
           <button
             onClick={handleLogout}
             className="w-full flex items-center p-3 rounded-lg transition-colors text-gray-600 hover:bg-gray-50"
@@ -223,25 +272,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange
 
   return (
     <>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-white rounded-lg shadow-md"
+      <div 
+        className={`fixed inset-0 z-[60] flex transition-opacity duration-300 ${
+          isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
       >
-        {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-      </button>
-
-      <div className="hidden lg:block w-64 h-screen">
-        {SidebarContent}
-      </div>
-
-      {isOpen && (
-        <div className="lg:hidden fixed inset-0 z-40 flex">
-          <div className="absolute inset-0 bg-black opacity-50" onClick={() => setIsOpen(false)} />
-          <div className="relative w-64">
-            {SidebarContent}
-          </div>
+        {/* Backdrop overlay */}
+        <div 
+          className="absolute inset-0 bg-black opacity-30" 
+          onClick={onClose}
+        />
+        {/* Sidebar with shadow */}
+        <div 
+          className={`relative w-64 h-full bg-white transform transition-transform duration-300 ease-in-out shadow-2xl ${
+            isOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
+        >
+          {SidebarContent}
         </div>
-      )}
+      </div>
     </>
   );
 };

@@ -9,7 +9,14 @@ import {
     InvoiceSubmissionData,
     InvoiceLineItem,
     // Import the new type we will define in database.ts
-    OutstandingBalanceReview 
+    OutstandingBalanceReview,
+    // Payments module types
+    Payment,
+    PaymentMethod,
+    Account,
+    PaymentAllocation,
+    FullPayment,
+    PaymentSubmissionData
 } from '../types/database'; 
 
 // Helper types to represent the raw data returned by Supabase 
@@ -30,7 +37,7 @@ type RawInvoiceData = Omit<InvoiceHeader, 'subtotal' | 'totalAmount' | 'paymentM
 
 // Define the required fields for a line item in the context of the Batch Form
 interface BatchLineItem {
-    item_master_id: string;
+    itemName: string; // Now using item_name directly instead of item_master_id
     unitPrice: number;
     quantity: number;
     discount: number;
@@ -40,12 +47,42 @@ interface BatchLineItem {
     description: string | null;
 }
 
+// Condition interface for combination rules
+export interface Condition {
+    conditionId: string;
+    field_id: string;
+    field_name: string;
+    field_value: string;
+}
+
+// Conditional Line Item Rule - for student-specific items
+// Supports both single condition (legacy) and multiple conditions (new)
+export interface ConditionalLineItemRule {
+    ruleId: string; // Unique ID for React keying
+    // Legacy single condition fields (for backward compatibility)
+    field_id?: string;
+    field_name?: string;
+    field_value?: string;
+    // New: Array of conditions (all must match - AND logic)
+    conditions?: Condition[];
+    itemName: string; // Item name stored in DB
+    selectedItemId?: string; // Item ID used for dropdown selection (not stored in DB)
+    unitPrice: number;
+    quantity: number;
+    discount: number;
+    description: string | null;
+}
+
 export interface BatchCreationData {
     selectedStudentIds: string[]; // List of admission numbers
-    lineItems: BatchLineItem[];
+    lineItems: BatchLineItem[]; // Common items for all students
     invoiceDate: string;
     dueDate: string;
     description: string;
+    // NEW: Conditional line items
+    conditionalLineRules?: ConditionalLineItemRule[];
+    // NEW: Balance Brought Forward configuration (system-generated, no item master needed)
+    includeBalanceBroughtForward?: boolean;
 }
 // --- END BATCH CREATION TYPES ---
 
@@ -69,14 +106,16 @@ export async function fetchStudents(): Promise<StudentInfo[]> {
     console.log("🐛 [DEBUG] Fetching student data for invoice form...");
     const { data, error } = await supabase
         .from('students')
-        // 💡 FIX: Include 'class_name' in the select statement
-        .select('admission_number, name, class_name'); 
+        // Include fields needed for conditional rules
+        // Use * to get all fields including custom_1, custom_2, etc.
+        // Only fetch students with status = 'Active'
+        .select('*')
+        .eq('status', 'Active'); 
     if (error) {
         console.error("❌ [ERROR] Error fetching students:", error);
         throw new Error('Failed to fetch students data from the database.');
     }
-    console.log(`✅ [DEBUG] Successfully fetched ${data.length} students.`);
-    // The data returned now matches the updated StudentInfo[] type
+    console.log(`✅ [DEBUG] Successfully fetched ${data.length} active students.`);
     return data as StudentInfo[]; 
 }
 
@@ -84,7 +123,9 @@ export async function fetchMasterItems(): Promise<ItemMaster[]> {
     console.log("🐛 [DEBUG] Fetching master items...");
     const { data, error } = await supabase
         .from('item_master')
-        .select('*');
+        .select('*')
+        .order('sort_order', { ascending: true, nullsLast: true })
+        .order('created_at', { ascending: true }); // Secondary sort
     if (error) {
         console.error("❌ [ERROR] Error fetching master items:", error);
         throw new Error('Could not fetch available fees/items.');
@@ -93,6 +134,7 @@ export async function fetchMasterItems(): Promise<ItemMaster[]> {
     const typedData: ItemMaster[] = data.map((item: any) => ({
         ...item,
         current_unit_price: parseFloat(item.current_unit_price),
+        sort_order: item.sort_order !== null && item.sort_order !== undefined ? parseInt(item.sort_order) : null,
     }));
     console.log(`✅ [DEBUG] Successfully fetched ${typedData.length} master items.`);
     return typedData;
@@ -152,6 +194,7 @@ export async function updateMasterItem(id: string, updates: Partial<ItemMaster>)
     if (updates.item_name !== undefined) payload.item_name = updates.item_name;
     if (updates.description !== undefined) payload.description = updates.description;
     if (updates.status !== undefined) payload.status = updates.status;
+    if (updates.sort_order !== undefined) payload.sort_order = updates.sort_order;
 
     // Convert number to precise string for DB if price is being updated
     if (updates.current_unit_price !== undefined) {
@@ -258,24 +301,35 @@ export async function createInvoice(data: InvoiceSubmissionData): Promise<Invoic
     if (data.line_items.length > 0) {
         console.log("🐛 [DEBUG] Step 2: Inserting Line Items...", data.line_items.length);
         
-        // Map the line items to include the generated invoice_number
-        // NOTE: Mapping camelCase fields back to the expected snake_case for DB insertion.
-        const lineItemsToInsert = data.line_items.map(item => ({
-            
-            // Explicitly map all necessary fields to snake_case for the DB
-            invoice_number: newInvoiceNumber,
-            item_master_id: item.item_master_id,
-            description: item.description || null,
-            quantity: item.quantity,
-            discount: item.discount, // This field is correctly named in both cases
+        // Fetch master items to get sort_order for sorting
+        const masterItems = await fetchMasterItems();
+        
+        // IMPORTANT: Sort line items by master item's sort_order before inserting
+        const sortedLineItems = [...data.line_items].sort((a, b) => {
+            const itemA = masterItems.find(m => m.item_name === a.itemName);
+            const itemB = masterItems.find(m => m.item_name === b.itemName);
+            const orderA = itemA?.sort_order ?? 9999;
+            const orderB = itemB?.sort_order ?? 9999;
+            return orderA - orderB;
+        });
 
-            // Mapping calculated/renamed camelCase fields back to snake_case for DB insertion
-            unit_price: item.unitPrice, 
-            line_total: item.lineTotal, 
-            item_name: item.itemName, // Mapped itemName to item_name (assuming DB uses item_name)
-            
-            // NOTE: No spread operator '...item' used here either, as that could cause similar issues
-        }));
+        // Map the line items to include the generated invoice_number and sort_order snapshot
+        const lineItemsToInsert = sortedLineItems.map((item, index) => {
+            const masterItem = masterItems.find(m => m.item_name === item.itemName);
+            return {
+                // Explicitly map all necessary fields to snake_case for the DB
+                invoice_number: newInvoiceNumber,
+                item_name: item.itemName, // Now using item_name directly (no foreign key)
+                description: item.description || null,
+                quantity: item.quantity,
+                discount: item.discount, // This field is correctly named in both cases
+                sort_order: masterItem?.sort_order ?? index, // Store sort_order snapshot from master item
+
+                // Mapping calculated/renamed camelCase fields back to snake_case for DB insertion
+                unit_price: item.unitPrice, 
+                line_total: item.lineTotal,
+            };
+        });
         
         const { error: lineItemError } = await supabase
             .from('invoice_line_items')
@@ -360,6 +414,8 @@ export async function fetchFullInvoice(invoiceNumber: string): Promise<FullInvoi
         `)
         .eq('invoice_number', invoiceNumber)
         .single();
+    
+    // Note: We'll sort line items in the mapping step below by sort_order
 
     if (invoiceError) {
         console.error(`❌ [ERROR] Error fetching invoice ${invoiceNumber}:`, invoiceError);
@@ -374,21 +430,31 @@ export async function fetchFullInvoice(invoiceNumber: string): Promise<FullInvoi
     // Type the raw incoming data correctly
     const rawFullInvoice = invoiceData as unknown as RawInvoiceData & { line_items: any[] };
 
-    // Map line items
-    const coercedLineItems: FullInvoice['line_items'] = rawFullInvoice.line_items.map((item: any) => ({
-        // Map snake_case fields from the DB to camelCase in the final InvoiceLineItem object
-        id: item.id,
-        invoice_number: item.invoice_number,
-        item_master_id: item.item_master_id,
-        description: item.description,
-        itemName: item.item_name, // Map item_name (DB) to itemName (TS)
-        
-        // Coercion from snake_case string (DB) to camelCase number (TS)
-        unitPrice: parseFloat(item.unit_price), 
-        lineTotal: parseFloat(item.line_total), 
-        discount: parseFloat(item.discount),
-        quantity: parseInt(item.quantity), // Quantities are usually integers
-    }));
+    // Map line items and sort by sort_order
+    const coercedLineItems: FullInvoice['line_items'] = rawFullInvoice.line_items
+        .map((item: any) => ({
+            // Map snake_case fields from the DB to camelCase in the final InvoiceLineItem object
+            id: item.id,
+            invoice_number: item.invoice_number,
+            itemName: item.item_name, // Map item_name (DB) to itemName (TS) - now the primary identifier
+            description: item.description,
+            sort_order: item.sort_order !== null && item.sort_order !== undefined ? parseInt(item.sort_order) : null,
+            
+            // Coercion from snake_case string (DB) to camelCase number (TS)
+            unitPrice: parseFloat(item.unit_price), 
+            lineTotal: parseFloat(item.line_total), 
+            discount: parseFloat(item.discount),
+            quantity: parseInt(item.quantity), // Quantities are usually integers
+        }))
+        .sort((a, b) => {
+            // Sort by sort_order (preserving invoice order), fallback to id if sort_order is null
+            if (a.sort_order !== null && b.sort_order !== null) {
+                return a.sort_order - b.sort_order;
+            }
+            if (a.sort_order !== null) return -1;
+            if (b.sort_order !== null) return 1;
+            return (a.id || '').localeCompare(b.id || '');
+        });
     
     // Coerce header numerics and map the class name
     // 🚨 FINAL FIX: Use a structured assignment to pick only the required fields from the RawInvoiceData,
@@ -425,8 +491,8 @@ export async function fetchFullInvoice(invoiceNumber: string): Promise<FullInvoi
 
 /**
  * Creates multiple invoices for a list of students using the single `createInvoice` function.
- * This is simpler and reuses existing logic, assuming users are okay with the waiting time.
- * @param data The batch creation details.
+ * Now supports conditional line items and balance brought forward processing inline.
+ * @param data The batch creation details including conditional rules and BBF config.
  * @returns A promise resolving to the number of invoices successfully created.
  */
 export async function createBatchInvoices(data: BatchCreationData): Promise<number> {
@@ -436,7 +502,13 @@ export async function createBatchInvoices(data: BatchCreationData): Promise<numb
         throw new Error("Cannot create batch with zero selected students.");
     }
     
-    // 1. Fetch ALL students to get their full names for the header
+    // Destructure the new optional fields
+    const { 
+        conditionalLineRules = [], 
+        includeBalanceBroughtForward = false
+    } = data;
+    
+    // 1. Fetch ALL students to get their full data for conditional rule evaluation
     const allStudents = await fetchStudents();
     const studentsToInvoice = allStudents.filter(s => data.selectedStudentIds.includes(s.admission_number));
 
@@ -450,16 +522,139 @@ export async function createBatchInvoices(data: BatchCreationData): Promise<numb
     let successfullyCreatedCount = 0;
     const failedStudents: { name: string, error: string }[] = [];
 
-    // The line items provided by the BatchForm are almost InvoiceLineItem, just need a cast/map
-    const lineItemsToSubmit: InvoiceLineItem[] = data.lineItems as InvoiceLineItem[];
-    
-    // Calculate Subtotal/Total once for the common line items
-    const lineItemsSubtotal = lineItemsToSubmit.reduce((sum, item) => sum + item.lineTotal, 0);
-    const totalAmount = lineItemsSubtotal; // No brought-forward for batch creation
+    // The common line items provided by the BatchForm
+    const commonLineItems: InvoiceLineItem[] = data.lineItems as InvoiceLineItem[];
 
     for (const student of studentsToInvoice) {
-        console.log(`🐛 [DEBUG] Attempting to create invoice for ${student.name} (${student.admission_number})...`);
+        console.log(`🐛 [DEBUG] Processing invoice for ${student.name} (${student.admission_number})...`);
         try {
+            // Start with common line items
+            const studentLineItems: InvoiceLineItem[] = [...commonLineItems];
+            
+            // 3. Evaluate conditional rules for THIS student
+            for (const rule of conditionalLineRules) {
+                // Support both legacy single condition and new multiple conditions format
+                const conditions = rule.conditions || (rule.field_id ? [{
+                    conditionId: rule.ruleId + '_legacy',
+                    field_id: rule.field_id,
+                    field_name: rule.field_name || '',
+                    field_value: rule.field_value || ''
+                }] : []);
+                
+                // Check if student matches ALL conditions (AND logic)
+                let allConditionsMatch = true;
+                const matchedConditions: string[] = [];
+                
+                for (const condition of conditions) {
+                    if (!condition.field_id || !condition.field_value) {
+                        allConditionsMatch = false;
+                        break;
+                    }
+                    
+                    // Get the student's field value
+                    const studentFieldValue = student[condition.field_id];
+                    
+                    // Check if this condition matches (convert both to strings for comparison)
+                    const conditionMatches = studentFieldValue !== null && 
+                                           studentFieldValue !== undefined && 
+                                           String(studentFieldValue) === String(condition.field_value);
+                    
+                    if (conditionMatches) {
+                        matchedConditions.push(`${condition.field_name} = ${condition.field_value}`);
+                    } else {
+                        allConditionsMatch = false;
+                        break; // Short-circuit: if any condition fails, rule doesn't match
+                    }
+                }
+                
+                // If all conditions match, add the item
+                if (allConditionsMatch && conditions.length > 0) {
+                    console.log(`🎯 [DEBUG] Conditional rule matched for ${student.name}: ${matchedConditions.join(' AND ')}`);
+                    
+                    // Calculate line total for this conditional item
+                    const discountFactor = 1 - ((rule.discount || 0) / 100);
+                    const lineTotal = rule.unitPrice * rule.quantity * discountFactor;
+                    
+                    // Add the conditional item to this student's invoice
+                    studentLineItems.push({
+                        itemName: rule.itemName || (conditions.length > 1 ? `${conditions.length} conditions` : conditions[0]?.field_name || 'Conditional Item'),
+                        unitPrice: rule.unitPrice,
+                        quantity: rule.quantity,
+                        discount: rule.discount || 0,
+                        description: rule.description,
+                        lineTotal: lineTotal
+                    });
+                }
+            }
+            
+            // 4. Add Balance Brought Forward if enabled
+            let bbfAmount = 0;
+            let bbfDescription = null;
+            let invoicesToForward: string[] = []; // Track invoices that will be marked as Forwarded
+            if (includeBalanceBroughtForward) {
+                // Fetch outstanding balances for this student
+                const outstandingBalances = await fetchOutstandingBalances([student.admission_number]);
+                
+                if (outstandingBalances.length > 0) {
+                    // Calculate total outstanding for this student
+                    bbfAmount = outstandingBalances.reduce((sum, bal) => sum + bal.balance_due, 0);
+                    
+                    if (bbfAmount > 0) {
+                        console.log(`💰 [DEBUG] Adding BBF of Ksh.${bbfAmount.toFixed(2)} for ${student.name}`);
+                        
+                        // Store invoice numbers for later forwarding
+                        invoicesToForward = outstandingBalances.map(bal => bal.invoice_number);
+                        
+                        // Get invoice numbers for description
+                        const invoiceNumbers = invoicesToForward.join(', ');
+                        
+                        // Find or create "Balance Brought Forward" item in item_master
+                        let bbfItem = await supabase
+                            .from('item_master')
+                            .select('*')
+                            .eq('item_name', 'Balance Brought Forward')
+                            .single();
+                        
+                        // If it doesn't exist, create it
+                        if (bbfItem.error || !bbfItem.data) {
+                            console.log('🔧 [DEBUG] Creating system "Balance Brought Forward" item...');
+                            const { data: newBbfItem, error: createError } = await supabase
+                                .from('item_master')
+                                .insert({
+                                    item_name: 'Balance Brought Forward',
+                                    current_unit_price: 0, // Price will be set per invoice
+                                    description: 'System-generated item for carrying forward previous balances'
+                                })
+                                .select()
+                                .single();
+                            
+                            if (createError || !newBbfItem) {
+                                console.error('❌ [ERROR] Failed to create BBF item:', createError);
+                                throw new Error('Failed to create Balance Brought Forward item');
+                            }
+                            bbfItem.data = newBbfItem;
+                        }
+                        
+                        // Add BBF as a line item (now using itemName directly)
+                        studentLineItems.push({
+                            itemName: 'Balance Brought Forward',
+                            unitPrice: bbfAmount,
+                            quantity: 1,
+                            discount: 0,
+                            description: `Invoices: ${invoiceNumbers}`,
+                            lineTotal: bbfAmount
+                        });
+                        
+                        bbfDescription = `Balance from ${outstandingBalances.length} invoice(s): ${invoiceNumbers}`;
+                    }
+                }
+            }
+            
+            // 5. Calculate totals for THIS student's invoice
+            const lineItemsSubtotal = studentLineItems.reduce((sum, item) => sum + item.lineTotal, 0);
+            const totalAmount = lineItemsSubtotal;
+            
+            // 6. Create the invoice submission data
             const submissionData: InvoiceSubmissionData = {
                 header: {
                     admission_number: student.admission_number,
@@ -469,23 +664,36 @@ export async function createBatchInvoices(data: BatchCreationData): Promise<numb
                     status: 'Pending', 
                     description: data.description, 
                     
-                    // Batch creation doesn't typically include carried forward balances
-                    broughtforward_description: null,
-                    broughtforward_amount: null,
+                    // BBF fields
+                    broughtforward_description: bbfDescription,
+                    broughtforward_amount: bbfAmount > 0 ? bbfAmount : null,
                     
                     // Totals
                     subtotal: lineItemsSubtotal,
                     totalAmount: totalAmount,
                     paymentMade: 0.00, // Always 0.00 for a new invoice
                 },
-                line_items: lineItemsToSubmit, 
+                line_items: studentLineItems, 
             };
 
-            // Use the existing single invoice function
+            // 7. Create the invoice using the existing function
             await createInvoice(submissionData);
             
+            // 8. IMPORTANT: Mark the old invoices as 'Forwarded' if balance was brought forward
+            // This ensures data integrity - the old invoices should not appear in outstanding balances
+            if (invoicesToForward.length > 0) {
+                try {
+                    await markInvoicesAsForwarded(invoicesToForward);
+                    console.log(`✅ [DEBUG] Marked ${invoicesToForward.length} invoices as 'Forwarded' for ${student.name}`);
+                } catch (forwardError: any) {
+                    // Log the error but don't fail the entire operation
+                    // The new invoice was created successfully, but the status update failed
+                    console.error(`⚠️ [WARNING] Failed to mark invoices as Forwarded for ${student.name}:`, forwardError);
+                }
+            }
+            
             successfullyCreatedCount++;
-            console.log(`✅ [DEBUG] Invoice created for ${student.name} (${student.admission_number}).`);
+            console.log(`✅ [DEBUG] Invoice created for ${student.name} with ${studentLineItems.length} line items (Total: Ksh.${totalAmount.toFixed(2)}).`);
 
         } catch (error) {
             console.error(`❌ [ERROR] Failed to create invoice for ${student.name} (${student.admission_number}):`, error);
@@ -498,8 +706,6 @@ export async function createBatchInvoices(data: BatchCreationData): Promise<numb
     
     if (failedStudents.length > 0) {
         console.warn(`⚠️ [WARNING] Batch creation completed with ${successfullyCreatedCount} successes and ${failedStudents.length} failures. Failures:`, failedStudents);
-        // Note: For simplicity, we'll return the successful count but log the failures.
-        // The UI component will need to check the success message for this.
     } else {
         console.log(`✅ [DEBUG] Batch creation successfully created ${successfullyCreatedCount} invoices.`);
     }
@@ -554,14 +760,18 @@ export async function updateInvoice(invoiceNumber: string, data: InvoiceSubmissi
     
     console.log(`✅ [DEBUG] Invoice Header ${invoiceNumber} updated.`);
     
-    // --- 2. SEPARATE LINE ITEMS INTO UPDATE/INSERT GROUPS ---
+    // --- 2. FETCH EXISTING LINE ITEMS TO GET CURRENT SORT_ORDER ---
+    const existingInvoice = await fetchFullInvoice(invoiceNumber);
+    const existingItems = existingInvoice?.line_items || [];
+
+    // --- 3. SEPARATE LINE ITEMS INTO UPDATE/INSERT GROUPS ---
     const itemsToUpdate = data.line_items.filter(item => item.id);
     const itemsToInsert = data.line_items.filter(item => !item.id);
 
     console.log(`🐛 [DEBUG] Line Items: Found ${itemsToUpdate.length} items to update and ${itemsToInsert.length} items to insert.`);
 
     
-    // --- 3. HANDLE UPDATES (if any) ---
+    // --- 4. HANDLE UPDATES (if any) ---
     if (itemsToUpdate.length > 0) {
         console.log("🐛 [DEBUG] Step 3a: Updating existing Line Items...");
         
@@ -572,13 +782,12 @@ export async function updateInvoice(invoiceNumber: string, data: InvoiceSubmissi
         const updatePromises = itemsToUpdate.map(item => {
             // Map the item's editable fields to snake_case for DB
             const lineItemPayload = {
-                item_master_id: item.item_master_id,
+                item_name: item.itemName, // Now using item_name directly (no foreign key)
                 description: item.description || null,
                 quantity: item.quantity,
                 discount: item.discount, 
                 unit_price: item.unitPrice, 
                 line_total: item.lineTotal, 
-                item_name: item.itemName, 
             };
             
             return supabase
@@ -599,25 +808,43 @@ export async function updateInvoice(invoiceNumber: string, data: InvoiceSubmissi
     }
 
     
-    // --- 4. HANDLE INSERTS (if any) ---
+    // --- 5. HANDLE INSERTS (if any) ---
     if (itemsToInsert.length > 0) {
         console.log("🐛 [DEBUG] Step 3b: Inserting new Line Items...");
         
-        // Map the new line items to include the existing invoice_number
-        const lineItemsToInsert = itemsToInsert.map(item => ({
-            
-            // Explicitly map all necessary fields to snake_case for the DB
-            invoice_number: invoiceNumber, // Crucial: Link to the existing invoice
-            item_master_id: item.item_master_id,
-            description: item.description || null,
-            quantity: item.quantity,
-            discount: item.discount, 
+        // Fetch master items to get sort_order for new items
+        const masterItems = await fetchMasterItems();
+        
+        // Sort new items by master item's sort_order before inserting
+        const sortedNewItems = [...itemsToInsert].sort((a, b) => {
+            const itemA = masterItems.find(m => m.item_name === a.itemName);
+            const itemB = masterItems.find(m => m.item_name === b.itemName);
+            const orderA = itemA?.sort_order ?? 9999;
+            const orderB = itemB?.sort_order ?? 9999;
+            return orderA - orderB;
+        });
+        
+        // Map the new line items to include the existing invoice_number and sort_order
+        const lineItemsToInsert = sortedNewItems.map((item, index) => {
+            const masterItem = masterItems.find(m => m.item_name === item.itemName);
+            // Get max sort_order from existing items, then add index
+            const maxExistingOrder = existingItems.length > 0 
+                ? Math.max(...existingItems.map(i => i.sort_order || 0), -1)
+                : -1;
+            return {
+                // Explicitly map all necessary fields to snake_case for the DB
+                invoice_number: invoiceNumber, // Crucial: Link to the existing invoice
+                item_name: item.itemName, // Now using item_name directly (no foreign key)
+                description: item.description || null,
+                quantity: item.quantity,
+                discount: item.discount, 
+                sort_order: masterItem?.sort_order ?? (maxExistingOrder + index + 1), // Store sort_order snapshot
 
-            // Mapping calculated/renamed camelCase fields back to snake_case for DB insertion
-            unit_price: item.unitPrice, 
-            line_total: item.lineTotal, 
-            item_name: item.itemName, 
-        }));
+                // Mapping calculated/renamed camelCase fields back to snake_case for DB insertion
+                unit_price: item.unitPrice, 
+                line_total: item.lineTotal, 
+            };
+        });
         
         const { error: insertError } = await supabase
             .from('invoice_line_items')
@@ -667,6 +894,7 @@ export async function fetchOutstandingBalances(admissionNumbers: string[]): Prom
     console.log(`🐛 [DEBUG] Fetching overdue balances for ${admissionNumbers.length} students...`);
 
     // NOTE: We only need a few fields for the review table
+    // IMPORTANT: Exclude 'Forwarded' invoices as they should not be included in outstanding balances
     const { data, error } = await supabase
         .from('invoices')
         .select(`
@@ -677,7 +905,7 @@ export async function fetchOutstandingBalances(admissionNumbers: string[]): Prom
             balance_due
         `)
         .in('admission_number', admissionNumbers)
-        .eq('status', 'Overdue') // Only look for overdue invoices
+        .eq('status', 'Overdue') // Only look for overdue invoices (this already excludes 'Forwarded')
         .gt('balance_due', 0) // Only look for invoices with a balance > 0
         .order('name', { ascending: true });
 
@@ -699,6 +927,421 @@ export async function fetchOutstandingBalances(admissionNumbers: string[]): Prom
     return coercedData;
 }
 
+// ============================================================================
+// --- G. PAYMENTS RECEIVED MODULE FUNCTIONS ---
+// ============================================================================
+
+/**
+ * Fetches all payment methods from the database
+ */
+export async function fetchPaymentMethods(): Promise<PaymentMethod[]> {
+    const { data, error } = await supabase
+        .from('payment_methods')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+
+    if (error) {
+        console.error('Error fetching payment methods:', error);
+        throw new Error('Failed to fetch payment methods');
+    }
+
+    return data.map(item => ({
+        id: item.id,
+        name: item.name,
+        description: item.description,
+        sort_order: item.sort_order,
+        is_active: item.is_active,
+        created_at: item.created_at,
+        updated_at: item.updated_at
+    }));
+}
+
+/**
+ * Fetches all accounts from the database
+ */
+export async function fetchAccounts(): Promise<Account[]> {
+    const { data, error } = await supabase
+        .from('accounts')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+
+    if (error) {
+        console.error('Error fetching accounts:', error);
+        throw new Error('Failed to fetch accounts');
+    }
+
+    return data.map(item => ({
+        id: item.id,
+        name: item.name,
+        description: item.description,
+        account_number: item.account_number,
+        bank_name: item.bank_name,
+        sort_order: item.sort_order,
+        is_active: item.is_active,
+        created_at: item.created_at,
+        updated_at: item.updated_at
+    }));
+}
+
+/**
+ * Fetches all payments with related data
+ */
+export async function fetchPayments(): Promise<Payment[]> {
+    console.log('🔍 [DEBUG] Fetching payments from payments_view...');
+    
+    const { data, error } = await supabase
+        .from('payments_view')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+    if (error) {
+        console.error('❌ [ERROR] Error fetching payments:', error);
+        throw new Error('Failed to fetch payments');
+    }
+
+    console.log(`✅ [DEBUG] Successfully fetched ${data?.length || 0} payments`);
+
+    return (data || []).map(item => ({
+        id: item.id,
+        receipt_number: item.receipt_number,
+        admission_number: item.admission_number,
+        student_name: item.student_name,
+        payment_date: item.payment_date,
+        amount: parseFloat(item.amount),
+        payment_method_id: item.payment_method_id,
+        account_id: item.account_id,
+        reference_number: item.reference_number,
+        notes: item.notes,
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+        created_by: item.created_by,
+        updated_by: item.updated_by,
+        payment_method_name: item.payment_method_name,
+        account_name: item.account_name,
+        total_allocated: parseFloat(item.total_allocated || '0'),
+        unallocated_amount: parseFloat(item.unallocated_amount || '0')
+    }));
+}
+
+/**
+ * Fetches a single payment with all allocations
+ */
+export async function fetchFullPayment(paymentId: number): Promise<FullPayment | null> {
+    // Fetch payment
+    const { data: paymentData, error: paymentError } = await supabase
+        .from('payments_view')
+        .select('*')
+        .eq('id', paymentId)
+        .single();
+
+    if (paymentError || !paymentData) {
+        console.error('Error fetching payment:', paymentError);
+        return null;
+    }
+
+    // Fetch allocations
+    const { data: allocationsData, error: allocationsError } = await supabase
+        .from('payment_allocations')
+        .select('*')
+        .eq('payment_id', paymentId);
+
+    if (allocationsError) {
+        console.error('Error fetching payment allocations:', allocationsError);
+    }
+
+    const payment: FullPayment = {
+        id: paymentData.id,
+        receipt_number: paymentData.receipt_number,
+        admission_number: paymentData.admission_number,
+        student_name: paymentData.student_name,
+        payment_date: paymentData.payment_date,
+        amount: parseFloat(paymentData.amount),
+        payment_method_id: paymentData.payment_method_id,
+        account_id: paymentData.account_id,
+        reference_number: paymentData.reference_number,
+        notes: paymentData.notes,
+        created_at: paymentData.created_at,
+        updated_at: paymentData.updated_at,
+        created_by: paymentData.created_by,
+        updated_by: paymentData.updated_by,
+        payment_method_name: paymentData.payment_method_name,
+        account_name: paymentData.account_name,
+        total_allocated: parseFloat(paymentData.total_allocated || '0'),
+        unallocated_amount: parseFloat(paymentData.unallocated_amount || '0'),
+        allocations: (allocationsData || []).map(item => ({
+            id: item.id,
+            payment_id: item.payment_id,
+            invoice_number: item.invoice_number,
+            allocated_amount: parseFloat(item.allocated_amount),
+            created_at: item.created_at
+        }))
+    };
+
+    return payment;
+}
+
+/**
+ * Fetches pending and overdue invoices for a student (for payment allocation)
+ */
+export async function fetchStudentInvoicesForPayment(admissionNumber: string): Promise<InvoiceHeader[]> {
+    console.log(`🔍 [DEBUG] Fetching invoices for student: ${admissionNumber}`);
+    
+    const { data, error } = await supabase
+        .from('invoices')
+        .select('*, students(class_name)')
+        .eq('admission_number', admissionNumber)
+        .in('status', ['Pending', 'Overdue'])
+        .neq('status', 'Forwarded') // Exclude Forwarded invoices
+        .gt('balance_due', 0)
+        .order('due_date', { ascending: true });
+
+    if (error) {
+        console.error('❌ [ERROR] Error fetching student invoices:', error);
+        throw new Error('Failed to fetch student invoices');
+    }
+
+    console.log(`✅ [DEBUG] Found ${data?.length || 0} invoices for student ${admissionNumber}`);
+    if (data && data.length > 0) {
+        console.log('📋 [DEBUG] Invoice details:', data.map((item: any) => ({
+            invoice_number: item.invoice_number,
+            status: item.status,
+            balance_due: item.balance_due,
+            total_amount: item.total_amount,
+            payment_made: item.payment_made
+        })));
+    }
+
+    return (data || []).map((item: any) => ({
+        invoice_number: item.invoice_number,
+        invoice_seq_number: item.invoice_seq_number,
+        created_at: item.created_at,
+        admission_number: item.admission_number,
+        name: item.name,
+        class_name: item.students?.class_name || null,
+        invoice_date: item.invoice_date,
+        due_date: item.due_date,
+        status: item.status,
+        description: item.description,
+        broughtforward_description: item.broughtforward_description,
+        broughtforward_amount: item.broughtforward_amount ? parseFloat(item.broughtforward_amount) : null,
+        subtotal: parseFloat(item.subtotal),
+        totalAmount: parseFloat(item.total_amount),
+        paymentMade: parseFloat(item.payment_made),
+        balanceDue: parseFloat(item.balance_due)
+    }));
+}
+
+/**
+ * Creates a new payment with allocations
+ */
+export async function createPayment(data: PaymentSubmissionData): Promise<Payment> {
+    // Insert payment
+    const { data: paymentData, error: paymentError } = await supabase
+        .from('payments')
+        .insert({
+            admission_number: data.admission_number,
+            student_name: data.student_name,
+            payment_date: data.payment_date,
+            amount: data.amount,
+            payment_method_id: data.payment_method_id,
+            account_id: data.account_id,
+            reference_number: data.reference_number || null,
+            notes: data.notes || null
+        })
+        .select()
+        .single();
+
+    if (paymentError || !paymentData) {
+        console.error('Error creating payment:', paymentError);
+        throw new Error('Failed to create payment');
+    }
+
+    // Insert allocations if any
+    if (data.allocations && data.allocations.length > 0) {
+        // Validate allocations before inserting
+        const allocationsToInsert = data.allocations
+            .filter(allocation => {
+                const amount = parseFloat(allocation.allocated_amount.toString());
+                if (isNaN(amount) || amount <= 0) {
+                    console.warn('⚠️ [WARN] Skipping invalid allocation:', allocation);
+                    return false;
+                }
+                if (!allocation.invoice_number || allocation.invoice_number.trim() === '') {
+                    console.warn('⚠️ [WARN] Skipping allocation with missing invoice number:', allocation);
+                    return false;
+                }
+                return true;
+            })
+            .map(allocation => ({
+                payment_id: paymentData.id,
+                invoice_number: allocation.invoice_number.trim(),
+                allocated_amount: parseFloat(allocation.allocated_amount.toString())
+            }));
+
+        if (allocationsToInsert.length === 0) {
+            console.warn('⚠️ [WARN] No valid allocations to insert');
+        } else {
+            console.log('🔍 [DEBUG] Inserting payment allocations:', allocationsToInsert);
+
+            // Verify invoice numbers exist
+            const invoiceNumbers = allocationsToInsert.map(a => a.invoice_number);
+            const { data: invoiceCheck, error: checkError } = await supabase
+                .from('invoices')
+                .select('invoice_number')
+                .in('invoice_number', invoiceNumbers);
+
+            if (checkError) {
+                console.error('❌ [ERROR] Error checking invoice numbers:', checkError);
+                await supabase.from('payments').delete().eq('id', paymentData.id);
+                throw new Error(`Failed to verify invoice numbers: ${checkError.message}`);
+            }
+
+            const existingInvoiceNumbers = new Set((invoiceCheck || []).map((i: any) => i.invoice_number));
+            const missingInvoices = invoiceNumbers.filter(num => !existingInvoiceNumbers.has(num));
+            
+            if (missingInvoices.length > 0) {
+                console.error('❌ [ERROR] Invoice numbers not found:', missingInvoices);
+                await supabase.from('payments').delete().eq('id', paymentData.id);
+                throw new Error(`Invoice numbers not found: ${missingInvoices.join(', ')}`);
+            }
+
+            const { error: allocationsError, data: allocationsData } = await supabase
+                .from('payment_allocations')
+                .insert(allocationsToInsert)
+                .select();
+
+            if (allocationsError) {
+                console.error('❌ [ERROR] Error creating payment allocations:', allocationsError);
+                console.error('❌ [ERROR] Allocations data attempted:', allocationsToInsert);
+                console.error('❌ [ERROR] Payment ID:', paymentData.id);
+                console.error('❌ [ERROR] Full error details:', JSON.stringify(allocationsError, null, 2));
+                // Rollback payment if allocations fail
+                await supabase.from('payments').delete().eq('id', paymentData.id);
+                throw new Error(`Failed to create payment allocations: ${allocationsError.message || JSON.stringify(allocationsError)}`);
+            }
+
+            console.log('✅ [DEBUG] Successfully created payment allocations:', allocationsData);
+        }
+    }
+
+    // Fetch the complete payment with joined data
+    const fullPayment = await fetchFullPayment(paymentData.id);
+    if (!fullPayment) {
+        throw new Error('Failed to fetch created payment');
+    }
+
+    return fullPayment;
+}
+
+/**
+ * Updates an existing payment and its allocations
+ */
+export async function updatePayment(paymentId: number, data: PaymentSubmissionData): Promise<Payment> {
+    // Update payment
+    const { error: paymentError } = await supabase
+        .from('payments')
+        .update({
+            admission_number: data.admission_number,
+            student_name: data.student_name,
+            payment_date: data.payment_date,
+            amount: data.amount,
+            payment_method_id: data.payment_method_id,
+            account_id: data.account_id,
+            reference_number: data.reference_number || null,
+            notes: data.notes || null,
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', paymentId);
+
+    if (paymentError) {
+        console.error('Error updating payment:', paymentError);
+        throw new Error('Failed to update payment');
+    }
+
+    // Delete existing allocations
+    const { error: deleteError } = await supabase
+        .from('payment_allocations')
+        .delete()
+        .eq('payment_id', paymentId);
+
+    if (deleteError) {
+        console.error('Error deleting old allocations:', deleteError);
+        throw new Error('Failed to update payment allocations');
+    }
+
+    // Insert new allocations if any
+    if (data.allocations && data.allocations.length > 0) {
+        const allocationsToInsert = data.allocations.map(allocation => ({
+            payment_id: paymentId,
+            invoice_number: allocation.invoice_number,
+            allocated_amount: allocation.allocated_amount
+        }));
+
+        const { error: allocationsError } = await supabase
+            .from('payment_allocations')
+            .insert(allocationsToInsert);
+
+        if (allocationsError) {
+            console.error('Error creating payment allocations:', allocationsError);
+            throw new Error('Failed to update payment allocations');
+        }
+    }
+
+    // Fetch the complete payment with joined data
+    const fullPayment = await fetchFullPayment(paymentId);
+    if (!fullPayment) {
+        throw new Error('Failed to fetch updated payment');
+    }
+
+    return fullPayment;
+}
+
+/**
+ * Deletes a payment and its allocations
+ */
+export async function deletePayment(paymentId: number): Promise<void> {
+    // Allocations will be deleted automatically due to CASCADE
+    const { error } = await supabase
+        .from('payments')
+        .delete()
+        .eq('id', paymentId);
+
+    if (error) {
+        console.error('Error deleting payment:', error);
+        throw new Error('Failed to delete payment');
+    }
+}
+
+/**
+ * Marks invoices as 'Forwarded' when their balances are brought forward to a new invoice.
+ * This ensures data integrity - invoices that have been forwarded should not be counted in outstanding balances.
+ * @param invoiceNumbers Array of invoice numbers to mark as 'Forwarded'
+ * @returns The number of invoices successfully updated
+ */
+export async function markInvoicesAsForwarded(invoiceNumbers: string[]): Promise<number> {
+    if (invoiceNumbers.length === 0) {
+        return 0;
+    }
+
+    console.log(`🔄 [DEBUG] Marking ${invoiceNumbers.length} invoices as 'Forwarded'...`);
+
+    const { data, error } = await supabase
+        .from('invoices')
+        .update({ status: 'Forwarded' })
+        .in('invoice_number', invoiceNumbers)
+        .select('invoice_number');
+
+    if (error) {
+        console.error("❌ [ERROR] Error marking invoices as Forwarded:", error);
+        throw new Error(`Failed to mark invoices as Forwarded: ${error.message}`);
+    }
+
+    const updatedCount = data?.length || 0;
+    console.log(`✅ [DEBUG] Successfully marked ${updatedCount} invoices as 'Forwarded'.`);
+    return updatedCount;
+}
 
 /**
  * Transfers overdue balances to the balance_brought_forward table and deletes original invoices.
@@ -757,4 +1400,40 @@ export async function finalizeAndTransferBalances(balancesToTransfer: Outstandin
 
     console.log(`✅ [DEBUG] Successfully deleted ${deletedCount} invoices.`);
     return deletedCount || 0;
+}
+
+/**
+ * Deletes a single invoice and its associated line items.
+ * @param invoiceNumber The invoice number to delete
+ * @returns True if deletion was successful, false otherwise
+ */
+export async function deleteInvoice(invoiceNumber: string): Promise<boolean> {
+    console.log(`🐛 [DEBUG] Deleting invoice ${invoiceNumber}...`);
+    
+    // First, delete all line items associated with this invoice
+    const { error: lineItemsError } = await supabase
+        .from('invoice_line_items')
+        .delete()
+        .eq('invoice_number', invoiceNumber);
+    
+    if (lineItemsError) {
+        console.error("❌ [ERROR] Error deleting invoice line items:", lineItemsError);
+        throw new Error(`Failed to delete line items for invoice ${invoiceNumber}: ${lineItemsError.message}`);
+    }
+    
+    console.log(`✅ [DEBUG] Successfully deleted line items for invoice ${invoiceNumber}.`);
+    
+    // Then, delete the invoice header
+    const { error: invoiceError } = await supabase
+        .from('invoices')
+        .delete()
+        .eq('invoice_number', invoiceNumber);
+    
+    if (invoiceError) {
+        console.error("❌ [ERROR] Error deleting invoice:", invoiceError);
+        throw new Error(`Failed to delete invoice ${invoiceNumber}: ${invoiceError.message}`);
+    }
+    
+    console.log(`✅ [DEBUG] Successfully deleted invoice ${invoiceNumber}.`);
+    return true;
 }

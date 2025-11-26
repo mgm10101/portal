@@ -16,6 +16,32 @@ export const EditFieldsModal: React.FC<EditFieldsModalProps> = ({
   onFieldDeleted,
 }) => {
   const [localFields, setLocalFields] = useState(fields);
+  const [isHovering, setIsHovering] = useState(false);
+  const scrollContainerRef = React.useRef<HTMLUListElement>(null);
+
+  // Keyboard navigation for scrolling
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isHovering || !scrollContainerRef.current) return;
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        scrollContainerRef.current.scrollBy({
+          top: -100,
+          behavior: 'smooth'
+        });
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        scrollContainerRef.current.scrollBy({
+          top: 100,
+          behavior: 'smooth'
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isHovering]);
 
   useEffect(() => {
     setLocalFields(fields);
@@ -77,7 +103,12 @@ export const EditFieldsModal: React.FC<EditFieldsModalProps> = ({
           </button>
         </div>
 
-        <ul className="max-h-60 overflow-y-auto space-y-2">
+        <ul 
+          ref={scrollContainerRef}
+          className="max-h-60 overflow-y-auto space-y-2"
+          onMouseEnter={() => setIsHovering(true)}
+          onMouseLeave={() => setIsHovering(false)}
+        >
           {localFields.map((field) => (
             <li key={field.field_id} className="flex justify-between items-center">
               <span className="text-gray-800">{field.field_name || field.field_id}</span>

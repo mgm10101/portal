@@ -135,25 +135,11 @@ export const BooksMasterlist: React.FC = () => {
   );
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
+    <div className="p-6 md:p-3 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">Books Masterlist</h1>
-            <p className="text-gray-600">Manage library books by category</p>
-          </div>
-          <button
-            onClick={() => setShowForm(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center"
-          >
-            <Plus className="w-5 h-5 mr-2" />
-            Add Book
-          </button>
-        </div>
-
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-3 mb-6 md:mb-3">
+          <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center">
               <Book className="w-8 h-8 text-blue-600 mr-3" />
               <div>
@@ -162,7 +148,7 @@ export const BooksMasterlist: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center">
               <Book className="w-8 h-8 text-green-600 mr-3" />
               <div>
@@ -171,7 +157,7 @@ export const BooksMasterlist: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center">
               <Book className="w-8 h-8 text-yellow-600 mr-3" />
               <div>
@@ -180,7 +166,7 @@ export const BooksMasterlist: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center">
               <Book className="w-8 h-8 text-purple-600 mr-3" />
               <div>
@@ -191,10 +177,10 @@ export const BooksMasterlist: React.FC = () => {
           </div>
         </div>
 
-        {/* Search and Filters */}
+        {/* Search, Filters, and Add Book */}
         <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
-            <div className="relative flex-1 max-w-md">
+          <div className="flex items-center space-x-2">
+            <div className="relative flex-1">
               <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
               <input
                 type="text"
@@ -202,12 +188,17 @@ export const BooksMasterlist: React.FC = () => {
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
-            <div className="flex space-x-2">
-              <button className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
-                <Filter className="w-4 h-4 mr-2" />
-                Filter by Category
-              </button>
-            </div>
+            <button className="flex-shrink-0 flex items-center justify-center p-2 md:px-4 md:py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+              <Filter className="w-4 h-4 md:mr-2" />
+              <span className="hidden md:inline">Filter by Category</span>
+            </button>
+            <button
+              onClick={() => setShowForm(true)}
+              className="flex-shrink-0 bg-blue-600 text-white p-2 md:px-4 md:py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center"
+            >
+              <Plus className="w-5 h-5 md:mr-2" />
+              <span className="hidden md:inline">Add Book</span>
+            </button>
           </div>
         </div>
 

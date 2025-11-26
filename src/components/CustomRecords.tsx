@@ -7,7 +7,8 @@ import {
   ChevronLeft,
   Pencil,
   Trash2,
-  X
+  X,
+  Search
 } from 'lucide-react';
 
 type FieldType = 'text' | 'number' | 'calendar' | 'dropdown' | 'formula';
@@ -79,6 +80,7 @@ export const CustomRecords: React.FC = () => {
   });
   const [selectedFolder, setSelectedFolder] = useState<FolderItem | null>(null);
   const [selectedRecord, setSelectedRecord] = useState<RecordItem | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   // create-folder modal
   const [isFolderModalOpen, setFolderModalOpen] = useState(false);
@@ -101,6 +103,27 @@ export const CustomRecords: React.FC = () => {
   const [editRecordName, setEditRecordName] = useState('');
   const [editRecordDescription, setEditRecordDescription] = useState('');
   const [editFields, setEditFields] = useState<FieldDef[]>([]);
+
+  // Clear search when navigating
+  const handleSelectFolder = (folder: FolderItem) => {
+    setSelectedFolder(folder);
+    setSearchTerm('');
+  };
+
+  const handleSelectRecord = (record: RecordItem) => {
+    setSelectedRecord(record);
+    setSearchTerm('');
+  };
+
+  const handleBackFromRecord = () => {
+    setSelectedRecord(null);
+    setSearchTerm('');
+  };
+
+  const handleBackFromFolder = () => {
+    setSelectedFolder(null);
+    setSearchTerm('');
+  };
 
   // OPEN/CREATE FOLDER
   const openFolderModal = () => {
@@ -230,21 +253,40 @@ export const CustomRecords: React.FC = () => {
     });
 
     return (
-      <div className="p-6 bg-gray-50 min-h-screen">
+      <div className="p-6 md:p-3 bg-gray-50 min-h-screen">
         <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between mb-6">
-            <button onClick={() => setSelectedRecord(null)} className="flex items-center text-gray-600 hover:text-gray-800">
-              <ChevronLeft className="w-5 h-5" />
-              <span className="ml-4 text-3xl font-bold text-gray-800">{selectedRecord.label}</span>
-            </button>
-            <button onClick={openRecordModal} className="flex items-center bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
-              <Plus className="w-5 h-5 mr-2" /> Add New
-            </button>
+          {/* Search and Add New Button */}
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6 md:mb-3">
+            <div className="flex items-center space-x-2">
+              <button 
+                onClick={handleBackFromRecord} 
+                className="flex-shrink-0 flex items-center text-gray-600 hover:text-gray-800"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder={`Search ${selectedRecord.label}`}
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <button 
+                onClick={openRecordModal} 
+                className="flex-shrink-0 bg-blue-600 text-white p-2 md:px-4 md:py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center"
+              >
+                <Plus className="w-5 h-5 md:mr-2" />
+                <span className="hidden md:inline">Add New</span>
+              </button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-3 mb-6 md:mb-3">
             {stats.map(s => (
-              <div key={s.id} className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+              <div key={s.id} className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
                 <p className="text-sm text-gray-600 mb-1">{s.title}</p>
                 <p className="text-2xl font-bold text-gray-800">{s.value}</p>
               </div>
@@ -284,39 +326,69 @@ export const CustomRecords: React.FC = () => {
   }
 
   // BASELINE FOLDERS / RECORD TILES VIEW
-  const items = selectedFolder ? recordsMap[selectedFolder.id] || [] : folders;
+  const allItems = selectedFolder ? recordsMap[selectedFolder.id] || [] : folders;
+  
+  // Filter items based on search term
+  const items = allItems.filter(item => 
+    item.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (item.description && item.description.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
+    <div className="p-6 md:p-3 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          {!selectedFolder ? (
-            <>
-              <h1 className="text-3xl font-bold text-gray-800">Custom Records</h1>
-              <button onClick={openFolderModal} className="flex items-center bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
-                <Plus className="w-5 h-5 mr-2" /> New Folder
-              </button>
-            </>
-          ) : (
-            <>
-              <button onClick={() => setSelectedFolder(null)} className="flex items-center text-gray-600 hover:text-gray-800">
+        {/* Search and New Button */}
+        <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6 md:mb-3">
+          <div className="flex items-center space-x-2">
+            {selectedFolder && (
+              <button 
+                onClick={handleBackFromFolder} 
+                className="flex-shrink-0 flex items-center text-gray-600 hover:text-gray-800"
+              >
                 <ChevronLeft className="w-5 h-5" />
-                <span className="ml-4 text-3xl font-bold text-gray-800">{selectedFolder.label} Records</span>
               </button>
-              <button onClick={openRecordModal} className="flex items-center bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
-                <Plus className="w-5 h-5 mr-2" /> New Record
+            )}
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder={
+                  !selectedFolder 
+                    ? "Search Custom Records" 
+                    : `Search ${selectedFolder.label} Records`
+                }
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            {!selectedFolder ? (
+              <button 
+                onClick={openFolderModal} 
+                className="flex-shrink-0 bg-blue-600 text-white p-2 md:px-4 md:py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center"
+              >
+                <Plus className="w-5 h-5 md:mr-2" />
+                <span className="hidden md:inline">New Folder</span>
               </button>
-            </>
-          )}
+            ) : (
+              <button 
+                onClick={openRecordModal} 
+                className="flex-shrink-0 bg-blue-600 text-white p-2 md:px-4 md:py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center"
+              >
+                <Plus className="w-5 h-5 md:mr-2" />
+                <span className="hidden md:inline">New Record</span>
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 md:gap-3">
           {items.map(item =>
             !selectedFolder ? (
               <div
                 key={(item as FolderItem).id}
                 className="relative bg-white p-4 rounded-lg shadow-sm border border-gray-200 cursor-pointer hover:bg-blue-50 transition-colors"
-                onClick={() => setSelectedFolder(item as FolderItem)}
+                onClick={() => handleSelectFolder(item as FolderItem)}
               >
                 <Folder className="w-6 h-6 text-gray-600 mb-2" />
                 <p className="text-gray-800 font-medium">{(item as FolderItem).label}</p>
@@ -334,7 +406,7 @@ export const CustomRecords: React.FC = () => {
               <div
                 key={(item as RecordItem).id}
                 className="relative bg-white p-4 rounded-lg shadow-sm border border-gray-200 cursor-pointer hover:bg-blue-50 transition-colors"
-                onClick={() => setSelectedRecord(item as RecordItem)}
+                onClick={() => handleSelectRecord(item as RecordItem)}
               >
                 <FileText className="w-6 h-6 text-gray-600 mb-2" />
                 <p className="text-gray-800 font-medium">{(item as RecordItem).label}</p>
@@ -357,7 +429,7 @@ export const CustomRecords: React.FC = () => {
       {isFolderModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-50">
           <div className="flex min-h-screen items-start justify-center p-4 sm:items-center">
-            <div className="bg-white p-6 rounded-lg w-full max-w-md border border-gray-200 max-h-[calc(100vh-2rem)] overflow-y-auto">
+            <div className="bg-white p-6 md:p-4 rounded-lg w-full max-w-md border border-gray-200 max-h-[calc(100vh-2rem)] overflow-y-auto">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold text-gray-800">New Folder</h2>
                 <button onClick={() => setFolderModalOpen(false)}><X className="w-5 h-5 text-gray-600" /></button>
@@ -389,7 +461,7 @@ export const CustomRecords: React.FC = () => {
       {isRecordModalOpen && selectedFolder && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-50">
           <div className="flex min-h-screen items-start justify-center p-4 sm:items-center">
-            <div className="bg-white p-6 rounded-lg w-full max-w-lg border border-gray-200 max-h-[calc(100vh-2rem)] overflow-y-auto">
+            <div className="bg-white p-6 md:p-4 rounded-lg w-full max-w-lg border border-gray-200 max-h-[calc(100vh-2rem)] overflow-y-auto">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold text-gray-800">New Record</h2>
                 <button onClick={() => setRecordModalOpen(false)}><X className="w-5 h-5 text-gray-600" /></button>
@@ -511,7 +583,7 @@ export const CustomRecords: React.FC = () => {
       {isEditFolderModalOpen && folderToEdit && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-50">
           <div className="flex min-h-screen items-start justify-center p-4 sm:items-center">
-            <div className="bg-white p-6 rounded-lg w-full max-w-md border border-gray-200 max-h-[calc(100vh-2rem)] overflow-y-auto">
+            <div className="bg-white p-6 md:p-4 rounded-lg w-full max-w-md border border-gray-200 max-h-[calc(100vh-2rem)] overflow-y-auto">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold text-gray-800">Edit Folder</h2>
                 <button onClick={() => setEditFolderModalOpen(false)}><X className="w-5 h-5 text-gray-600" /></button>
@@ -545,7 +617,7 @@ export const CustomRecords: React.FC = () => {
       {isEditRecordModalOpen && recordToEdit && selectedFolder && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-50">
           <div className="flex min-h-screen items-start justify-center p-4 sm:items-center">
-            <div className="bg-white p-6 rounded-lg w-full max-w-lg border border-gray-200 max-h-[calc(100vh-2rem)] overflow-y-auto">
+            <div className="bg-white p-6 md:p-4 rounded-lg w-full max-w-lg border border-gray-200 max-h-[calc(100vh-2rem)] overflow-y-auto">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold text-gray-800">Edit Record</h2>
                 <button onClick={() => setEditRecordModalOpen(false)}><X className="w-5 h-5 text-gray-600" /></button>

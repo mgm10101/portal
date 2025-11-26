@@ -11,7 +11,9 @@ interface InvoiceFormLineItemsProps {
     isSubmitting: boolean;
     lineItemsSubtotal: number;
     // 🎯 ADDED NEW PROP
-    isEditMode: boolean; 
+    isEditMode: boolean;
+    // 🎯 ADDED: Flag to disable editing for Forwarded invoices
+    isForwarded?: boolean;
     
     handleAddItem: () => void;
     handleRemoveItem: (index: number) => void;
@@ -26,15 +28,28 @@ export const InvoiceFormLineItems: React.FC<InvoiceFormLineItemsProps> = ({
     isSubmitting,
     lineItemsSubtotal,
     // 🎯 DESTRUCTURE NEW PROP
-    isEditMode, 
+    isEditMode,
+    isForwarded = false,
     handleAddItem,
     handleRemoveItem,
     handleLineItemChange,
     calculateLineTotal,
 }) => {
     const renderLineItem = (item: InvoiceLineItem, index: number) => {
-        // Look up the master item details based on the item_master_id
-        const itemMaster = masterItems.find(i => i.id === item.item_master_id);
+        // Determine the selected item ID for the dropdown
+        // If selectedItemId exists, use it; otherwise try to find by itemName
+        let selectedItemId = item.selectedItemId;
+        if (!selectedItemId && item.itemName) {
+            // For existing items, find the first matching item by name
+            // (This handles items loaded from DB that don't have selectedItemId)
+            const foundItem = masterItems.find(i => i.item_name === item.itemName);
+            selectedItemId = foundItem?.id || '';
+        }
+        
+        // Look up the master item details based on selectedItemId or itemName
+        const itemMaster = selectedItemId 
+            ? masterItems.find(i => i.id === selectedItemId)
+            : masterItems.find(i => i.item_name === item.itemName);
         
         // Use the master item's current price, but fall back to the invoice line item's stored price 
         // if the master item isn't found (e.g., if it was deleted or changed after invoice creation).
@@ -44,7 +59,7 @@ export const InvoiceFormLineItems: React.FC<InvoiceFormLineItemsProps> = ({
         const lineTotal = calculateLineTotal({ ...item, unitPrice }); 
 
         // Define the display name for the currently selected item
-        const selectedItemDisplay = item.item_master_id 
+        const selectedItemDisplay = item.itemName 
             // If the item has been loaded or selected, use its details (itemName comes from the fetched data)
             ? `${item.itemName} (${item.description || 'No description'})` 
             : (loadingItems ? 'Loading Items...' : 'Select Item');
@@ -58,21 +73,21 @@ export const InvoiceFormLineItems: React.FC<InvoiceFormLineItemsProps> = ({
                 {/* Item Dropdown */}
                 <div className="col-span-3 md:col-span-4">
                     <select
-                        name="item_master_id"
-                        value={item.item_master_id || ''} // Use empty string for unselected
+                        name="selectedItemId"
+                        value={selectedItemId || ''} // Use item ID for unique selection (handles duplicate names)
                         onChange={(e) => handleLineItemChange(index, e)}
                         className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500"
-                        disabled={loadingItems || isSubmitting}
+                        disabled={loadingItems || isSubmitting || isForwarded}
                     >
                         {/* 🚨 FIX APPLIED HERE: 
-                            1. Render the actual loaded item as the default selected option. 
-                            2. Use the item's stored itemName and description for existing invoices.
+                            1. Use item ID as value to handle duplicate names correctly
+                            2. Display item name and description for user clarity
                             3. Render the empty placeholder only if no item is selected.
                         */}
                         
-                        {item.item_master_id ? (
+                        {selectedItemId ? (
                             // Display the item that was loaded from the database (its stored name/description)
-                            <option value={item.item_master_id}>{selectedItemDisplay}</option>
+                            <option value={selectedItemId}>{selectedItemDisplay}</option>
                         ) : (
                             // Placeholder for when no item is selected
                             <option value="">{selectedItemDisplay}</option>
@@ -81,7 +96,7 @@ export const InvoiceFormLineItems: React.FC<InvoiceFormLineItemsProps> = ({
                         {/* Map over all master items, allowing the user to change the item */}
                         {masterItems.map(i => (
                             <option key={i.id} value={i.id}>
-                                {/* masterItems uses i.item_name because it's fetched from item_master table */}
+                                {/* Use ID as value for unique selection, but display name and description */}
                                 {i.item_name} ({i.description || 'No description'}) 
                             </option>
                         ))}
@@ -107,7 +122,7 @@ export const InvoiceFormLineItems: React.FC<InvoiceFormLineItemsProps> = ({
                         onChange={(e) => handleLineItemChange(index, e)}
                         className="w-full p-2 border border-gray-300 rounded text-right focus:ring-blue-500" 
                         min="1"
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || isForwarded}
                     />
                 </div>
                 
@@ -120,7 +135,7 @@ export const InvoiceFormLineItems: React.FC<InvoiceFormLineItemsProps> = ({
                         onChange={(e) => handleLineItemChange(index, e)}
                         className="w-full p-2 border border-gray-300 rounded text-right focus:ring-blue-500" 
                         min="0" max="100"
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || isForwarded}
                     />
                 </div>
                 
@@ -139,11 +154,11 @@ export const InvoiceFormLineItems: React.FC<InvoiceFormLineItemsProps> = ({
                     <button 
                         type="button" 
                         onClick={() => handleRemoveItem(index)} 
-                        // 🎯 LOGIC CHANGE: Disabled if submitting OR in edit mode
-                        disabled={isSubmitting || isEditMode}
-                        title={isEditMode ? "Cannot delete existing line items in Edit Mode" : "Remove Line Item"}
+                        // 🎯 LOGIC CHANGE: Disabled if submitting OR in edit mode OR if Forwarded
+                        disabled={isSubmitting || isEditMode || isForwarded}
+                        title={isForwarded ? "Forwarded invoices cannot be edited" : isEditMode ? "Cannot delete existing line items in Edit Mode" : "Remove Line Item"}
                         className={`p-1 ${
-                            isEditMode || isSubmitting
+                            isEditMode || isSubmitting || isForwarded
                                 ? 'text-red-300 cursor-not-allowed' // Dimmed/disabled style
                                 : 'text-red-500 hover:text-red-700' // Active style
                         }`}
@@ -163,7 +178,7 @@ export const InvoiceFormLineItems: React.FC<InvoiceFormLineItemsProps> = ({
                     type="button"
                     onClick={handleAddItem}
                     className="text-blue-600 hover:text-blue-700 text-sm flex items-center disabled:opacity-50"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || isForwarded}
                 >
                     <Plus className="w-4 h-4 mr-1 inline" /> Add Item
                 </button>

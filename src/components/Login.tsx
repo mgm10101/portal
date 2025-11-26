@@ -72,7 +72,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
             <img 
               src={logo}
               alt="MGM Academy Logo"
-              className="w-[105px] sm:w-[115px] md:w-[126px] mx-auto mb-0 rounded-lg"
+              className="w-[105px] sm:w-[115px] md:w-[126px] mx-auto mb-4 rounded-lg"
             />
           </div>
           <ForgotPasswordForm />
@@ -88,9 +88,9 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
           <img 
             src={logo}
             alt="MGM Academy Logo"
-            className="w-[105px] sm:w-[115px] md:w-[126px] mx-auto mb-0 rounded-lg"
+            className="w-[105px] sm:w-[115px] md:w-[126px] mx-auto mb-4 rounded-lg"
           />
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">MGM Academy</h1>
+          <h1 className="text-2xl font-medium text-gray-800 mb-2">MGM Academy</h1>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
