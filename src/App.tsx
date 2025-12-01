@@ -41,20 +41,158 @@ import { LessonPlans } from './components/Programs/LessonPlans';
 import { Shifts } from './components/Programs/Shifts';
 import { Schedules } from './components/Programs/Schedules';
 import { UnderConstruction } from './components/UnderConstruction';
+import { CustomDashboard } from './components/CustomDashboard';
+import { supabase } from './supabaseClient';
+
+interface UserInfo {
+  email: string;
+  type: 'admin' | 'parent';
+  role?: string | null;
+  selectedModules?: any; // Parsed selected_modules from database
+  username?: string | null;
+  description?: string | null;
+}
 
 function App() {
   const [activeSection, setActiveSection] = useState('dashboard');
-  const [user, setUser] = useState<{ email: string; type: 'admin' | 'parent' } | null>(null);
+  const [user, setUser] = useState<UserInfo | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const mainRef = useRef<HTMLDivElement>(null);
 
-  const handleLogin = (email: string, userType: 'admin' | 'parent') => {
-    setUser({ email, type: userType });
+  const handleLogin = async (email: string, userType: 'admin' | 'parent') => {
+    // Fetch user details from users table
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser) {
+        const { data: userData, error } = await supabase
+          .from('users')
+          .select('email, role, selected_modules, username, description')
+          .eq('id', authUser.id)
+          .single();
+        
+        if (!error && userData) {
+          // Parse selected_modules if it's a JSON string
+          let parsedModules = null;
+          if (userData.selected_modules) {
+            try {
+              parsedModules = typeof userData.selected_modules === 'string'
+                ? JSON.parse(userData.selected_modules)
+                : userData.selected_modules;
+            } catch (err) {
+              console.error('Error parsing selected_modules:', err);
+            }
+          }
+          
+          // Check if user has Dashboard access
+          const hasDashboardAccess = parsedModules && Array.isArray(parsedModules) 
+            ? parsedModules.some((m: any) => 
+                m.id === 'module-Dashboard' || 
+                m.module === 'Dashboard' || 
+                m.label === 'Dashboard'
+              )
+            : false;
+          
+          // Set initial section based on Dashboard access
+          if (!hasDashboardAccess) {
+            setActiveSection('custom-dashboard');
+          } else {
+            setActiveSection('dashboard');
+          }
+          
+          setUser({ 
+            email: userData.email || email, // Use email from users table, fallback to passed email
+            type: userType,
+            role: userData.role || 'Admin', // Fallback to 'Admin' if no role
+            selectedModules: parsedModules,
+            username: userData.username || null,
+            description: userData.description || null
+          });
+        } else {
+          // Fallback if user not found in users table
+          setActiveSection('custom-dashboard');
+          setUser({ 
+            email, 
+            type: userType,
+            role: 'Admin',
+            selectedModules: null,
+            username: null,
+            description: null
+          });
+        }
+      } else {
+        setActiveSection('custom-dashboard');
+        setUser({ email, type: userType, role: 'Admin', selectedModules: null, username: null, description: null });
+      }
+    } catch (err) {
+      console.error('Error fetching user details:', err);
+      // Fallback on error
+      setActiveSection('custom-dashboard');
+      setUser({ email, type: userType, role: 'Admin', selectedModules: null, username: null, description: null });
+    }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setUser(null);
     setActiveSection('dashboard');
+  };
+
+  // Function to refresh current user's data (for when modules are updated)
+  const refreshCurrentUser = async () => {
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser && user) {
+        const { data: userData, error } = await supabase
+          .from('users')
+          .select('email, role, selected_modules, username, description')
+          .eq('id', authUser.id)
+          .single();
+        
+        if (!error && userData) {
+          // Parse selected_modules if it's a JSON string
+          let parsedModules = null;
+          if (userData.selected_modules) {
+            try {
+              parsedModules = typeof userData.selected_modules === 'string'
+                ? JSON.parse(userData.selected_modules)
+                : userData.selected_modules;
+            } catch (err) {
+              console.error('Error parsing selected_modules:', err);
+            }
+          }
+          
+          // Check if user has Dashboard access
+          const hasDashboardAccess = parsedModules && Array.isArray(parsedModules) 
+            ? parsedModules.some((m: any) => 
+                m.id === 'module-Dashboard' || 
+                m.module === 'Dashboard' || 
+                m.label === 'Dashboard'
+              )
+            : false;
+          
+          // If user was on custom-dashboard and now has dashboard access, switch to dashboard
+          if (activeSection === 'custom-dashboard' && hasDashboardAccess) {
+            setActiveSection('dashboard');
+          }
+          // If user was on dashboard and lost access, switch to custom-dashboard
+          else if (activeSection === 'dashboard' && !hasDashboardAccess) {
+            setActiveSection('custom-dashboard');
+          }
+          
+          setUser({ 
+            email: userData.email || user.email,
+            type: user.type,
+            role: userData.role || 'Admin',
+            selectedModules: parsedModules,
+            username: userData.username || null,
+            description: userData.description || null
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error refreshing user data:', err);
+    }
   };
 
   const handleSectionChange = (section: string) => {
@@ -68,12 +206,79 @@ function App() {
     }
   }, [activeSection]);
 
+  // SIMPLEST: Don't auto-login, only listen for new logins
+  useEffect(() => {
+    setIsLoading(false);
+    
+    // Only listen for auth changes (when user logs in through form)
+    // NOTE: We don't set user here if password change is required - Login component handles that
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        // Don't set user immediately - let Login component handle password change check
+        // Login component will call onLogin only after password change is complete (if needed)
+        // This prevents Login from unmounting prematurely
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Show loading state while checking session
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!user) return <Login onLogin={handleLogin} />;
   if (user.type === 'parent') return <ParentDashboard onLogout={handleLogout} />;
 
+  // Check if user has Dashboard access
+  const hasDashboardAccess = () => {
+    if (!user?.selectedModules || !Array.isArray(user.selectedModules)) {
+      return false;
+    }
+    return user.selectedModules.some((m: any) => 
+      m.id === 'module-Dashboard' || 
+      m.module === 'Dashboard' || 
+      m.label === 'Dashboard'
+    );
+  };
+
   const renderContent = () => {
+    // If trying to access dashboard but don't have access, show custom dashboard
+    if (activeSection === 'dashboard' && !hasDashboardAccess()) {
+      return (
+        <CustomDashboard 
+          onSectionChange={handleSectionChange}
+          userEmail={user?.email || 'User'}
+          userRole={user?.role || 'User'}
+          selectedModules={user?.selectedModules || null}
+          username={user?.username || null}
+          description={user?.description || null}
+        />
+      );
+    }
+
     switch (activeSection) {
       case 'dashboard': return <Dashboard onSectionChange={handleSectionChange} />;
+      case 'custom-dashboard': return (
+        <CustomDashboard 
+          onSectionChange={handleSectionChange}
+          userEmail={user?.email || 'User'}
+          userRole={user?.role || 'User'}
+          selectedModules={user?.selectedModules || null}
+          username={user?.username || null}
+          description={user?.description || null}
+        />
+      );
       case 'boarding': return <Boarding />;
       case 'transport': return <Transport />;
       case 'leads': return <Leads />;
@@ -107,7 +312,7 @@ function App() {
       case 'lesson-plans': return <LessonPlans />;
       case 'shifts': return <Shifts />;
       case 'schedules': return <Schedules />;
-      case 'user-management': return <UserManagement />;
+            case 'user-management': return <UserManagement onUserUpdate={refreshCurrentUser} />;
       case 'archive': return <UnderConstruction />; // Import Data
       case 'delete': return <UnderConstruction />; // Export Data
       case 'recycle-bin': return <UnderConstruction />; // Modules
@@ -127,24 +332,47 @@ function App() {
             </div>
           </div>
         );
-      default: return <Dashboard onSectionChange={handleSectionChange} />;
+      default: 
+        // If no dashboard access, show custom dashboard, otherwise show regular dashboard
+        if (!hasDashboardAccess()) {
+          return (
+            <CustomDashboard 
+              onSectionChange={handleSectionChange}
+              userEmail={user?.email || 'User'}
+              userRole={user?.role || 'User'}
+              selectedModules={user?.selectedModules || null}
+              username={user?.username || null}
+              description={user?.description || null}
+            />
+          );
+        }
+        return <Dashboard onSectionChange={handleSectionChange} />;
     }
   };
 
   return (
     <div className="flex flex-col h-screen bg-gray-100">
-      <Header onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)} />
+      <Header 
+        onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)} 
+        username={user?.email || 'Admin'}
+      />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar 
           activeSection={activeSection} 
           onSectionChange={handleSectionChange}
           isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
+          onLogout={handleLogout}
+          username={user?.email || 'Admin'}
+          role={user?.role || 'Admin'}
+          selectedModules={user?.selectedModules || null}
         />
         <IconSidebar
           activeSection={activeSection}
           onSectionChange={handleSectionChange}
           isMainSidebarOpen={isSidebarOpen}
+          onLogout={handleLogout}
+          selectedModules={user?.selectedModules || null}
         />
         <main 
           ref={mainRef} 
