@@ -129,16 +129,10 @@ export const InvoiceBatchExport: React.FC<InvoiceBatchExportProps> = ({ onClose 
                         total_amount,
                         payment_made,
                         balance_due,
-                        broughtforward_amount,
                         broughtforward_description,
-                        students!inner(class_name)
+                        students(class_name)
                     `)
                     .order('invoice_seq_number', { ascending: true });
-
-                // Apply class filter
-                if (filterClass) {
-                    query = query.eq('students.class_name', filterClass);
-                }
 
                 // Apply due date range filter
                 if (dueDateFrom) {
@@ -170,10 +164,16 @@ export const InvoiceBatchExport: React.FC<InvoiceBatchExportProps> = ({ onClose 
 
                 if (error) throw error;
 
-                const mapped = (data as any[]).map((inv: any) => ({
+                // Map the data and extract class_name from the join
+                let mapped = (data as any[]).map((inv: any) => ({
                     ...inv,
                     class_name: inv.students?.class_name || null
                 }));
+
+                // Apply class filter client-side (after join is resolved)
+                if (filterClass) {
+                    mapped = mapped.filter((inv: any) => inv.class_name === filterClass);
+                }
 
                 setInvoices(mapped);
             } catch (error) {
