@@ -29,12 +29,12 @@ import {
 // Helper types to represent the raw data returned by Supabase 
 // (where all 'numeric' database fields are returned as 'string' before coercion)
 // --- FIX 1: Revert numeric fields to SNAKE_CASE, as returned by the database/PostgREST
-type RawInvoiceData = Omit<InvoiceHeader, 'subtotal' | 'totalAmount' | 'paymentMade' | 'balanceDue' | 'broughtforward_amount' | 'class_name'> & {
+type RawInvoiceData = Omit<InvoiceHeader, 'subtotal' | 'totalAmount' | 'paymentMade' | 'balanceDue' | 'class_name'> & {
     subtotal: string;
     total_amount: string; // ✅ FIX: Changed to use snake_case for raw DB response
     payment_made: string; // ✅ FIX: Changed to use snake_case for raw DB response
     balance_due: string; // ✅ FIX: Changed to use snake_case for raw DB response
-    broughtforward_amount: string | null; // Adjusted for nullable numeric
+    // NOTE: broughtforward_amount removed - BBF is now only included as a line item
     // --- ADDED: Structure for the joined 'students' table to retrieve class_name ---
     students: { class_name: string | null } | null;
     // -----------------------------------------------------------------------------
@@ -275,9 +275,8 @@ export async function createInvoice(data: InvoiceSubmissionData): Promise<Invoic
         status: data.header.status || 'Pending',
         description: data.header.description || null,
         
-        // Brought Forward Fields
+        // Brought Forward Fields (description only - amount is in line items)
         broughtforward_description: data.header.broughtforward_description || null,
-        broughtforward_amount: data.header.broughtforward_amount || 0.00,
         
         // Calculated/Required Fields (Must use snake_case for DB)
         subtotal: data.header.subtotal,
@@ -365,7 +364,6 @@ export async function createInvoice(data: InvoiceSubmissionData): Promise<Invoic
         totalAmount: parseFloat(rawHeader.total_amount), 
         paymentMade: parseFloat(rawHeader.payment_made), 
         balanceDue: parseFloat(rawHeader.balance_due), 
-        broughtforward_amount: rawHeader.broughtforward_amount ? parseFloat(rawHeader.broughtforward_amount) : null,
     };
     
     return createdInvoice;
@@ -403,7 +401,6 @@ export async function fetchInvoices(): Promise<InvoiceHeader[]> {
         totalAmount: parseFloat(item.total_amount), // ✅ FIX: Using item.total_amount
         paymentMade: parseFloat(item.payment_made), // ✅ FIX: Using item.payment_made
         balanceDue: parseFloat(item.balance_due), // ✅ FIX: Using item.balance_due
-        broughtforward_amount: item.broughtforward_amount ? parseFloat(item.broughtforward_amount) : null,
     }));
     
     console.log(`✅ [DEBUG] Successfully fetched and coerced ${typedData.length} invoices.`);
@@ -471,7 +468,6 @@ export async function fetchFullInvoice(invoiceNumber: string): Promise<FullInvoi
         total_amount, 
         payment_made, 
         balance_due, 
-        broughtforward_amount: raw_bf_amount, // Rename to avoid collision
         subtotal: raw_subtotal,
         // Destructure other simple fields that match the InvoiceHeader definition
         ...restOfHeader // Includes all simple, non-numeric fields
@@ -486,7 +482,6 @@ export async function fetchFullInvoice(invoiceNumber: string): Promise<FullInvoi
         totalAmount: parseFloat(total_amount), 
         paymentMade: parseFloat(payment_made), 
         balanceDue: parseFloat(balance_due), 
-        broughtforward_amount: raw_bf_amount ? parseFloat(raw_bf_amount) : null,
         line_items: coercedLineItems,
     };
     console.log(`✅ [DEBUG] Full invoice ${invoiceNumber} fetched successfully.`);
@@ -671,9 +666,8 @@ export async function createBatchInvoices(data: BatchCreationData): Promise<numb
                     status: 'Pending', 
                     description: data.description, 
                     
-                    // BBF fields
+                    // BBF fields (description only - amount is in line items)
                     broughtforward_description: bbfDescription,
-                    broughtforward_amount: bbfAmount > 0 ? bbfAmount : null,
                     
                     // Totals
                     subtotal: lineItemsSubtotal,
@@ -879,7 +873,6 @@ export async function updateInvoice(invoiceNumber: string, data: InvoiceSubmissi
         totalAmount: parseFloat(rawHeader.total_amount), 
         paymentMade: parseFloat(rawHeader.payment_made), 
         balanceDue: parseFloat(rawHeader.balance_due), 
-        broughtforward_amount: rawHeader.broughtforward_amount ? parseFloat(rawHeader.broughtforward_amount) : null,
     };
     console.log(`✅ [DEBUG] Update process complete for invoice ${invoiceNumber}.`);
     return updatedInvoice;

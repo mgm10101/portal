@@ -18,6 +18,7 @@ import {
     fetchOutstandingBalances,
     markInvoicesAsForwarded
 } from '../../../services/financialService';
+import { supabase } from '../../../supabaseClient';
 
 // IMPORT THE NEW REFACTORED COMPONENTS
 import { InvoiceFormLineItems } from './InvoiceFormLineItems';
@@ -30,27 +31,7 @@ import { InvoiceItems } from './InvoiceItems';
 import { InvoiceDetails } from './InvoiceDetails';
 // --- NEW IMPORTS END ---
 
-// 🎯 NEW TYPE DEFINITION for the Class Lookup List (as per previous discussion)
-interface ClassDropdownItem { 
-    id: number;
-    name: string;
-}
 
-// 🎯 MOCK FUNCTION: You MUST replace this with your actual fetchClasses function later!
-const mockFetchClasses = async (): Promise<ClassDropdownItem[]> => {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 300)); 
-    // This is the data that maps the ID (from students) to the Name (for display)
-    return [
-        { id: 1, name: "Nursery A" },
-        { id: 2, name: "Kindergarten B" },
-        { id: 3, name: "Grade 1" },
-        { id: 4, name: "Grade 2" },
-        { id: 5, name: "Grade 3" },
-        // ... add all your classes here
-    ];
-};
-// ----------------------------------------
 
 
 interface InvoiceFormProps {
@@ -66,6 +47,7 @@ const initialInvoiceHeader: InvoiceHeader = {
     invoice_number: '', 
     admission_number: '', 
     name: '', 
+    class_name: null,
     invoice_date: new Date().toISOString().split('T')[0], 
     due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], 
     status: 'Pending',
@@ -77,7 +59,6 @@ const initialInvoiceHeader: InvoiceHeader = {
     created_at: new Date().toISOString(),
     description: '',
     broughtforward_description: null,
-    broughtforward_amount: null,
 };
 
 // --- Factory Function for Line Items ---
@@ -161,9 +142,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
     // Use header.description for initial state to correctly reflect existing invoice description
     const [generalDescription, setGeneralDescription] = useState(selectedInvoice?.description || ''); 
 
-    const [allStudents, setAllStudents] = useState<StudentInfo[]>([]);
-    // 🎯 NEW STATE: To hold the list of all classes for the lookup in BatchCreate
-    const [classesList, setClassesList] = useState<ClassDropdownItem[]>([]); 
+    const [allStudents, setAllStudents] = useState<StudentInfo[]>([]); 
     
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearching, setIsSearching] = useState(false);
@@ -189,10 +168,20 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
         const validLineItems = lineItems.filter(item => item.itemName && item.quantity > 0 && item.unitPrice >= 0);
         
         const subtotal = validLineItems.reduce((sum, item) => sum + calculateLineTotal(item), 0); 
-        const bfa = header.broughtforward_amount || 0.00;
-        const total = subtotal + bfa;
+        
+        // Calculate brought forward amount from overdue invoices (not from line items)
+        // This ensures it's available even before the BBF line item is added
+        const bfa = overdueInvoices.length > 0 
+            ? overdueInvoices.reduce((sum, inv) => sum + (inv.balanceDue || 0), 0)
+            : 0.00;
+        
+        // For display purposes: include BBF in total if it's enabled (even if not yet in line items)
+        // When submitting, BBF will be added as a line item, so it will be in subtotal
+        const total = includeBBF && bfa > 0 
+            ? subtotal + bfa  // Add BBF for display when enabled
+            : subtotal;       // Otherwise just subtotal
         return { lineItemsSubtotal: subtotal, grandTotal: total, broughtForwardAmount: bfa };
-    }, [lineItems, header.broughtforward_amount, calculateLineTotal]); 
+    }, [lineItems, calculateLineTotal, overdueInvoices, includeBBF]); 
 
     // Update totals in the header state
     useEffect(() => {
@@ -212,16 +201,13 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
     useEffect(() => {
         const loadInitialData = async () => {
             try {
-                // 🎯 FIX: Add mockFetchClasses to the Promise.all
-                const [studentData, itemData, classData] = await Promise.all([
+                const [studentData, itemData] = await Promise.all([
                     fetchStudents(),
-                    fetchMasterItems(),
-                    mockFetchClasses() // <--- Fetch the Class Lookup List here
+                    fetchMasterItems()
                 ]);
 
                 setAllStudents(studentData);
                 setMasterItems(itemData);
-                setClassesList(classData); // <--- Store the Class Lookup List
 
                 if (selectedInvoice) {
                     setSearchQuery(`${selectedInvoice.admission_number} - ${selectedInvoice.name}`);
@@ -297,7 +283,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
             const overdueData = await fetchOutstandingBalances([student.admission_number]);
             setOverdueInvoices(overdueData.map(inv => ({
                 invoice_number: inv.invoice_number,
-                balanceDue: inv.balance_due
+                balanceDue: inv.balance_due // fetchOutstandingBalances returns balance_due (snake_case)
             })));
         } catch (error) {
             console.error('Error fetching overdue invoices:', error);
@@ -320,19 +306,16 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
         setIncludeBBF(include);
         
         if (include && overdueInvoices.length > 0) {
-            const totalBalance = overdueInvoices.reduce((sum, inv) => sum + inv.balanceDue, 0);
             const invoiceNumbers = overdueInvoices.map(inv => inv.invoice_number).join(', ');
             
             setHeader(prev => ({ 
                 ...prev, 
-                broughtforward_description: `Invoices: ${invoiceNumbers}`, 
-                broughtforward_amount: totalBalance > 0 ? totalBalance : null 
+                broughtforward_description: `Invoices: ${invoiceNumbers}`
             }));
         } else {
             setHeader(prev => ({ 
                 ...prev, 
-                broughtforward_description: null, 
-                broughtforward_amount: null 
+                broughtforward_description: null
             }));
         }
     };
@@ -411,10 +394,15 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
         setIsSubmitting(true);
         
         try {
-            // Filter line items: exclude invalid ones and the client-side calculated 'lineTotal'
+            // Filter line items: exclude invalid ones
+            // Note: lineTotal is calculated server-side, but we keep it for type consistency
             const lineItemsPayload: InvoiceLineItem[] = lineItems
                 .filter(item => item.itemName)
-                .map(({ lineTotal, ...rest }) => rest); 
+                .map(item => ({
+                    ...item,
+                    // Ensure lineTotal is included (will be recalculated server-side if needed)
+                    lineTotal: item.lineTotal || (item.unitPrice * item.quantity * (1 - item.discount / 100))
+                })); 
             
             let result: InvoiceHeader;
 
@@ -433,9 +421,9 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
                     totalAmount: grandTotal,
                     balanceDue: header.balanceDue, // Use the state-calculated value
                     broughtforward_description: header.broughtforward_description,
-                    broughtforward_amount: header.broughtforward_amount,
                     
                     // IMPORTANT: paymentMade is explicitly excluded here.
+                    // NOTE: broughtforward_amount is not included - BBF is already in line items
                 };
 
                 // The submission data object for update
@@ -499,13 +487,23 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
                     });
                 }
                 
+                // Recalculate subtotal from finalLineItems (which includes BBF if enabled)
+                // This ensures the backend gets the correct subtotal
+                const finalSubtotal = finalLineItems.reduce((sum, item) => {
+                    const discountFactor = 1 - ((item.discount || 0) / 100);
+                    const lineTotal = (item.unitPrice || 0) * (item.quantity || 0) * discountFactor;
+                    return sum + lineTotal;
+                }, 0);
+                
                 // In create mode, we need all fields, including paymentMade (which should be 0)
                 const submissionData: InvoiceSubmissionData = {
                     header: {
                         ...header,
                         description: generalDescription,
+                        subtotal: parseFloat(finalSubtotal.toFixed(2)),
+                        totalAmount: parseFloat(finalSubtotal.toFixed(2)), // Will be set to subtotal by trigger
+                        // balanceDue is calculated by backend/trigger: totalAmount - paymentMade
                         // paymentMade: 0.00 (included from initial state)
-                        // All totals are correctly calculated in the header state
                     },
                     line_items: finalLineItems,
                 };
@@ -554,7 +552,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
         const value = e.target.value;
         setSearchQuery(value);
         if (!value || !value.includes(header.admission_number)) {
-             setHeader(prev => ({ ...prev, admission_number: '', name: '', broughtforward_amount: null, broughtforward_description: null }));
+             setHeader(prev => ({ ...prev, admission_number: '', name: '', broughtforward_description: null }));
              setOverdueInvoices([]);
              setIncludeBBF(false);
         }
@@ -863,8 +861,6 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
                         loadingItems={loadingItems} 
                         allStudents={allStudents} 
                         loadingStudents={loadingStudents}
-                        // 🎯 CRITICAL FIX: Pass the class list for the frontend lookup
-                        classesLookupList={classesList} 
                         onClose={() => setActiveTab('Single Invoice')} 
                     />
                 )}

@@ -55,12 +55,12 @@ const MODULE_CONFIG: Record<string, ModuleConfig> = {
       { id: 'attendance', label: 'Attendance', permissions: ['view', 'add', 'edit', 'delete'] },
       { id: 'transport', label: 'Transport', permissions: ['view', 'add', 'edit', 'delete'] },
       { id: 'boarding', label: 'Boarding', permissions: ['view', 'add', 'edit', 'delete'] },
-      { id: 'medical', label: 'Medical', permissions: ['view', 'add', 'edit', 'delete'] }
+      { id: 'medical', label: 'Medical', permissions: ['view', 'add', 'edit', 'delete'] },
+      { id: 'homework', label: 'Homework', permissions: ['view', 'add', 'edit', 'delete'] }
     ]
   },
   'Financials': {
     submodules: [
-      { id: 'overview', label: 'Overview', permissions: ['view'] },
       { id: 'invoices', label: 'Invoices', permissions: ['view', 'add', 'edit', 'void', 'approve'] },
       { id: 'fee-structure', label: 'Fee Structure', permissions: ['view', 'add', 'edit', 'delete'] },
       { id: 'payments', label: 'Received', permissions: ['view', 'add', 'edit', 'void'] },
@@ -108,8 +108,6 @@ const MODULE_CONFIG: Record<string, ModuleConfig> = {
       { id: 'user-management', label: 'User Management', permissions: ['manage'] },
       { id: 'archive', label: 'Import Data', permissions: ['manage'] },
       { id: 'delete', label: 'Export Data', permissions: ['manage'] },
-      { id: 'recycle-bin', label: 'Modules', permissions: ['manage'] },
-      { id: 'reset-password', label: 'Security', permissions: ['manage'] },
       { id: 'activity-log', label: 'Activity Log', permissions: ['view'] }
     ]
   }
@@ -254,6 +252,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
 
   const [users, setUsers] = useState<any[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterRole, setFilterRole] = useState<string>('all');
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
+  const [hoveredRow, setHoveredRow] = useState<string | null>(null);
 
   // Fetch users from Supabase
   useEffect(() => {
@@ -296,6 +300,70 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
     } finally {
       setLoadingUsers(false);
     }
+  };
+
+  // Filter and search users
+  const filteredUsers = useMemo(() => {
+    let filtered = users;
+
+    // Apply search filter
+    if (searchTerm) {
+      const lowerSearch = searchTerm.toLowerCase();
+      filtered = filtered.filter(u => 
+        u.name?.toLowerCase().includes(lowerSearch) ||
+        u.email?.toLowerCase().includes(lowerSearch) ||
+        u.description?.toLowerCase().includes(lowerSearch)
+      );
+    }
+
+    // Apply status filter
+    if (filterStatus !== 'all') {
+      filtered = filtered.filter(u => u.status === filterStatus);
+    }
+
+    // Apply role filter
+    if (filterRole !== 'all') {
+      filtered = filtered.filter(u => u.role === filterRole);
+    }
+
+    return filtered;
+  }, [users, searchTerm, filterStatus, filterRole]);
+
+  const toggleSelection = (userId: string) => {
+    setSelectedUsers(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(userId)) {
+        newSet.delete(userId);
+      } else {
+        newSet.add(userId);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedUsers(new Set(filteredUsers.map(u => u.id)));
+  };
+
+  const clearSelection = () => {
+    setSelectedUsers(new Set());
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedUsers.size === 0) return;
+    
+    if (!confirm(`Are you sure you want to delete ${selectedUsers.size} user(s)? This action cannot be undone.`)) {
+      return;
+    }
+
+    const userIds = Array.from(selectedUsers);
+    for (const userId of userIds) {
+      const user = users.find(u => u.id === userId);
+      if (user) {
+        await handleDeleteUser(userId, user.email);
+      }
+    }
+    clearSelection();
   };
 
   const handleDeleteUser = async (userId: string, userEmail: string) => {
@@ -377,11 +445,11 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
         setDescription(selectedUser.description || '');
         setStatus(selectedUser.status || 'Active');
         
-        // Load employee_id and selected_modules if available (need to fetch from database)
+        // Load employee_id, selected_modules, and student_ids if available (need to fetch from database)
         if (selectedUser.id) {
           supabase
             .from('users')
-            .select('employee_id, is_employee, selected_modules')
+            .select('employee_id, is_employee, selected_modules, student_ids')
             .eq('id', selectedUser.id)
             .single()
             .then(({ data, error }) => {
@@ -410,6 +478,24 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
                     console.error('Error parsing selected_modules:', err);
                   }
                 }
+                // Load student_ids for Parent accounts
+                if (selectedUser.role === 'Parent' && data.student_ids) {
+                  // student_ids can be an array or JSON string
+                  let studentIdsArray: string[] = [];
+                  if (Array.isArray(data.student_ids)) {
+                    studentIdsArray = data.student_ids;
+                  } else if (typeof data.student_ids === 'string') {
+                    try {
+                      const parsed = JSON.parse(data.student_ids);
+                      studentIdsArray = Array.isArray(parsed) ? parsed : [];
+                    } catch (err) {
+                      console.error('Error parsing student_ids:', err);
+                    }
+                  }
+                  if (studentIdsArray.length > 0) {
+                    setParentStudentIds(studentIdsArray);
+                  }
+                }
               }
             });
         }
@@ -423,10 +509,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
         setSelectedEmployeeId('');
         setEmployeeSearch('');
         setCustomIsEmployee(false);
+        setParentStudentIds([]);
       }
       setSubmitError('');
       setSelectedModuleItems([]);
-      setParentStudentIds([]);
+      // Note: parentStudentIds is only reset when creating a new user (in else block above)
+      // When editing, it's loaded from the database in the fetch above
     }, [selectedUser, staffMembers]);
     
     // Reset employee fields when role changes
@@ -435,9 +523,15 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
         setSelectedEmployeeId('');
         setEmployeeSearch('');
         setCustomIsEmployee(false);
+        // Reset parent student IDs when role changes away from Parent
+        if (role !== 'Parent') {
+          setParentStudentIds([]);
+        }
       } else if (role === 'Admin' || role === 'Teacher') {
         // For Admin/Teacher, ensure is_employee is true (handled in submit)
         setCustomIsEmployee(false); // Not applicable for these roles
+        // Reset parent student IDs when role changes to Admin/Teacher
+        setParentStudentIds([]);
       }
     }, [role]);
 
@@ -1347,11 +1441,24 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
         <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6 flex flex-col md:flex-row items-center gap-4">
           <div className="relative flex-1 w-full">
             <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-            <input type="text" placeholder="Search users..." className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+            <input 
+              type="text" 
+              placeholder="Search by username, email, or description..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" 
+            />
           </div>
           <div className="flex items-center space-x-4 w-full md:w-auto">
-            <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center text-gray-700">
-               <Filter className="w-5 h-5 mr-2" /> Filter
+            <button 
+              onClick={() => setShowFilterModal(!showFilterModal)}
+              className={`px-4 py-2 border rounded-lg flex items-center transition-colors ${
+                (filterStatus !== 'all' || filterRole !== 'all')
+                  ? 'border-blue-500 bg-blue-50 text-blue-700'
+                  : 'border-gray-300 hover:bg-gray-50 text-gray-700'
+              }`}
+            >
+              <Filter className="w-5 h-5 mr-2" /> Filter
             </button>
             <button onClick={() => setShowForm(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center whitespace-nowrap">
               <Plus className="w-5 h-5 mr-2" /> Add User
@@ -1359,13 +1466,101 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
           </div>
         </div>
 
+        {/* Filter Modal */}
+        {showFilterModal && (
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Filter Users</h3>
+              <button
+                onClick={() => setShowFilterModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="all">All Status</option>
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
+                <select
+                  value={filterRole}
+                  onChange={(e) => setFilterRole(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="all">All Roles</option>
+                  <option value="Super Admin">Super Admin</option>
+                  <option value="Admin">Admin</option>
+                  <option value="Teacher">Teacher</option>
+                  <option value="Parent">Parent</option>
+                  <option value="Custom">Custom</option>
+                </select>
+              </div>
+            </div>
+            {(filterStatus !== 'all' || filterRole !== 'all') && (
+              <button
+                onClick={() => {
+                  setFilterStatus('all');
+                  setFilterRole('all');
+                }}
+                className="mt-4 text-sm text-blue-600 hover:text-blue-700"
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Users Table */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          {/* Bulk Actions Bar */}
+          {selectedUsers.size > 0 && (
+            <div className="bg-blue-50 border-b border-blue-200 px-4 py-2 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <span className="text-xs text-gray-600">
+                  {selectedUsers.size} selected
+                </span>
+                <button
+                  onClick={selectAll}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                >
+                  Select All ({filteredUsers.length})
+                </button>
+                <button
+                  onClick={clearSelection}
+                  className="text-xs text-gray-600 hover:text-gray-700"
+                >
+                  Clear
+                </button>
+              </div>
+              <button
+                onClick={handleBulkDelete}
+                className="text-xs text-red-600 hover:text-red-700 font-medium"
+              >
+                Delete Selected
+              </button>
+            </div>
+          )}
+
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                  {/* Checkbox column header */}
+                  <th className="pl-3 pr-2 py-3 text-left w-10">
+                    {/* Empty header for checkbox column */}
+                  </th>
+                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Login</th>
@@ -1376,24 +1571,76 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
               <tbody className="bg-white divide-y divide-gray-200">
                 {loadingUsers ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
                       Loading users...
                     </td>
                   </tr>
-                ) : users.length === 0 ? (
+                ) : filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
                       No users found
                     </td>
                   </tr>
                 ) : (
-                  users.map((user) => (<tr key={user.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
+                  filteredUsers.map((user) => {
+                    const handleRowClick = async () => {
+                      // Check if trying to edit super admin
+                      if (user.role === 'Super Admin' || user.role === 'Superadmin') {
+                        // Check if current user is super admin
+                        try {
+                          const { data: { user: currentUser } } = await supabase.auth.getUser();
+                          if (currentUser) {
+                            const { data: currentUserData } = await supabase
+                              .from('users')
+                              .select('role')
+                              .eq('id', currentUser.id)
+                              .single();
+                            
+                            if (currentUserData?.role !== 'Super Admin' && currentUserData?.role !== 'Superadmin') {
+                              alert('Only the master account can modify master account details.');
+                              return;
+                            }
+                          }
+                        } catch (err) {
+                          console.error('Error checking current user:', err);
+                          alert('Unable to verify permissions. Only the master account can modify master account details.');
+                          return;
+                        }
+                      }
+                      setSelectedUser(user);
+                      setShowForm(true);
+                    };
+
+                    return (
+                      <tr 
+                        key={user.id} 
+                        className="hover:bg-gray-50 transition-colors cursor-pointer"
+                        onMouseEnter={() => setHoveredRow(user.id)}
+                        onMouseLeave={() => setHoveredRow(null)}
+                        onClick={handleRowClick}
+                      >
+                        {/* Checkbox column */}
+                        <td 
+                          className="pl-3 pr-2 py-4 whitespace-nowrap"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedUsers.has(user.id)}
+                            onChange={() => toggleSelection(user.id)}
+                            className={`w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-2 focus:ring-blue-500 transition-opacity cursor-pointer ${
+                              hoveredRow === user.id || selectedUsers.size > 0
+                                ? 'opacity-100'
+                                : 'opacity-0'
+                            }`}
+                          />
+                        </td>
+                    <td className="px-2 py-4 whitespace-nowrap">
                       <div className="flex items-center">
-                        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+                        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center mr-3">
                           <User className="w-5 h-5 text-gray-500" />
                         </div>
-                        <div className="ml-4">
+                        <div>
                           <div className="text-sm font-medium text-gray-900">{user.name}</div>
                           <div className="text-sm text-gray-500">{user.email}</div>
                         </div>
@@ -1417,45 +1664,30 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
                         {user.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex space-x-2">
+                    <td 
+                      className="px-6 py-4 whitespace-nowrap text-sm font-medium"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex space-x-3 items-center">
                         <button 
-                          onClick={async () => {
-                            // Check if trying to edit super admin
-                            if (user.role === 'Super Admin' || user.role === 'Superadmin') {
-                              // Check if current user is super admin
-                              try {
-                                const { data: { user: currentUser } } = await supabase.auth.getUser();
-                                if (currentUser) {
-                                  const { data: currentUserData } = await supabase
-                                    .from('users')
-                                    .select('role')
-                                    .eq('id', currentUser.id)
-                                    .single();
-                                  
-                                  if (currentUserData?.role !== 'Super Admin' && currentUserData?.role !== 'Superadmin') {
-                                    alert('Only the master account can modify master account details.');
-                                    return;
-                                  }
-                                }
-                              } catch (err) {
-                                console.error('Error checking current user:', err);
-                                alert('Unable to verify permissions. Only the master account can modify master account details.');
-                                return;
-                              }
-                            }
-                            setSelectedUser(user);
-                            setShowForm(true);
-                          }} 
-                          className="text-blue-600 hover:text-blue-700"
+                          onClick={handleRowClick}
                           disabled={deletingUserId === user.id}
+                          className={`transition-colors ${
+                            deletingUserId === user.id
+                              ? 'text-blue-300 cursor-not-allowed'
+                              : 'text-blue-600 hover:text-blue-700'
+                          }`}
                         >
                           <Edit className="w-4 h-4" />
                         </button>
                         <button 
                           onClick={() => handleDeleteUser(user.id, user.email)}
-                          className="text-red-600 hover:text-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
                           disabled={deletingUserId === user.id || user.role === 'Super Admin' || user.role === 'Superadmin'}
+                          className={`transition-colors ${
+                            deletingUserId === user.id
+                              ? 'text-red-400 cursor-not-allowed'
+                              : 'text-red-600 hover:text-red-700'
+                          } disabled:opacity-50 disabled:cursor-not-allowed`}
                           title={user.role === 'Super Admin' || user.role === 'Superadmin' ? 'Cannot delete master account' : 'Delete user'}
                         >
                           {deletingUserId === user.id ? (
@@ -1466,7 +1698,9 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
                         </button>
                       </div>
                     </td>
-                  </tr>))
+                  </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

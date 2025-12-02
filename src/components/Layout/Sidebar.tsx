@@ -117,8 +117,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange
     const hasDirectAccess = selectedModules.some((m: any) => {
       if (submoduleId) {
         // Check for submodule access - try multiple formats
-        const submoduleIdFormatted = submoduleId === 'financial-home' ? 'overview' : 
-                                     submoduleId === 'leave-management' ? 'leave' : submoduleId;
+        // Map sidebar submodule IDs to database submodule IDs
+        const submoduleIdFormatted = 
+          submoduleId === 'financial-home' ? 'overview' : 
+          submoduleId === 'leave-management' ? 'leave' :
+          submoduleId === 'inventory-list' ? 'inventory' :
+          submoduleId === 'requisition-records' ? 'requisitions' :
+          submoduleId === 'behaviour' ? 'disciplinary' :
+          submoduleId;
         return (
           m.id === `submodule-${moduleName}-${submoduleIdFormatted}` ||
           m.id === `submodule-${moduleName}-${submoduleId}` ||
@@ -165,7 +171,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange
         { id: 'attendance', label: 'Attendance', icon: Calendar },
         { id: 'transport', label: 'Transport', icon: Bus },
         { id: 'boarding', label: 'Boarding', icon: Bed },
-        { id: 'medical', label: 'Medical', icon: HeartPulse }
+        { id: 'medical', label: 'Medical', icon: HeartPulse },
+        { id: 'homework', label: 'Homework', icon: BookOpen }
       ]
     },
     {
@@ -173,7 +180,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange
       label: 'Financials',
       icon: Wallet,
       children: [
-        { id: 'financial-home', label: 'Overview', icon: BarChart3 },
         { id: 'invoices', label: 'Invoices', icon: DollarSign },
         { id: 'fee-structure', label: 'Fee Structure', icon: FileText },
         { id: 'payments', label: 'Received', icon: Receipt },
@@ -256,8 +262,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange
         { id: 'user-management', label: 'User Management', icon: Users },
         { id: 'archive', label: 'Import Data', icon: Download },
         { id: 'delete', label: 'Export Data', icon: Upload },
-        { id: 'recycle-bin', label: 'Modules', icon: Layers },
-        { id: 'reset-password', label: 'Security', icon: Key },
         { id: 'activity-log', label: 'Activity Log', icon: Activity }
       ]
     }

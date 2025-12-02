@@ -62,20 +62,20 @@ const getNewDefaultRule = (): ConditionalLineItemRule => ({
 });
 
 // Base student fields for conditional rules
-const BASE_FIELDS = [
+const BASE_FIELDS: FieldDefinition[] = [
     { id: 'current_class_id', name: 'Current Class', table: 'classes', type: 'system' },
     { id: 'stream_id', name: 'Stream', table: 'streams', type: 'system' },
     { id: 'team_colour_id', name: 'Team', table: 'team_colours', type: 'system' },
 ];
 
 // Transport fields
-const TRANSPORT_FIELDS = [
+const TRANSPORT_FIELDS: FieldDefinition[] = [
     { id: 'transport_zone_id', name: 'Zone', table: 'transport_zones', type: 'transport' },
     { id: 'transport_type_id', name: 'Transport Type', table: 'transport_types', type: 'transport' },
 ];
 
 // Accommodation fields
-const ACCOMMODATION_FIELDS = [
+const ACCOMMODATION_FIELDS: FieldDefinition[] = [
     { id: 'boarding_house_id', name: 'House', table: 'boarding_houses', type: 'accommodation' },
     { id: 'accommodation_type_id', name: 'Accommodation Type', table: 'boarding_accommodation_types', type: 'accommodation' },
 ];
@@ -191,7 +191,7 @@ export const CustomLineItems: React.FC<CustomLineItemsProps> = ({
                     customFields.forEach((cf: any) => {
                         if (cf.field_type === 'Dropdown' && cf.options && Array.isArray(cf.options)) {
                             // Map string array to {id, name} format
-                            options[cf.field_id] = cf.options.map((opt: string, idx: number) => ({
+                            options[cf.field_id] = cf.options.map((opt: string) => ({
                                 id: opt, // Use the actual value as ID
                                 name: opt
                             }));

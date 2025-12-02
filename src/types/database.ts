@@ -75,7 +75,7 @@ export interface InvoiceHeader {
 
     // Balance Brought Forward Fields
     broughtforward_description: string | null; // text | nullable
-    broughtforward_amount: number | null; // numeric | nullable
+    // NOTE: broughtforward_amount removed - BBF is now only included as a line item
     
     // Calculated/DB-managed fields (Changed from snake_case to camelCase)
     subtotal: number; // numeric (Line Items sum, excluding B/F)

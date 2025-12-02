@@ -1,17 +1,13 @@
 // src/components/Financial/Invoices/InvoiceTable.tsx (READY TO PASTE)
 
 import React, { useState } from 'react';
-import { Download, Edit, Trash2 } from 'lucide-react'; // Keep imports for potential future use
 import { InvoiceHeader } from '../../../types/database'; 
 import { deleteInvoice } from '../../../services/financialService';
 
 interface InvoiceTableProps {
     invoices: InvoiceHeader[]; 
-    onEdit: (invoice: InvoiceHeader) => void;
     // NEW PROP: Function to trigger the full invoice display view
     onView: (invoice: InvoiceHeader) => void; 
-    // NEW PROP: Function to download invoice as PDF
-    onDownload: (invoice: InvoiceHeader) => Promise<void>;
     onDataMutation: () => void; 
 }
 
@@ -34,7 +30,7 @@ const getStatusClasses = (status: InvoiceHeader['status']) => {
 }
 
 // UPDATE: Added 'onView' and 'onDownload' props here
-export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onEdit, onView, onDownload, onDataMutation }) => {
+export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onView, onDataMutation }) => {
     
     // Hover state tracking (borrowed from students masterlist)
     const [hoveredRow, setHoveredRow] = useState<string | null>(null);
@@ -56,22 +52,6 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onEdit, on
     };
     
     const hasSelections = selectedInvoices.size > 0;
-    
-    // --- Delete Handler ---
-    const handleDelete = async (invoice: InvoiceHeader) => {
-        if (!window.confirm(`Are you sure you want to delete invoice ${invoice.invoice_number}? This action cannot be undone.`)) {
-            return;
-        }
-        
-        try {
-            await deleteInvoice(invoice.invoice_number);
-            alert(`Invoice ${invoice.invoice_number} deleted successfully.`);
-            onDataMutation(); // Refresh the invoice list
-        } catch (error) {
-            console.error('Error deleting invoice:', error);
-            alert(`Failed to delete invoice: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
-    };
     
     // --- Void Handler ---
     const handleVoid = async (invoice: InvoiceHeader) => {
@@ -132,16 +112,6 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onEdit, on
         
         setSelectedInvoices(new Set());
         onDataMutation(); // Refresh the invoice list
-    };
-    
-    // --- Download Handler ---
-    const handleDownload = async (invoice: InvoiceHeader) => {
-        try {
-            await onDownload(invoice);
-        } catch (error) {
-            console.error('Error downloading invoice:', error);
-            alert(`Failed to download invoice: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
     };
     
     return (

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { User, FileText, Star, DollarSign, CreditCard, Calendar, TrendingUp } from 'lucide-react';
 import { Header } from '../Layout/Header';
 import { ParentSidebar } from './ParentSidebar';
+import { ParentHomework } from './ParentHomework';
 
 interface ParentDashboardProps {
   onLogout: () => void;
@@ -10,6 +11,7 @@ interface ParentDashboardProps {
 export const ParentDashboard: React.FC<ParentDashboardProps> = ({ onLogout }) => {
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<'dashboard' | 'homework'>('dashboard');
 
   // Mock student data for parent view
   const studentData = {
@@ -159,9 +161,13 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({ onLogout }) =>
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         onLogout={onLogout}
+        onSectionChange={(section) => setActiveSection(section as 'dashboard' | 'homework')}
       />
       <main className="flex-1 overflow-y-auto scroll-smooth w-full">
         <Header onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)} username="Parent" />
+        {activeSection === 'homework' ? (
+          <ParentHomework />
+        ) : (
         <div className="p-6 bg-gray-50 min-h-screen">
           <div className="max-w-7xl mx-auto">
 
@@ -345,6 +351,7 @@ export const ParentDashboard: React.FC<ParentDashboardProps> = ({ onLogout }) =>
         {showPaymentForm && <PaymentForm />}
           </div>
         </div>
+        )}
       </main>
     </div>
   );

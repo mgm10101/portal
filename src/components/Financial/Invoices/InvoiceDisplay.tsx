@@ -46,6 +46,7 @@ export interface InvoiceData {
   paymentMade: number; // This will be overwritten by fetched data
   finalBalance: number; // This will be overwritten by fetched data
   paymentBanks: PaymentBank[];
+  admissionNumber?: string; // Optional: for PDF naming
 }
 
 // --- Component Definition (Modified to fetch data) ---
@@ -284,7 +285,12 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
             {/* ✅ Bill To moved slightly higher */}
             <div className="mt-16">
               <p className="text-xs font-semibold uppercase text-gray-600 mb-0">Bill To</p>
-              <p className="text-lg font-bold">{billToName}</p>
+              <p className="text-lg font-bold">
+                {billToName}
+                {data.admissionNumber && (
+                  <span className="font-normal text-gray-400 ml-2">{data.admissionNumber}</span>
+                )}
+              </p>
               <p className="text-sm text-gray-600">Description: {billToDescription}</p>
             </div>
           </div>

@@ -47,8 +47,14 @@ const hasModuleAccess = (moduleId: string, submoduleId: string | undefined, sele
   
   const hasDirectAccess = selectedModules.some((m: any) => {
     if (submoduleId) {
-      const submoduleIdFormatted = submoduleId === 'financial-home' ? 'overview' : 
-                                   submoduleId === 'leave-management' ? 'leave' : submoduleId;
+      // Map sidebar submodule IDs to database submodule IDs
+      const submoduleIdFormatted = 
+        submoduleId === 'financial-home' ? 'overview' : 
+        submoduleId === 'leave-management' ? 'leave' :
+        submoduleId === 'inventory-list' ? 'inventory' :
+        submoduleId === 'requisition-records' ? 'requisitions' :
+        submoduleId === 'behaviour' ? 'disciplinary' :
+        submoduleId;
       return (
         m.id === `submodule-${moduleName}-${submoduleIdFormatted}` ||
         m.id === `submodule-${moduleName}-${submoduleId}` ||
@@ -85,8 +91,8 @@ const getActionConfig = (moduleId: string, submoduleId?: string) => {
     'transport': { label: 'Manage Transport', icon: Bus, hoverColor: 'hover:bg-yellow-50 hover:border-yellow-300', iconColor: 'text-yellow-600' },
     'boarding': { label: 'Manage Boarding', icon: Bed, hoverColor: 'hover:bg-indigo-50 hover:border-indigo-300', iconColor: 'text-indigo-600' },
     'medical': { label: 'Record Medical', icon: HeartPulse, hoverColor: 'hover:bg-pink-50 hover:border-pink-300', iconColor: 'text-pink-600' },
+    'homework': { label: 'Manage Homework', icon: BookOpen, hoverColor: 'hover:bg-teal-50 hover:border-teal-300', iconColor: 'text-teal-600' },
     // Financials submodules
-    'financial-home': { label: 'View Financials', icon: BarChart3, hoverColor: 'hover:bg-blue-50 hover:border-blue-300', iconColor: 'text-blue-600' },
     'invoices': { label: 'Create Invoice', icon: DollarSign, hoverColor: 'hover:bg-green-50 hover:border-green-300', iconColor: 'text-green-600' },
     'fee-structure': { label: 'Manage Fee Structure', icon: FileText, hoverColor: 'hover:bg-teal-50 hover:border-teal-300', iconColor: 'text-teal-600' },
     'payments': { label: 'Record Payment', icon: Receipt, hoverColor: 'hover:bg-emerald-50 hover:border-emerald-300', iconColor: 'text-emerald-600' },
@@ -115,8 +121,6 @@ const getActionConfig = (moduleId: string, submoduleId?: string) => {
     'user-management': { label: 'Manage Users', icon: Users, hoverColor: 'hover:bg-gray-50 hover:border-gray-300', iconColor: 'text-gray-600' },
     'archive': { label: 'Import Data', icon: Download, hoverColor: 'hover:bg-blue-50 hover:border-blue-300', iconColor: 'text-blue-600' },
     'delete': { label: 'Export Data', icon: Upload, hoverColor: 'hover:bg-green-50 hover:border-green-300', iconColor: 'text-green-600' },
-    'recycle-bin': { label: 'Manage Modules', icon: Layers, hoverColor: 'hover:bg-purple-50 hover:border-purple-300', iconColor: 'text-purple-600' },
-    'reset-password': { label: 'Security Settings', icon: Key, hoverColor: 'hover:bg-red-50 hover:border-red-300', iconColor: 'text-red-600' },
     'activity-log': { label: 'View Activity Log', icon: Activity, hoverColor: 'hover:bg-orange-50 hover:border-orange-300', iconColor: 'text-orange-600' },
     // Modules without submodules
     'tasks': { label: 'Manage Tasks', icon: CalendarClock, hoverColor: 'hover:bg-indigo-50 hover:border-indigo-300', iconColor: 'text-indigo-600' },
@@ -152,13 +156,13 @@ export const CustomDashboard: React.FC<CustomDashboardProps> = ({
     
     // Define all modules and their submodules
     const moduleStructure = [
-      { id: 'students', submodules: ['masterlist', 'assessments', 'behaviour', 'attendance', 'transport', 'boarding', 'medical'] },
-      { id: 'financial', submodules: ['financial-home', 'invoices', 'fee-structure', 'payments', 'expenses', 'payroll'] },
+      { id: 'students', submodules: ['masterlist', 'assessments', 'behaviour', 'attendance', 'transport', 'boarding', 'medical', 'homework'] },
+      { id: 'financial', submodules: ['invoices', 'fee-structure', 'payments', 'expenses', 'payroll'] },
       { id: 'inventory', submodules: ['inventory-list', 'requisition-records', 'repair-requests', 'asset-issuance', 'budgets'] },
       { id: 'hr', submodules: ['staff-info', 'leave-management', 'disciplinary', 'performance'] },
       { id: 'programs', submodules: ['school-calendar', 'lesson-plans', 'shifts', 'schedules'] },
       { id: 'library', submodules: ['books-masterlist', 'borrowing-records'] },
-      { id: 'settings', submodules: ['user-management', 'archive', 'delete', 'recycle-bin', 'reset-password', 'activity-log'] },
+      { id: 'settings', submodules: ['user-management', 'archive', 'delete', 'activity-log'] },
       { id: 'tasks', submodules: [] },
       { id: 'custom-records', submodules: [] },
       { id: 'leads', submodules: [] },

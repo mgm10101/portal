@@ -1,25 +1,39 @@
 import React, { useRef, useMemo } from 'react';
-import { Home, LogOut } from 'lucide-react';
+import { Home, LogOut, BookOpen } from 'lucide-react';
 
 interface ParentSidebarProps {
   isOpen: boolean;
   onClose: () => void;
   onLogout: () => void;
+  onSectionChange?: (section: string) => void;
 }
 
-export const ParentSidebar: React.FC<ParentSidebarProps> = ({ isOpen, onClose, onLogout }) => {
+export const ParentSidebar: React.FC<ParentSidebarProps> = ({ isOpen, onClose, onLogout, onSectionChange }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const SidebarContent = useMemo(() => (
     <div className="h-full bg-white border-r border-gray-200 flex flex-col">
       <nav ref={scrollRef} className="flex-1 overflow-y-auto py-4 scroll-smooth scrollbar-hide scrollbar-show-on-hover">
-        <div className="px-4 mb-2">
+        <div className="px-4 mb-2 space-y-2">
           <button
-            onClick={onClose}
+            onClick={() => {
+              onClose();
+              if (onSectionChange) onSectionChange('dashboard');
+            }}
             className="w-full flex items-center p-3 rounded-lg transition-colors bg-blue-50 text-blue-600"
           >
             <Home className="w-5 h-5 mr-3" />
             <span className="font-medium">Dashboard</span>
+          </button>
+          <button
+            onClick={() => {
+              onClose();
+              if (onSectionChange) onSectionChange('homework');
+            }}
+            className="w-full flex items-center p-3 rounded-lg transition-colors text-gray-700 hover:bg-gray-50"
+          >
+            <BookOpen className="w-5 h-5 mr-3" />
+            <span className="font-medium">Homework</span>
           </button>
         </div>
 

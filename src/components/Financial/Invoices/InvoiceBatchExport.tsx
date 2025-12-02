@@ -27,7 +27,6 @@ interface InvoiceForExport {
     total_amount: string;
     payment_made: string;
     balance_due: string;
-    broughtforward_amount: string | null;
     broughtforward_description: string | null;
 }
 
@@ -208,7 +207,7 @@ export const InvoiceBatchExport: React.FC<InvoiceBatchExportProps> = ({ onClose 
                 .from('invoice_line_items')
                 .select('*')
                 .eq('invoice_number', invoiceNumber)
-                .order('sort_order', { ascending: true, nullsLast: true })
+                .order('sort_order', { ascending: true, nullsFirst: false })
                 .order('id', { ascending: true }); // Secondary sort
 
             if (lineItemsError) {
@@ -224,7 +223,7 @@ export const InvoiceBatchExport: React.FC<InvoiceBatchExportProps> = ({ onClose 
                 dueDate: headerData.due_date,
                 status: headerData.status,
                 billToName: headerData.name,
-                billToDescription: `Admission Number: ${headerData.admission_number}`,
+                billToDescription: headerData.description || 'N/A',
                 slogan: 'Excellence in Education',
                 items: lineItems?.map((item: any, index: number) => ({
                     id: index + 1,
@@ -246,7 +245,8 @@ export const InvoiceBatchExport: React.FC<InvoiceBatchExportProps> = ({ onClose 
                         accountNumber: '0123456789',
                         paybillNumber: '247247'
                     }
-                ]
+                ],
+                admissionNumber: headerData.admission_number // Store for PDF naming
             };
 
             return invoiceData;
@@ -434,6 +434,9 @@ export const InvoiceBatchExport: React.FC<InvoiceBatchExportProps> = ({ onClose 
             const invoicesFolder = zip.folder('Invoices');
             let successCount = 0;
             let failedCount = 0;
+            
+            // Track filename usage to handle duplicates
+            const filenameCounts = new Map<string, number>();
 
             for (let i = 0; i < invoices.length; i++) {
                 const invoice = invoices[i];
@@ -442,7 +445,25 @@ export const InvoiceBatchExport: React.FC<InvoiceBatchExportProps> = ({ onClose 
                 const pdfBlob = await generateInvoicePDF(invoice.invoice_number);
                 
                 if (pdfBlob) {
-                    invoicesFolder?.file(`${invoice.invoice_number}.pdf`, pdfBlob);
+                    // Sanitize filename: replace invalid characters with underscores
+                    const sanitizeFilename = (str: string) => str.replace(/[<>:"/\\|?*]/g, '_').trim();
+                    const admissionNumber = invoice.admission_number || 'Unknown';
+                    const studentName = invoice.name || 'Unknown';
+                    const baseFilename = `${sanitizeFilename(admissionNumber)} - ${sanitizeFilename(studentName)}`;
+                    
+                    // Check if this filename has been used before
+                    let filename = `${baseFilename}.pdf`;
+                    if (filenameCounts.has(baseFilename)) {
+                        // This is a duplicate, add (2), (3), etc.
+                        const count = filenameCounts.get(baseFilename)! + 1;
+                        filenameCounts.set(baseFilename, count);
+                        filename = `${baseFilename} (${count}).pdf`;
+                    } else {
+                        // First occurrence, mark it
+                        filenameCounts.set(baseFilename, 1);
+                    }
+                    
+                    invoicesFolder?.file(filename, pdfBlob);
                     successCount++;
                 } else {
                     console.error(`Failed to generate PDF for ${invoice.invoice_number}`);

@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Login } from './components/Login';
 import { ParentDashboard } from './components/Parent/ParentDashboard';
+import { ParentHomework } from './components/Parent/ParentHomework';
 import { Sidebar } from './components/Layout/Sidebar';
 import { Header } from './components/Layout/Header';
 import { IconSidebar } from './components/Layout/IconSidebar';
@@ -16,6 +17,7 @@ import { Assessments } from './components/Students/Assessments';
 import { Behaviour } from './components/Students/Behaviour';
 import { Attendance } from './components/Students/Attendance';
 import { MedicalContainer } from './components/Students/Medical/MedicalContainer';
+import { Homework } from './components/Students/Homework';
 import { Invoices } from './components/Financial/Invoices'; // ✅ Works with index.tsx
 import { PaymentsReceived } from './components/Financial/PaymentsReceived';
 import { Expenses } from './components/Financial/Expenses';
@@ -287,7 +289,7 @@ function App() {
       case 'behaviour': return <Behaviour />;
       case 'attendance': return <Attendance />;
       case 'medical': return <MedicalContainer />;
-      case 'financial-home': return <FinancialHome />;
+      case 'homework': return <Homework />;
       case 'invoices': return <Invoices />; // ✅ Fixed to work with index.tsx
       case 'fee-structure': return <FeeStructure />;
       case 'payments': return <PaymentsReceived />;

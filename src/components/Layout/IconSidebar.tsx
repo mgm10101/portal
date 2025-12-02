@@ -99,8 +99,14 @@ export const IconSidebar: React.FC<IconSidebarProps> = ({
     const hasDirectAccess = selectedModules.some((m: any) => {
       if (submoduleId) {
         // Check for submodule access - try multiple formats
-        const submoduleIdFormatted = submoduleId === 'financial-home' ? 'overview' : 
-                                     submoduleId === 'leave-management' ? 'leave' : submoduleId;
+        // Map sidebar submodule IDs to database submodule IDs
+        const submoduleIdFormatted = 
+          submoduleId === 'financial-home' ? 'overview' : 
+          submoduleId === 'leave-management' ? 'leave' :
+          submoduleId === 'inventory-list' ? 'inventory' :
+          submoduleId === 'requisition-records' ? 'requisitions' :
+          submoduleId === 'behaviour' ? 'disciplinary' :
+          submoduleId;
         return (
           m.id === `submodule-${moduleName}-${submoduleIdFormatted}` ||
           m.id === `submodule-${moduleName}-${submoduleId}` ||
@@ -138,10 +144,10 @@ export const IconSidebar: React.FC<IconSidebarProps> = ({
       { id: 'attendance', icon: Calendar },
       { id: 'transport', icon: Bus },
       { id: 'boarding', icon: Bed },
-      { id: 'medical', icon: HeartPulse }
+      { id: 'medical', icon: HeartPulse },
+      { id: 'homework', icon: FileEdit }
     ],
     'financial': [
-      { id: 'financial-home', icon: BarChart3 },
       { id: 'invoices', icon: DollarSign },
       { id: 'fee-structure', icon: FileText },
       { id: 'payments', icon: Receipt },
@@ -175,8 +181,6 @@ export const IconSidebar: React.FC<IconSidebarProps> = ({
       { id: 'user-management', icon: Users },
       { id: 'archive', icon: Download },
       { id: 'delete', icon: Upload },
-      { id: 'recycle-bin', icon: Layers },
-      { id: 'reset-password', icon: Key },
       { id: 'activity-log', icon: Activity }
     ]
   };
@@ -239,13 +243,13 @@ export const IconSidebar: React.FC<IconSidebarProps> = ({
   // Check if a parent section is active (for sections with children)
   const isParentActive = (parentId: string) => {
     const parentChildMap: Record<string, string[]> = {
-      'students': ['masterlist', 'assessments', 'behaviour', 'attendance', 'transport', 'boarding', 'medical'],
-      'financial': ['financial-home', 'invoices', 'fee-structure', 'payments', 'expenses', 'payroll'],
+      'students': ['masterlist', 'assessments', 'behaviour', 'attendance', 'transport', 'boarding', 'medical', 'homework'],
+      'financial': ['invoices', 'fee-structure', 'payments', 'expenses', 'payroll'],
       'inventory': ['inventory-list', 'requisition-records', 'repair-requests', 'asset-issuance', 'budgets'],
       'library': ['books-masterlist', 'borrowing-records'],
       'hr': ['staff-info', 'leave-management', 'disciplinary', 'performance'],
       'programs': ['school-calendar', 'lesson-plans', 'shifts', 'schedules'],
-      'settings': ['user-management', 'archive', 'delete', 'recycle-bin', 'reset-password', 'activity-log']
+      'settings': ['user-management', 'archive', 'delete', 'activity-log']
     };
     return parentChildMap[parentId]?.includes(activeSection) || false;
   };

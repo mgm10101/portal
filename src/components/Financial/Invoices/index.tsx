@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Plus, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
@@ -42,9 +42,9 @@ export const Invoices: React.FC = () => {
       const fullDetails = await fetchFullInvoice(invoice.invoice_number);
       if (!fullDetails) return;
 
-      const safeBalanceDue = Number(fullDetails.balance_due) || 0;
+      const safeBalanceDue = Number(fullDetails.balanceDue) || 0;
       const safeSubtotal = Number(fullDetails.subtotal) || 0;
-      const safePaymentMade = Number(fullDetails.payment_made) || 0;
+      const safePaymentMade = Number(fullDetails.paymentMade) || 0;
 
       const mappedData: InvoiceData = {
         invoiceNumber: fullDetails.invoice_number,
@@ -72,6 +72,7 @@ export const Invoices: React.FC = () => {
           { bank: 'KCB BANK', branch: 'TALA BRANCH', accountNumber: '1283819074', paybillNumber: '522 522' },
           { bank: 'DTB BANK', branch: 'TWO RIVERS BRANCH', accountNumber: '0678239001', paybillNumber: '516 600' },
         ],
+        admissionNumber: invoice.admission_number, // Store admission number for PDF naming
       };
 
       setInvoiceToDisplay(mappedData);
@@ -81,115 +82,6 @@ export const Invoices: React.FC = () => {
   }, []);
 
   const handleCloseDisplay = useCallback(() => setInvoiceToDisplay(null), []);
-
-  // --- Download Invoice PDF Handler (from table) ---
-  const handleDownloadInvoice = useCallback(async (invoice: InvoiceHeader) => {
-    try {
-      // First, fetch the invoice data
-      const fullDetails = await fetchFullInvoice(invoice.invoice_number);
-      if (!fullDetails) {
-        throw new Error('Failed to fetch invoice details');
-      }
-
-      const safeBalanceDue = Number(fullDetails.balance_due) || 0;
-      const safeSubtotal = Number(fullDetails.subtotal) || 0;
-      const safePaymentMade = Number(fullDetails.payment_made) || 0;
-
-      const mappedData: InvoiceData = {
-        invoiceNumber: fullDetails.invoice_number,
-        balanceDue: safeBalanceDue,
-        invoiceDate: fullDetails.invoice_date,
-        dueDate: fullDetails.due_date,
-        status: fullDetails.status as 'Overdue' | 'Paid' | 'Draft' | 'Pending' | 'Forwarded',
-        billToName: fullDetails.name,
-        billToDescription: fullDetails.description || 'N/A',
-        slogan: '"Nurturing Their Potential"',
-        items: fullDetails.line_items.map((item: any) => ({
-          id: item.id,
-          description: item.itemName,
-          details: item.description || '',
-          quantity: item.quantity,
-          rate: item.unitPrice,
-          total: item.quantity * item.unitPrice,
-          finalAmount: item.lineTotal,
-          discount: item.discount > 0 ? `(${item.discount}% Discount)` : undefined,
-        })),
-        subTotal: safeSubtotal,
-        paymentMade: safePaymentMade,
-        finalBalance: safeBalanceDue,
-        paymentBanks: [
-          { bank: 'KCB BANK', branch: 'TALA BRANCH', accountNumber: '1283819074', paybillNumber: '522 522' },
-          { bank: 'DTB BANK', branch: 'TWO RIVERS BRANCH', accountNumber: '0678239001', paybillNumber: '516 600' },
-        ],
-      };
-
-      // Store previous display state
-      const previousDisplay = invoiceToDisplay;
-      
-      // Temporarily set the invoice to display (will render in the view)
-      setInvoiceToDisplay(mappedData);
-      
-      // Wait for React to render the invoice display
-      await new Promise(resolve => setTimeout(resolve, 800));
-      
-      // Find the rendered invoice element
-      const element = document.getElementById('invoice-pdf-wrapper');
-      if (!element) {
-        setInvoiceToDisplay(previousDisplay);
-        throw new Error('Invoice element not found. Please try again.');
-      }
-
-      element.classList.add('exporting');
-
-      const canvas = await html2canvas(element, {
-        scale: 1.5,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-        width: 794,
-        windowWidth: 794,
-        imageTimeout: 15000,
-        removeContainer: false,
-      });
-
-      const imgData = canvas.toDataURL('image/jpeg', 0.85);
-      const pdf = new jsPDF('p', 'mm', 'a4');
-
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const pixelsToMm = 25.4 / 96;
-      const margin = 10;
-      const imgWidth = pageWidth - (margin * 2);
-      const imgHeight = (canvas.height / canvas.width) * (imgWidth / pixelsToMm) * pixelsToMm;
-      const availableHeight = pageHeight - (margin * 2);
-      const canvasAspectRatio = canvas.width / canvas.height;
-      const finalImgWidth = imgWidth;
-      const finalImgHeight = finalImgWidth / canvasAspectRatio;
-
-      let position = margin;
-      let heightLeft = finalImgHeight;
-
-      pdf.addImage(imgData, 'JPEG', margin, position, finalImgWidth, finalImgHeight, undefined, 'FAST');
-      heightLeft -= availableHeight;
-
-      while (heightLeft > 0) {
-        position = heightLeft - finalImgHeight + margin;
-        pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', margin, position, finalImgWidth, finalImgHeight, undefined, 'FAST');
-        heightLeft -= availableHeight;
-      }
-
-      pdf.save(`Invoice_${invoice.invoice_number}.pdf`);
-      element.classList.remove('exporting');
-      
-      // Restore previous display state (or clear if was null)
-      setInvoiceToDisplay(previousDisplay);
-    } catch (error) {
-      console.error('Error downloading invoice:', error);
-      setInvoiceToDisplay(null); // Clear on error
-      throw error;
-    }
-  }, [invoiceToDisplay]);
 
   // --- OPTIMIZED PDF EXPORT (Reduced file size) ---
   const handleExportToPdf = useCallback(async () => {
@@ -231,7 +123,7 @@ export const Invoices: React.FC = () => {
     // DEBUG: Check if logo is in the canvas and its dimensions
     const canvasContext = canvas.getContext('2d');
     if (canvasContext) {
-      const imageData = canvasContext.getImageData(0, 0, Math.min(400, canvas.width), Math.min(200, canvas.height));
+      canvasContext.getImageData(0, 0, Math.min(400, canvas.width), Math.min(200, canvas.height));
       console.log('🔍 [PDF DEBUG] Top-left area of canvas captured (for logo check)');
     }
 
@@ -312,7 +204,13 @@ export const Invoices: React.FC = () => {
       heightLeft -= availableHeight;
     }
 
-    pdf.save(`Invoice_${invoiceToDisplay.invoiceNumber}.pdf`);
+    // Sanitize filename: replace invalid characters with underscores
+    const sanitizeFilename = (str: string) => str.replace(/[<>:"/\\|?*]/g, '_').trim();
+    const admissionNumber = invoiceToDisplay.admissionNumber || 'Unknown';
+    const studentName = invoiceToDisplay.billToName || 'Unknown';
+    const filename = `${sanitizeFilename(admissionNumber)} - ${sanitizeFilename(studentName)}.pdf`;
+    
+    pdf.save(filename);
     element.classList.remove('exporting');
   }, [invoiceToDisplay]);
 
@@ -334,10 +232,6 @@ export const Invoices: React.FC = () => {
     handleDataMutationSuccess();
   }, [handleDataMutationSuccess]);
 
-  const handleEditInvoice = useCallback((invoice: InvoiceHeader) => {
-    setSelectedInvoice(invoice);
-    setShowForm(true);
-  }, []);
 
   if (loading) {
     return (
@@ -352,12 +246,6 @@ export const Invoices: React.FC = () => {
   if (error) return <div className="p-6 text-center text-red-600">Error: {error}</div>;
 
   if (invoiceToDisplay) {
-    // Check if invoice is Forwarded (cannot be edited)
-    const isForwarded = invoiceToDisplay.status === 'Forwarded';
-    
-    // Find the full invoice header for editing
-    const invoiceForEdit = invoices.find(inv => inv.invoice_number === invoiceToDisplay.invoiceNumber);
-    
     return (
       <div className="p-6 md:p-3 bg-gray-50 min-h-screen">
         <div className="max-w-7xl mx-auto">
@@ -404,9 +292,7 @@ export const Invoices: React.FC = () => {
 
         <InvoiceTable
           invoices={filteredInvoices}
-          onEdit={handleEditInvoice}
           onView={handleViewInvoice}
-          onDownload={handleDownloadInvoice}
           onDataMutation={handleDataMutationSuccess}
         />
 
