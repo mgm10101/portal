@@ -362,22 +362,21 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
 
         <div className="flex justify-between mt-12">
           <div className="w-1/2 pr-8">
-            <h3 className="text-lg font-bold mb-3">Payment Details</h3>
-            <div className="border p-4 bg-gray-50 text-sm">
+            <div className="border p-4 bg-gray-50 text-xs text-gray-600">
               {invoiceSettings?.payment_details ? (
                 <p className="whitespace-pre-line">{invoiceSettings.payment_details}</p>
               ) : (
                 <div className="space-y-3">
                   {paymentBanks.map((b, i) => (
                     <div key={i} className={i > 0 ? 'border-t pt-3 mt-3' : ''}>
-                      <p className="font-semibold">MGM ACADEMY LIMITED</p>
-                      <p className="text-xs">
+                      <p className="font-normal text-gray-600">MGM ACADEMY LIMITED</p>
+                      <p className="text-xs text-gray-500">
                         {b.bank}, {b.branch}
                       </p>
-                      <p className="text-xs font-semibold">
+                      <p className="text-xs font-normal text-gray-600">
                         ACCOUNT NUMBER: {b.accountNumber}
                       </p>
-                      <p className="text-xs font-semibold">
+                      <p className="text-xs font-normal text-gray-600">
                         PAYBILL NUMBER: {b.paybillNumber}
                       </p>
                     </div>
@@ -406,8 +405,8 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
 
               {/* FINAL BALANCE DISPLAY: Uses updated 'finalBalance' variable */}
               <div className="flex justify-between text-xl pt-2 border-t-2 border-black">
-                <span className="font-bold">Balance Due</span>
-                <span className="font-extrabold text-black">
+                <span className="font-normal">Balance Due</span>
+                <span className="font-normal text-black">
                   Ksh.{Number(finalBalance).toLocaleString()}
                 </span>
               </div>
