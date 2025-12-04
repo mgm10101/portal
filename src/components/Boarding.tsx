@@ -1243,6 +1243,20 @@ export const Boarding: React.FC = () => {
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
 
+  const getAccommodationTypeColor = (typeName: string | undefined) => {
+    if (!typeName || typeName === 'Unassigned') {
+      return 'bg-gray-100 text-gray-800';
+    }
+    const lowerName = typeName.toLowerCase();
+    if (lowerName.includes('full')) {
+      return 'bg-green-100 text-green-800';
+    }
+    if (lowerName.includes('partial')) {
+      return 'bg-yellow-100 text-yellow-800';
+    }
+    return 'bg-blue-100 text-blue-800';
+  };
+
   const getStatusLabel = (status: RoomStatus) => {
     const labels: Record<RoomStatus, string> = {
       'fully-occupied': 'Fully Occupied',
@@ -1256,7 +1270,7 @@ export const Boarding: React.FC = () => {
 
   const totalRooms = rooms.length;
   const occupiedRooms = rooms.filter(r => r.status === 'fully-occupied' || r.status === 'partially-occupied').length;
-  const totalStudents = boardingStudents.length;
+  const totalStudents = boardingStudents.filter(s => s.boarding_house_id || s.boarding_room_id).length;
   const occupancyRate = totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : 0;
   const pendingMaintenance = maintenanceRequests.filter(m => m.status === 'pending' || m.status === 'in-progress').length;
 
@@ -2915,7 +2929,7 @@ export const Boarding: React.FC = () => {
                           {student.check_in_date ? formatDate(student.check_in_date) : '-'}
                         </td>
                         <td className="px-6 py-4">
-                          <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getAccommodationTypeColor(student.accommodation_type?.name)}`}>
                             {student.accommodation_type?.name || 'Unassigned'}
                           </span>
                         </td>

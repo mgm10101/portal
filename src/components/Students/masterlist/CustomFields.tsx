@@ -17,7 +17,8 @@ import { supabase } from '../../../supabaseClient';
 const CustomFieldsRender: React.FC<CustomFieldsRenderProps> = ({
   customFields, showAddModal, showEditModal, optionsModalField, dropdownOptions, openFields, selectedValues,
   selectedStudent, openOptions, fetchDropdownOptionsIfNeeded, handleValueChange, toggleDropdown,
-  handleOptionsModalAdd, handleOptionsModalDelete, onShowAdd, onShowEdit, onModalCloseAndRefresh, onEditModalClose
+  handleOptionsModalAdd, handleOptionsModalDelete, onShowAdd, onShowEdit, onModalCloseAndRefresh, onEditModalClose,
+  isDisabled = false
 }) => {
   const dropdownRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -67,16 +68,22 @@ const CustomFieldsRender: React.FC<CustomFieldsRenderProps> = ({
                     ref={(el) => { dropdownRefs.current[field.field_id] = el; }}
                   >
                   <div
-                    className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer min-h-[48px] flex items-center ${
+                    className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[48px] flex items-center ${
                       (selectedValues[field.field_id] || selectedStudent?.[field.field_id]) ? 'text-gray-900' : 'text-gray-400' // FIXED: Check both selectedValues state and selectedStudent prop
-                    }`}
-                    onClick={() => toggleDropdown(field.field_id)}
+                    } ${isDisabled ? 'bg-gray-100 cursor-not-allowed' : 'cursor-pointer'}`}
+                    onClick={() => !isDisabled && toggleDropdown(field.field_id)}
                     role="button" tabIndex={0}
                   >
                     {selectedValues[field.field_id] || selectedStudent?.[field.field_id] || `Select ${field.field_name.toLowerCase()}`}
                   </div>
-                  <button type="button" onClick={() => toggleDropdown(field.field_id)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1" aria-label={`Toggle ${field.field_name} dropdown`}>
-                    <ChevronDown className={`w-4 h-4 transform transition-transform cursor-pointer ${openFields[field.field_id] ? 'rotate-180' : ''}`} />
+                  <button 
+                    type="button" 
+                    onClick={() => !isDisabled && toggleDropdown(field.field_id)} 
+                    disabled={isDisabled}
+                    className={`absolute right-3 top-1/2 -translate-y-1/2 p-1 ${isDisabled ? 'cursor-not-allowed' : ''}`}
+                    aria-label={`Toggle ${field.field_name} dropdown`}
+                  >
+                    <ChevronDown className={`w-4 h-4 transform transition-transform ${isDisabled ? '' : 'cursor-pointer'} ${openFields[field.field_id] ? 'rotate-180' : ''}`} />
                   </button>
                   {/* Dropdown List */}
                   {openFields[field.field_id] && (
@@ -105,34 +112,60 @@ const CustomFieldsRender: React.FC<CustomFieldsRenderProps> = ({
                     </div>
                   )}
                 </div>
-                {/* Edit Options Button */}
-                <button type="button" onClick={() => openOptions(field.field_id)} className="h-10 w-10 inline-flex items-center justify-center bg-gray-100 rounded-lg hover:bg-gray-200">
-                  <Plus className="w-4 h-4" />
-                </button>
+                {/* Edit Options Button */}
+                <button 
+                  type="button" 
+                  onClick={() => !isDisabled && openOptions(field.field_id)} 
+                  disabled={isDisabled}
+                  className={`h-10 w-10 inline-flex items-center justify-center bg-gray-100 rounded-lg ${
+                    isDisabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-200'
+                  }`}
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
               </div>
             ) : (
-              // Text Input
-              <input
-                name={field.field_id} type="text" placeholder={field.field_name}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                defaultValue={selectedValues[field.field_id] ?? selectedStudent?.[field.field_id] ?? ''}
-                onChange={(e) => handleValueChange(field.field_id, e.target.value)}
-              />
+              // Text Input
+              <input
+                name={field.field_id} 
+                type="text" 
+                placeholder={field.field_name}
+                disabled={isDisabled}
+                className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                  isDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                }`}
+                defaultValue={selectedValues[field.field_id] ?? selectedStudent?.[field.field_id] ?? ''}
+                onChange={(e) => handleValueChange(field.field_id, e.target.value)}
+              />
             )}
           </div>
         ))}
       </div>
     </div>
 
-    {/* Add + Edit Buttons */}
-    <div className="flex space-x-2">
-      <button type="button" onClick={onShowAdd} className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
-        <Plus className="w-4 h-4 mr-2" /> Add Custom Field
-      </button>
-      <button type="button" onClick={onShowEdit} className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+    {/* Add + Edit Buttons */}
+    <div className="flex space-x-2">
+      <button 
+        type="button" 
+        onClick={onShowAdd} 
+        disabled={isDisabled}
+        className={`flex items-center px-4 py-2 border border-gray-300 rounded-lg ${
+          isDisabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'
+        }`}
+      >
+        <Plus className="w-4 h-4 mr-2" /> Add Custom Field
+      </button>
+      <button 
+        type="button" 
+        onClick={onShowEdit} 
+        disabled={isDisabled}
+        className={`flex items-center px-4 py-2 border border-gray-300 rounded-lg ${
+          isDisabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'
+        }`}
+      >
         <Pencil className="w-4 h-4 mr-2" /> Edit Fields
       </button>
-    </div>
+    </div>
 
     {/* Modals */}
     {showAddModal && (
@@ -177,26 +210,27 @@ export const CustomFields: React.FC<CustomFieldsProps> = (props) => {
     state.setOptionsModalField(null); // Closes both OptionsModal and EditFieldsModal
   };
 
-  const renderProps: CustomFieldsRenderProps = {
-    customFields: state.customFields,
-    showAddModal: state.showAddModal,
-    showEditModal: state.showEditModal,
-    optionsModalField: state.optionsModalField,
-    dropdownOptions: state.dropdownOptions,
-    openFields: state.openFields,
-    selectedValues: state.selectedValues,
-    selectedStudent: props.selectedStudent,
-    openOptions: state.openOptions,
-    fetchDropdownOptionsIfNeeded: state.fetchDropdownOptionsIfNeeded,
-    handleValueChange: state.handleValueChange,
-    toggleDropdown: state.toggleDropdown,
-    handleOptionsModalAdd: state.handleOptionsModalAdd,
-    handleOptionsModalDelete: state.handleOptionsModalDelete,
-    onShowAdd: handleShowAdd,
-    onShowEdit: handleShowEdit,
-    onModalCloseAndRefresh: handleModalCloseAndRefresh,
-    onEditModalClose: handleEditModalClose,
-  };
+  const renderProps: CustomFieldsRenderProps = {
+    customFields: state.customFields,
+    showAddModal: state.showAddModal,
+    showEditModal: state.showEditModal,
+    optionsModalField: state.optionsModalField,
+    dropdownOptions: state.dropdownOptions,
+    openFields: state.openFields,
+    selectedValues: state.selectedValues,
+    selectedStudent: props.selectedStudent,
+    openOptions: state.openOptions,
+    fetchDropdownOptionsIfNeeded: state.fetchDropdownOptionsIfNeeded,
+    handleValueChange: state.handleValueChange,
+    toggleDropdown: state.toggleDropdown,
+    handleOptionsModalAdd: state.handleOptionsModalAdd,
+    handleOptionsModalDelete: state.handleOptionsModalDelete,
+    onShowAdd: handleShowAdd,
+    onShowEdit: handleShowEdit,
+    onModalCloseAndRefresh: handleModalCloseAndRefresh,
+    onEditModalClose: handleEditModalClose,
+    isDisabled: props.isDisabled,
+  };
 
   return <CustomFieldsRender {...renderProps} />;
 };

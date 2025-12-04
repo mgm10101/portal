@@ -52,6 +52,21 @@ export const StudentForm: React.FC<StudentFormProps> = ({
   const [teamColourId, setTeamColourId] = useState<number | undefined>(
     selectedStudent?.team_colour_id
   );
+  const [transportZoneId, setTransportZoneId] = useState<number | undefined>(
+    selectedStudent?.transport_zone_id
+  );
+  const [transportTypeId, setTransportTypeId] = useState<number | undefined>(
+    selectedStudent?.transport_type_id
+  );
+  const [boardingHouseId, setBoardingHouseId] = useState<number | undefined>(
+    selectedStudent?.boarding_house_id
+  );
+  const [boardingRoomId, setBoardingRoomId] = useState<number | undefined>(
+    selectedStudent?.boarding_room_id
+  );
+  const [accommodationTypeId, setAccommodationTypeId] = useState<number | undefined>(
+    selectedStudent?.accommodation_type_id
+  );
 
   // hold custom fields values provided by CustomFields component
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
@@ -90,6 +105,11 @@ export const StudentForm: React.FC<StudentFormProps> = ({
     setCurrentClassId(selectedStudent?.current_class_id);
     setStreamId(selectedStudent?.stream_id);
     setTeamColourId(selectedStudent?.team_colour_id);
+    setTransportZoneId(selectedStudent?.transport_zone_id);
+    setTransportTypeId(selectedStudent?.transport_type_id);
+    setBoardingHouseId(selectedStudent?.boarding_house_id);
+    setBoardingRoomId(selectedStudent?.boarding_room_id);
+    setAccommodationTypeId(selectedStudent?.accommodation_type_id);
   }, [selectedStudent]);
 
   const clearIfInvalid = (
@@ -155,6 +175,11 @@ export const StudentForm: React.FC<StudentFormProps> = ({
       current_class_id: currentClassId,
       stream_id: streamId,
       team_colour_id: teamColourId,
+      transport_zone_id: transportZoneId,
+      transport_type_id: transportTypeId,
+      boarding_house_id: boardingHouseId,
+      boarding_room_id: boardingRoomId,
+      accommodation_type_id: accommodationTypeId,
       custom_fields: customFieldValues,
       documents: documentValues,
     };
@@ -216,6 +241,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({
               teamColourId={teamColourId}
               setTeamColourId={setTeamColourId}
               onOpenProgressionModal={() => setShowProgressionModal(true)}
+              isDisabled={selectedStudent?.status === 'Inactive'}
             />
 
             <SupplementaryDetailsForm
@@ -225,6 +251,17 @@ export const StudentForm: React.FC<StudentFormProps> = ({
               onCustomFieldsChange={setCustomFieldValues}
               documentValues={documentValues}
               onDocumentsChange={setDocumentValues}
+              transportZoneId={transportZoneId}
+              setTransportZoneId={setTransportZoneId}
+              transportTypeId={transportTypeId}
+              setTransportTypeId={setTransportTypeId}
+              boardingHouseId={boardingHouseId}
+              setBoardingHouseId={setBoardingHouseId}
+              boardingRoomId={boardingRoomId}
+              setBoardingRoomId={setBoardingRoomId}
+              accommodationTypeId={accommodationTypeId}
+              setAccommodationTypeId={setAccommodationTypeId}
+              isDisabled={selectedStudent?.status === 'Inactive'}
             />
 
             <div className="flex justify-end space-x-3 pt-4">

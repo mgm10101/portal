@@ -1,6 +1,6 @@
 // src/components/Students/masterlist/CoreStudentInfoForm.tsx
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, User, Upload, TrendingUp } from 'lucide-react';
 import { DropdownField, DropdownItem } from './DropdownField';
 
@@ -27,6 +27,7 @@ interface CoreStudentInfoFormProps {
   teamColourId?: number;
   setTeamColourId: (id: number) => void;
   onOpenProgressionModal?: () => void;
+  isDisabled?: boolean; // Disable all fields except Status and withdrawal_date
 }
 
 export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
@@ -49,7 +50,15 @@ export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
   teamColourId,
   setTeamColourId,
   onOpenProgressionModal,
+  isDisabled = false,
 }) => {
+  const [genderValue, setGenderValue] = useState(selectedStudent?.gender || '');
+
+  // Update gender value when selectedStudent changes
+  useEffect(() => {
+    setGenderValue(selectedStudent?.gender || '');
+  }, [selectedStudent]);
+
   return (
     <>
       <style>
@@ -59,6 +68,12 @@ export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
           }
           input[type="date"]::-webkit-calendar-picker-indicator {
             cursor: pointer;
+          }
+          select[name="gender"] option[value=""] {
+            color: #9ca3af;
+          }
+          select[name="gender"] option:not([value=""]) {
+            color: #111827;
           }
         `}
       </style>
@@ -92,7 +107,10 @@ export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
           </div>
           <button
             type="button"
-            className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+            disabled={isDisabled}
+            className={`flex items-center px-4 py-2 border border-gray-300 rounded-lg ${
+              isDisabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'
+            }`}
           >
             <Upload className="w-4 h-4 mr-2" />
             Upload Photo
@@ -115,48 +133,59 @@ export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
         <h3 className="text-lg font-semibold text-gray-800 mb-4">
           Basic Information
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Student Name */}
-          <div>
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+          {/* Student Name - spans 4 columns (keep same) */}
+          <div className="md:col-span-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Student Name
             </label>
             <input
               name="name"
               type="text"
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={isDisabled}
+              className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                isDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
+              }`}
               defaultValue={selectedStudent?.name}
             />
           </div>
-          {/* Admission Number */}
-          <div>
+          {/* Gender - spans 3 columns (same width as Date of Birth) */}
+          <div className="md:col-span-3">
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Admission Number
+              Gender
             </label>
-            <input
-              name="admissionNumber"
-              type="text"
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              defaultValue={selectedStudent?.admission_number}
-            />
+            <select
+              name="gender"
+              value={genderValue}
+              onChange={(e) => setGenderValue(e.target.value)}
+              disabled={isDisabled}
+              className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                genderValue === '' ? 'text-gray-400' : 'text-gray-900'
+              } ${isDisabled ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+            >
+              <option value="" className="text-gray-400">Select Gender</option>
+              <option value="Male" className="text-gray-900">Male</option>
+              <option value="Female" className="text-gray-900">Female</option>
+              <option value="Custom" className="text-gray-900">Custom</option>
+            </select>
           </div>
-          {/* Date of Birth */}
-          <div>
+          {/* Date of Birth - spans 3 columns (same width as Gender) */}
+          <div className="md:col-span-3">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Date of Birth
             </label>
             <input
               name="dateOfBirth"
               type="date"
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={isDisabled}
+              className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                isDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
+              }`}
               defaultValue={selectedStudent?.date_of_birth}
             />
           </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-          {/* Age */}
-          <div>
+          {/* Age - spans 2 columns (keep same) */}
+          <div className="md:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Age
             </label>
@@ -165,6 +194,24 @@ export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
               className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50"
               defaultValue={selectedStudent?.age}
               disabled
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+          {/* Admission Number */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Admission Number
+            </label>
+            <input
+              name="admissionNumber"
+              type="text"
+              disabled={isDisabled}
+              className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                isDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
+              }`}
+              defaultValue={selectedStudent?.admission_number}
             />
           </div>
 
@@ -178,6 +225,7 @@ export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
             onOpenModal={onOpenClassesModal}
             onSelect={setClassAdmittedToId}
             tableName="classes"
+            disabled={isDisabled}
           />
 
           {/* Date of Admission */}
@@ -188,7 +236,10 @@ export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
             <input
               name="dateOfAdmission"
               type="date"
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={isDisabled}
+              className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                isDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
+              }`}
               defaultValue={selectedStudent?.date_of_admission}
             />
           </div>
@@ -206,6 +257,7 @@ export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
             onOpenModal={onOpenClassesModal}
             onSelect={setCurrentClassId}
             tableName="classes"
+            disabled={isDisabled}
           />
 
           {/* Stream */}
@@ -218,6 +270,7 @@ export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
             onOpenModal={onOpenStreamsModal}
             onSelect={setStreamId}
             tableName="streams"
+            disabled={isDisabled}
           />
 
           {/* Team */}
@@ -230,6 +283,7 @@ export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
             onOpenModal={onOpenColoursModal}
             onSelect={setTeamColourId}
             tableName="team_colours"
+            disabled={isDisabled}
           />
         </div>
 
@@ -242,7 +296,17 @@ export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
             <select
               name="status"
               value={statusValue}
-              onChange={e => setStatusValue(e.target.value)}
+              onChange={e => {
+                setStatusValue(e.target.value);
+                // If changing to Inactive, automatically set withdrawal_date to today
+                if (e.target.value === 'Inactive') {
+                  const today = new Date().toISOString().split('T')[0];
+                  const withdrawalDateInput = document.querySelector('input[name="withdrawalDate"]') as HTMLInputElement;
+                  if (withdrawalDateInput) {
+                    withdrawalDateInput.value = today;
+                  }
+                }
+              }}
               className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option>Active</option>
@@ -252,12 +316,13 @@ export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
           {statusValue === 'Inactive' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Withdrawal Date
+                Withdrawal Date <span className="text-red-500">*</span>
               </label>
               <input
                 name="withdrawalDate"
                 type="date"
-                defaultValue={selectedStudent?.withdrawal_date}
+                defaultValue={selectedStudent?.withdrawal_date || new Date().toISOString().split('T')[0]}
+                required
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>

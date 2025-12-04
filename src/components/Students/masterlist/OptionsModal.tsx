@@ -1,7 +1,7 @@
 // src/components/students/masterlist/OptionsModal.tsx
 
 import React, { useState, useEffect } from 'react';
-import { Trash2, Plus, Loader2 } from 'lucide-react';
+import { Trash2, Plus, Loader2, Pencil, X, Check } from 'lucide-react';
 import { supabase } from '../../../supabaseClient';
 
 interface OptionsModalProps {
@@ -9,6 +9,7 @@ interface OptionsModalProps {
   items: { id: number; name: string; sort_order?: number }[];
   onAdd: (name: string) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
+  onEdit?: (id: number, newName: string) => Promise<void>;
   onClose: () => void;
   tableName?: string;
   onRefresh?: () => void;
@@ -19,6 +20,7 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
   items,
   onAdd,
   onDelete,
+  onEdit,
   onClose,
   tableName,
   onRefresh,
@@ -29,6 +31,8 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
   const [hasReordered, setHasReordered] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingName, setEditingName] = useState('');
   const [isHovering, setIsHovering] = useState(false);
   const scrollContainerRef = React.useRef<HTMLUListElement>(null);
 
@@ -102,6 +106,39 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
     }
   };
 
+  const handleEdit = (item: { id: number; name: string }) => {
+    setEditingId(item.id);
+    setEditingName(item.name);
+  };
+
+  const handleSaveEdit = async (id: number) => {
+    if (!editingName.trim() || !onEdit) {
+      setEditingId(null);
+      setEditingName('');
+      return;
+    }
+    
+    setIsSaving(true);
+    try {
+      await onEdit(id, editingName.trim());
+      setEditingId(null);
+      setEditingName('');
+      if (onRefresh) {
+        onRefresh();
+      }
+    } catch (error) {
+      console.error('Error updating item:', error);
+      alert('Failed to update item. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditingName('');
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     try {
@@ -160,35 +197,94 @@ export const OptionsModal: React.FC<OptionsModalProps> = ({
           {localItems.map((item, index) => (
             <li
               key={item.id}
-              draggable
-              onDragStart={() => handleDragStart(index)}
-              onDragOver={(e) => handleDragOver(e, index)}
+              draggable={editingId !== item.id}
+              onDragStart={() => editingId !== item.id && handleDragStart(index)}
+              onDragOver={(e) => editingId !== item.id && handleDragOver(e, index)}
               onDragEnd={handleDragEnd}
-              className={`flex justify-between items-center gap-2 p-3 border border-gray-200 rounded-lg cursor-grab active:cursor-grabbing transition-all ${
+              className={`flex justify-between items-center gap-2 p-3 border border-gray-200 rounded-lg transition-all ${
+                editingId === item.id 
+                  ? 'cursor-default'
+                  : 'cursor-grab active:cursor-grabbing'
+              } ${
                 draggedIndex === index ? 'opacity-50 scale-95' : 'opacity-100 scale-100'
               } hover:border-blue-300 hover:shadow-sm`}
             >
-              <span className="text-gray-800 flex-1">{item.name}</span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDelete(item.id);
-                }}
-                disabled={deletingId === item.id}
-                className={`p-1 transition-colors ${
-                  deletingId === item.id
-                    ? 'text-red-400 cursor-not-allowed'
-                    : 'text-red-600 hover:text-red-800'
-                }`}
-                title="Delete"
-              >
-                {deletingId === item.id ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Trash2 className="w-4 h-4" />
-                )}
-              </button>
+              {editingId === item.id ? (
+                <>
+                  <input
+                    type="text"
+                    value={editingName}
+                    onChange={(e) => setEditingName(e.target.value)}
+                    className="flex-1 p-2 border border-gray-300 rounded-lg"
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        handleSaveEdit(item.id);
+                      } else if (e.key === 'Escape') {
+                        handleCancelEdit();
+                      }
+                    }}
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleSaveEdit(item.id)}
+                    disabled={isSaving}
+                    className="p-1 text-green-600 hover:text-green-800 disabled:opacity-50"
+                    title="Save"
+                  >
+                    {isSaving ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Check className="w-4 h-4" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCancelEdit}
+                    className="p-1 text-gray-600 hover:text-gray-800"
+                    title="Cancel"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="text-gray-800 flex-1">{item.name}</span>
+                  {onEdit && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEdit(item);
+                      }}
+                      className="p-1 text-blue-600 hover:text-blue-800"
+                      title="Edit"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(item.id);
+                    }}
+                    disabled={deletingId === item.id}
+                    className={`p-1 transition-colors ${
+                      deletingId === item.id
+                        ? 'text-red-400 cursor-not-allowed'
+                        : 'text-red-600 hover:text-red-800'
+                    }`}
+                    title="Delete"
+                  >
+                    {deletingId === item.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                  </button>
+                </>
+              )}
             </li>
           ))}
         </ul>

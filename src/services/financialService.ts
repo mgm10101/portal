@@ -986,6 +986,62 @@ export async function fetchAccounts(): Promise<Account[]> {
 }
 
 /**
+ * Updates a payment method name
+ */
+export async function updatePaymentMethod(id: number, name: string): Promise<PaymentMethod> {
+    const { data, error } = await supabase
+        .from('payment_methods')
+        .update({ name })
+        .eq('id', id)
+        .select()
+        .single();
+
+    if (error || !data) {
+        console.error('Error updating payment method:', error);
+        throw new Error('Failed to update payment method');
+    }
+
+    return {
+        id: data.id,
+        name: data.name,
+        description: data.description,
+        sort_order: data.sort_order,
+        is_active: data.is_active,
+        created_at: data.created_at,
+        updated_at: data.updated_at
+    };
+}
+
+/**
+ * Updates an account name
+ */
+export async function updateAccount(id: number, name: string): Promise<Account> {
+    const { data, error } = await supabase
+        .from('accounts')
+        .update({ name })
+        .eq('id', id)
+        .select()
+        .single();
+
+    if (error || !data) {
+        console.error('Error updating account:', error);
+        throw new Error('Failed to update account');
+    }
+
+    return {
+        id: data.id,
+        name: data.name,
+        description: data.description,
+        account_number: data.account_number,
+        bank_name: data.bank_name,
+        sort_order: data.sort_order,
+        is_active: data.is_active,
+        created_at: data.created_at,
+        updated_at: data.updated_at
+    };
+}
+
+/**
  * Fetches all payments with related data
  */
 export async function fetchPayments(): Promise<Payment[]> {
@@ -1317,6 +1373,7 @@ export async function deletePayment(paymentId: number): Promise<void> {
 /**
  * Marks invoices as 'Forwarded' when their balances are brought forward to a new invoice.
  * This ensures data integrity - invoices that have been forwarded should not be counted in outstanding balances.
+ * Also clears the balance_due by increasing payment_made to equal the total_amount (or adding balance_due to existing payment_made).
  * @param invoiceNumbers Array of invoice numbers to mark as 'Forwarded'
  * @returns The number of invoices successfully updated
  */
@@ -1325,21 +1382,61 @@ export async function markInvoicesAsForwarded(invoiceNumbers: string[]): Promise
         return 0;
     }
 
-    console.log(`🔄 [DEBUG] Marking ${invoiceNumbers.length} invoices as 'Forwarded'...`);
+    console.log(`🔄 [DEBUG] Marking ${invoiceNumbers.length} invoices as 'Forwarded' and clearing balances...`);
 
-    const { data, error } = await supabase
+    // First, fetch the current invoices to get their payment_made and balance_due values
+    const { data: invoicesData, error: fetchError } = await supabase
         .from('invoices')
-        .update({ status: 'Forwarded' })
-        .in('invoice_number', invoiceNumbers)
-        .select('invoice_number');
+        .select('invoice_number, payment_made, balance_due, total_amount')
+        .in('invoice_number', invoiceNumbers);
 
-    if (error) {
-        console.error("❌ [ERROR] Error marking invoices as Forwarded:", error);
-        throw new Error(`Failed to mark invoices as Forwarded: ${error.message}`);
+    if (fetchError) {
+        console.error("❌ [ERROR] Error fetching invoices to forward:", fetchError);
+        throw new Error(`Failed to fetch invoices: ${fetchError.message}`);
     }
 
-    const updatedCount = data?.length || 0;
-    console.log(`✅ [DEBUG] Successfully marked ${updatedCount} invoices as 'Forwarded'.`);
+    if (!invoicesData || invoicesData.length === 0) {
+        console.warn("⚠️ [WARNING] No invoices found to mark as Forwarded");
+        return 0;
+    }
+
+    // Update each invoice: add balance_due to payment_made, set balance_due to 0, and set status to 'Forwarded'
+    // This effectively treats the forwarded amount as "paid" so balance_due becomes 0
+    const updates = invoicesData.map(invoice => {
+        const currentPaymentMade = parseFloat(invoice.payment_made || '0');
+        const currentBalanceDue = parseFloat(invoice.balance_due || '0');
+        const newPaymentMade = currentPaymentMade + currentBalanceDue;
+
+        return {
+            invoice_number: invoice.invoice_number,
+            payment_made: newPaymentMade.toFixed(2),
+            balance_due: 0, // Clear the balance since it's being brought forward
+            status: 'Forwarded'
+        };
+    });
+
+    // Update all invoices
+    let updatedCount = 0;
+    for (const update of updates) {
+        const { error: updateError } = await supabase
+            .from('invoices')
+            .update({
+                payment_made: update.payment_made,
+                balance_due: update.balance_due,
+                status: update.status
+            })
+            .eq('invoice_number', update.invoice_number);
+
+        if (updateError) {
+            console.error(`❌ [ERROR] Error updating invoice ${update.invoice_number}:`, updateError);
+            // Continue with other invoices even if one fails
+        } else {
+            updatedCount++;
+            console.log(`✅ [DEBUG] Updated invoice ${update.invoice_number}: payment_made = ${update.payment_made}, balance_due = 0, status = Forwarded`);
+        }
+    }
+
+    console.log(`✅ [DEBUG] Successfully marked ${updatedCount} invoices as 'Forwarded' and cleared their balances.`);
     return updatedCount;
 }
 

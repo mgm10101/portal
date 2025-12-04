@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -11,6 +11,12 @@ import { InvoiceFilters } from './InvoiceFilters';
 import { InvoiceTable } from './InvoiceTable';
 import InvoiceDisplay, { InvoiceData } from './InvoiceDisplay';
 
+// Page layout constants (A4 dimensions in pixels at 96 DPI)
+const A4_WIDTH = 794; // 210mm * 96 / 25.4
+const A4_HEIGHT = 1123; // 297mm * 96 / 25.4
+const PAGE_MARGIN = 37.8; // Top, bottom, left, right margins in pixels (matching invoice padding)
+const FOOTER_HEIGHT = 50; // Footer height for page number in pixels
+
 export const Invoices: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [invoices, setInvoices] = useState<InvoiceHeader[]>([]);
@@ -19,6 +25,8 @@ export const Invoices: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceHeader | null>(null);
   const [invoiceToDisplay, setInvoiceToDisplay] = useState<InvoiceData | null>(null);
+  const [dynamicBottomPadding, setDynamicBottomPadding] = useState<number>(0);
+  const invoiceContentRef = useRef<HTMLDivElement>(null);
 
   const loadInvoices = useCallback(async () => {
     setLoading(true);
@@ -83,13 +91,107 @@ export const Invoices: React.FC = () => {
 
   const handleCloseDisplay = useCallback(() => setInvoiceToDisplay(null), []);
 
+  // Calculate dynamic bottom padding based on content height
+  useEffect(() => {
+    if (!invoiceToDisplay || !invoiceContentRef.current) return;
+
+    const calculatePadding = () => {
+      const wrapperElement = invoiceContentRef.current;
+      if (!wrapperElement) return;
+
+      // Get the actual invoice container inside the wrapper
+      const invoiceContainer = wrapperElement.querySelector('#invoice-container') as HTMLElement;
+      if (!invoiceContainer) return;
+
+      // A4 page height at 96 DPI: 1123px (297mm * 96 / 25.4)
+      const a4PageHeight = A4_HEIGHT;
+      
+      // Temporarily set bottom padding to 0 to measure content height accurately
+      const originalPaddingBottom = wrapperElement.style.paddingBottom;
+      wrapperElement.style.paddingBottom = '0px';
+      
+      // Force a reflow to get accurate measurements
+      void wrapperElement.offsetHeight;
+      
+      // Measure the actual content height (invoice container height)
+      const contentHeight = invoiceContainer.offsetHeight;
+      
+      // Restore original padding
+      wrapperElement.style.paddingBottom = originalPaddingBottom;
+      
+      // Calculate padding needed to reach A4 page height
+      // We want: contentHeight + dynamicBottomPadding = a4PageHeight
+      const paddingNeeded = a4PageHeight - contentHeight;
+      
+      // If content is shorter than a full page, add padding to fill the page
+      // Only add padding if it's positive and reasonable (not too large)
+      if (paddingNeeded > 0 && paddingNeeded < a4PageHeight) {
+        setDynamicBottomPadding(paddingNeeded);
+      } else {
+        // If content fills or exceeds a page, use minimal padding
+        setDynamicBottomPadding(0);
+      }
+    };
+
+    // Calculate after a short delay to ensure content is rendered
+    const timeoutId = setTimeout(calculatePadding, 200);
+    
+    // Also recalculate when window resizes
+    window.addEventListener('resize', calculatePadding);
+    
+    return () => {
+      clearTimeout(timeoutId);
+      window.removeEventListener('resize', calculatePadding);
+    };
+  }, [invoiceToDisplay]);
+
   // --- OPTIMIZED PDF EXPORT (Reduced file size) ---
   const handleExportToPdf = useCallback(async () => {
     if (!invoiceToDisplay) return;
     const element = document.getElementById('invoice-pdf-wrapper');
     if (!element) return;
 
+    // Get row positions BEFORE hiding footer (so measurements are accurate)
+    const invoiceContainer = element.querySelector('#invoice-container') as HTMLElement;
+    const tableRows: number[] = [];
+    
+    if (invoiceContainer) {
+      // Find all table rows (including header and data rows)
+      const rows = invoiceContainer.querySelectorAll('table tbody tr, table thead tr');
+      const wrapperRect = element.getBoundingClientRect();
+      
+      rows.forEach((row) => {
+        const rect = row.getBoundingClientRect();
+        // Calculate relative position from top of wrapper element (which is what gets captured)
+        const relativeTop = rect.top - wrapperRect.top;
+        const relativeBottom = rect.bottom - wrapperRect.top;
+        // Account for canvas scale (1.5) - the canvas will be scaled, so we need to scale the positions
+        const canvasTop = relativeTop * 1.5;
+        const canvasBottom = relativeBottom * 1.5;
+        // Store both top and bottom of each row
+        tableRows.push(Math.floor(canvasTop));
+        tableRows.push(Math.floor(canvasBottom));
+      });
+      
+      // Sort row boundaries and remove duplicates
+      tableRows.sort((a, b) => a - b);
+      // Remove duplicates
+      const uniqueRows = Array.from(new Set(tableRows));
+      tableRows.length = 0;
+      tableRows.push(...uniqueRows);
+    }
+
+    // Hide the footer in the HTML (we'll add it in PDF)
+    const footer = invoiceContainer ? invoiceContainer.querySelector('.invoice-footer') as HTMLElement : null;
+    const originalFooterDisplay = footer ? footer.style.display : '';
+    if (footer) {
+      footer.style.display = 'none';
+    }
+
     element.classList.add('exporting');
+
+    // Wait a moment for the DOM to update
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     // DEBUG: Log element dimensions
     const rect = element.getBoundingClientRect();
@@ -191,17 +293,155 @@ export const Invoices: React.FC = () => {
       willNeedPages: Math.ceil(finalImgHeight / availableHeight)
     });
 
-    let position = margin; // top margin
-    let heightLeft = finalImgHeight;
+    // Calculate how many canvas pixels correspond to the available height per page
+    // finalImgHeight (mm) corresponds to canvas.height (pixels)
+    // So: availableHeight (mm) corresponds to (availableHeight / finalImgHeight) * canvas.height (pixels)
+    const availableHeightInCanvasPx = (availableHeight / finalImgHeight) * canvas.height;
+    
+    // Helper function to find a safe cut point before a given position
+    // Returns the position of the last complete row boundary before the cut point
+    const findPreviousRowBoundary = (position: number): number => {
+      if (tableRows.length === 0) {
+        // Fallback: use estimated row height if we can't detect rows
+        const estimatedRowHeight = 70;
+        return Math.floor(position / estimatedRowHeight) * estimatedRowHeight;
+      }
+      
+      // Find the last row boundary (top or bottom) that is before the position
+      // This ensures we don't cut through the middle of a row
+      let lastBoundary = 0;
+      for (const boundary of tableRows) {
+        if (boundary <= position) {
+          lastBoundary = boundary;
+        } else {
+          break;
+        }
+      }
+      return lastBoundary;
+    };
+    
+    // Helper function to find the next row boundary after a given position
+    const findNextRowBoundary = (position: number): number => {
+      if (tableRows.length === 0) {
+        // Fallback: use estimated row height
+        const estimatedRowHeight = 70;
+        return Math.ceil(position / estimatedRowHeight) * estimatedRowHeight;
+      }
+      
+      // Find the first row boundary that is after the position
+      for (const boundary of tableRows) {
+        if (boundary > position) {
+          return boundary;
+        }
+      }
+      // If no boundary found after position, return canvas height
+      return canvas.height;
+    };
+    
+    // Process pages, adjusting for row boundaries
+    const pages: Array<{ sourceY: number; sourceHeight: number }> = [];
+    let currentSourceY = 0;
+    
+    while (currentSourceY < canvas.height) {
+      // Calculate where this page should end (in canvas pixels)
+      const pageEndY = currentSourceY + availableHeightInCanvasPx;
+      
+      // Find the row boundary just before the page end
+      // This ensures we don't cut through a row - if a row would be cut, stop before it
+      const adjustedPageEndY = findPreviousRowBoundary(pageEndY);
+      
+      // Calculate the height of this page's portion (in pixels)
+      const remainingHeight = canvas.height - currentSourceY;
+      let sourceHeight: number;
+      
+      if (adjustedPageEndY <= currentSourceY) {
+        // If we can't fit even one row, we need to move to next row boundary
+        const nextRowBoundary = findNextRowBoundary(currentSourceY);
+        if (nextRowBoundary > currentSourceY && nextRowBoundary < canvas.height) {
+          sourceHeight = nextRowBoundary - currentSourceY;
+        } else {
+          // Last page gets all remaining content
+          sourceHeight = remainingHeight;
+        }
+      } else if (adjustedPageEndY >= canvas.height || remainingHeight <= availableHeightInCanvasPx) {
+        // Last page gets all remaining content
+        sourceHeight = remainingHeight;
+      } else {
+        // For other pages, use the adjusted end position to avoid cutting rows
+        // Stop at the row start before the page end, so rows stay intact
+        sourceHeight = adjustedPageEndY - currentSourceY;
+      }
+      
+      // Ensure we have at least some content
+      if (sourceHeight <= 0) {
+        break;
+      }
+      
+      pages.push({
+        sourceY: currentSourceY,
+        sourceHeight: sourceHeight
+      });
+      
+      // Move to next page start
+      currentSourceY += sourceHeight;
+    }
+    
+    const totalPages = pages.length || 1;
+    
+    // Process each page
+    for (let pageNum = 0; pageNum < pages.length; pageNum++) {
+      if (pageNum > 0) {
+        pdf.addPage();
+      }
 
-    pdf.addImage(imgData, 'JPEG', margin, position, finalImgWidth, finalImgHeight, undefined, 'FAST');
-    heightLeft -= availableHeight;
+      const { sourceY, sourceHeight } = pages[pageNum];
 
-    while (heightLeft > 0) {
-      position = heightLeft - finalImgHeight + margin;
-      pdf.addPage();
-      pdf.addImage(imgData, 'JPEG', margin, position, finalImgWidth, finalImgHeight, undefined, 'FAST');
-      heightLeft -= availableHeight;
+      // Calculate destination height in mm (proportional to source)
+      const destHeight = (sourceHeight / canvas.height) * finalImgHeight;
+      
+      // Create a temporary canvas for this page's portion
+      const pageCanvas = document.createElement('canvas');
+      pageCanvas.width = canvas.width;
+      pageCanvas.height = sourceHeight;
+      const pageCtx = pageCanvas.getContext('2d');
+      
+      if (pageCtx) {
+        // Fill with white background first
+        pageCtx.fillStyle = '#ffffff';
+        pageCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+        
+        // Draw only the portion of the image that belongs to this page
+        pageCtx.drawImage(
+          canvas,
+          0, sourceY, canvas.width, sourceHeight,  // Source rectangle (from original canvas)
+          0, 0, canvas.width, sourceHeight          // Destination rectangle (to page canvas)
+        );
+        
+        // Convert to image data
+        const pageImgData = pageCanvas.toDataURL('image/jpeg', 0.95);
+        
+        // Add to PDF at the top of the page (margin position)
+        pdf.addImage(
+          pageImgData,
+          'JPEG',
+          margin,
+          margin,
+          finalImgWidth,
+          destHeight,
+          undefined,
+          'FAST'
+        );
+      }
+      
+      // Add page number to each page
+      pdf.setFontSize(10);
+      pdf.setTextColor(128, 128, 128);
+      pdf.text(
+        `Page ${pageNum + 1} of ${totalPages}`,
+        pageWidth / 2,
+        pageHeight - margin / 2,
+        { align: 'center' }
+      );
     }
 
     // Sanitize filename: replace invalid characters with underscores
@@ -211,6 +451,11 @@ export const Invoices: React.FC = () => {
     const filename = `${sanitizeFilename(admissionNumber)} - ${sanitizeFilename(studentName)}.pdf`;
     
     pdf.save(filename);
+    
+    // Restore footer display
+    if (footer) {
+      footer.style.display = originalFooterDisplay;
+    }
     element.classList.remove('exporting');
   }, [invoiceToDisplay]);
 
@@ -267,8 +512,14 @@ export const Invoices: React.FC = () => {
           {/* PDF boundary */}
           <div
             id="invoice-pdf-wrapper"
-            className="bg-white mx-auto"
-            style={{ width: '794px', margin: '0 auto' }}
+            ref={invoiceContentRef}
+            className="bg-white mx-auto shadow-2xl"
+            style={{ 
+              width: '794px', 
+              margin: '0 auto',
+              paddingBottom: `${dynamicBottomPadding}px`,
+              minHeight: `${A4_HEIGHT}px`
+            }}
           >
             <InvoiceDisplay data={invoiceToDisplay} />
           </div>

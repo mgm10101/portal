@@ -1,7 +1,7 @@
 // src/components/HR/DepartmentModal.tsx
 
 import React, { useState, useEffect } from 'react';
-import { Trash2, Plus, Loader2, Pencil, X } from 'lucide-react';
+import { Trash2, Plus, Loader2, Pencil, X, Check } from 'lucide-react';
 import { addDepartment, updateDepartment, deleteDepartment, Department } from '../../services/staffService';
 
 interface DepartmentModalProps {
@@ -97,7 +97,7 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
   };
 
   const handleDelete = async (id: number) => {
-    if (!window.confirm('Are you sure you want to delete this department? This will set the department to null for all staff members using it.')) {
+    if (!window.confirm('Are you sure you want to delete this department?')) {
       return;
     }
     
@@ -107,7 +107,10 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
       // Refresh will be handled by onClose
       onClose();
     } catch (error: any) {
-      alert(`Failed to delete department: ${error.message || 'Unknown error'}`);
+      console.error('Error deleting department:', error);
+      // Display the error message from the service function
+      const errorMessage = error?.message || error?.toString() || 'Failed to delete department. This department may be in use by existing staff members.';
+      alert(errorMessage);
       setDeletingId(null);
     }
   };
@@ -162,7 +165,7 @@ export const DepartmentModal: React.FC<DepartmentModalProps> = ({
                     {isSaving ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
                     ) : (
-                      <Plus className="w-4 h-4" />
+                      <Check className="w-4 h-4" />
                     )}
                   </button>
                   <button

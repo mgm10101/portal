@@ -53,9 +53,23 @@ export const addClass = async (name: string) => {
   if (error) throw new Error(error.message);
 };
 
+export const updateClass = async (id: number, name: string) => {
+  const { error } = await supabase
+    .from('classes')
+    .update({ name })
+    .eq('id', id);
+  if (error) throw new Error(error.message);
+};
+
 export const deleteClass = async (id: number) => {
   const { error } = await supabase.from('classes').delete().eq('id', id);
-  if (error) throw new Error(error.message);
+  if (error) {
+    // Check for foreign key constraint violation
+    if (error.code === '23503' || error.message?.includes('foreign key') || error.message?.includes('violates foreign key')) {
+      throw new Error('Cannot delete this class because it is being used by existing students. Please update those students first.');
+    }
+    throw new Error(error.message);
+  }
 };
 
 // --- Streams Mutations ---
@@ -76,9 +90,23 @@ export const addStream = async (name: string) => {
   if (error) throw new Error(error.message);
 };
 
+export const updateStream = async (id: number, name: string) => {
+  const { error } = await supabase
+    .from('streams')
+    .update({ name })
+    .eq('id', id);
+  if (error) throw new Error(error.message);
+};
+
 export const deleteStream = async (id: number) => {
   const { error } = await supabase.from('streams').delete().eq('id', id);
-  if (error) throw new Error(error.message);
+  if (error) {
+    // Check for foreign key constraint violation
+    if (error.code === '23503' || error.message?.includes('foreign key') || error.message?.includes('violates foreign key')) {
+      throw new Error('Cannot delete this stream because it is being used by existing students. Please update those students first.');
+    }
+    throw new Error(error.message);
+  }
 };
 
 // --- Team Colours Mutations ---
@@ -99,9 +127,23 @@ export const addColour = async (name: string) => {
   if (error) throw new Error(error.message);
 };
 
+export const updateColour = async (id: number, name: string) => {
+  const { error } = await supabase
+    .from('team_colours')
+    .update({ name })
+    .eq('id', id);
+  if (error) throw new Error(error.message);
+};
+
 export const deleteColour = async (id: number) => {
   const { error } = await supabase.from('team_colours').delete().eq('id', id);
-  if (error) throw new Error(error.message);
+  if (error) {
+    // Check for foreign key constraint violation
+    if (error.code === '23503' || error.message?.includes('foreign key') || error.message?.includes('violates foreign key')) {
+      throw new Error('Cannot delete this team colour because it is being used by existing students. Please update those students first.');
+    }
+    throw new Error(error.message);
+  }
 };
 
 // --- Document Types ---

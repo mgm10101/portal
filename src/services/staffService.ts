@@ -361,6 +361,24 @@ export const updateDepartment = async (id: number, name: string): Promise<void> 
 
 // Delete a department
 export const deleteDepartment = async (id: number): Promise<void> => {
+  // First, check if any staff members are using this department
+  const { data: staffUsingDepartment, error: checkError } = await supabase
+    .from('staff')
+    .select('id, full_name')
+    .eq('department_id', id)
+    .limit(1);
+
+  if (checkError) {
+    console.error('Error checking department usage:', checkError);
+    throw new Error(`Failed to check if department is in use: ${checkError.message}`);
+  }
+
+  // If staff members are using this department, prevent deletion
+  if (staffUsingDepartment && staffUsingDepartment.length > 0) {
+    throw new Error('Cannot delete this department because it is being used by existing staff members. Please update those staff members first.');
+  }
+
+  // If no staff members are using it, proceed with deletion
   const { error } = await supabase
     .from('departments')
     .delete()
@@ -368,7 +386,7 @@ export const deleteDepartment = async (id: number): Promise<void> => {
 
   if (error) {
     console.error('Error deleting department:', error);
-    throw error;
+    throw new Error(`Failed to delete department: ${error.message}`);
   }
 };
 

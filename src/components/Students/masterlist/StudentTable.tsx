@@ -160,13 +160,7 @@ export const StudentTable: React.FC<StudentTableProps> = ({
                 Class
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Team
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Father Details
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Mother Details
+                Gender
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Emergency Contact
@@ -243,29 +237,7 @@ export const StudentTable: React.FC<StudentTableProps> = ({
 
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm font-medium text-gray-900">
-                    {student.team_colour?.name || student.team_colour_id || '-'}
-                  </div>
-                </td>
-
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div>
-                    <div className="text-sm font-medium text-gray-900">
-                      {student.father_name}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      {student.father_phone}
-                    </div>
-                  </div>
-                </td>
-
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div>
-                    <div className="text-sm font-medium text-gray-900">
-                      {student.mother_name}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      {student.mother_phone}
-                    </div>
+                    {student.gender || '-'}
                   </div>
                 </td>
 

@@ -56,7 +56,11 @@ interface UserInfo {
 }
 
 function App() {
-  const [activeSection, setActiveSection] = useState('dashboard');
+  // Try to restore last active section from localStorage, default to 'dashboard'
+  const [activeSection, setActiveSection] = useState(() => {
+    const saved = localStorage.getItem('activeSection');
+    return saved || 'dashboard';
+  });
   const [user, setUser] = useState<UserInfo | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -95,12 +99,17 @@ function App() {
               )
             : false;
           
-          // Set initial section based on Dashboard access
-          if (!hasDashboardAccess) {
-            setActiveSection('custom-dashboard');
-          } else {
-            setActiveSection('dashboard');
+          // Try to restore last active section from localStorage
+          const savedSection = localStorage.getItem('activeSection');
+          let initialSection = savedSection || 'dashboard';
+          
+          // Validate the saved section based on user access
+          if (!hasDashboardAccess && (initialSection === 'dashboard' || !savedSection)) {
+            initialSection = 'custom-dashboard';
           }
+          
+          setActiveSection(initialSection);
+          localStorage.setItem('activeSection', initialSection);
           
           setUser({ 
             email: userData.email || email, // Use email from users table, fallback to passed email
@@ -138,6 +147,8 @@ function App() {
     await supabase.auth.signOut();
     setUser(null);
     setActiveSection('dashboard');
+    // Clear the saved section from localStorage so user lands on dashboard after next login
+    localStorage.removeItem('activeSection');
   };
 
   // Function to refresh current user's data (for when modules are updated)
@@ -199,6 +210,8 @@ function App() {
 
   const handleSectionChange = (section: string) => {
     setActiveSection(section);
+    // Save to localStorage so we can restore it on refresh
+    localStorage.setItem('activeSection', section);
     setIsSidebarOpen(false); // Close sidebar when section is selected
   };
 
@@ -208,12 +221,130 @@ function App() {
     }
   }, [activeSection]);
 
-  // SIMPLEST: Don't auto-login, only listen for new logins
+  // Check for existing session on mount and restore user state
   useEffect(() => {
-    setIsLoading(false);
+    const checkSession = async () => {
+      try {
+        // Check for existing session
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('Error checking session:', error);
+          setIsLoading(false);
+          return;
+        }
+
+        // If session exists, restore user state
+        if (session?.user) {
+          const userId = session.user.id;
+          
+          // Fetch user details from users table
+          const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('email, role, selected_modules, username, description, status, requires_password_change')
+            .eq('id', userId)
+            .single();
+          
+          // Check if account is inactive
+          if (!userError && userData?.status === 'Inactive') {
+            console.log('Account is inactive - logging out');
+            await supabase.auth.signOut();
+            setIsLoading(false);
+            return;
+          }
+          
+          // Check if password change is required
+          if (!userError && userData?.requires_password_change === true) {
+            console.log('Password change required - showing login to handle password change');
+            setIsLoading(false);
+            return; // Let Login component handle password change
+          }
+          
+          if (!userError && userData) {
+            // Parse selected_modules if it's a JSON string
+            let parsedModules = null;
+            if (userData.selected_modules) {
+              try {
+                parsedModules = typeof userData.selected_modules === 'string'
+                  ? JSON.parse(userData.selected_modules)
+                  : userData.selected_modules;
+              } catch (err) {
+                console.error('Error parsing selected_modules:', err);
+              }
+            }
+            
+            // Check if user has Dashboard access
+            const hasDashboardAccess = parsedModules && Array.isArray(parsedModules) 
+              ? parsedModules.some((m: any) => 
+                  m.id === 'module-Dashboard' || 
+                  m.module === 'Dashboard' || 
+                  m.label === 'Dashboard'
+                )
+              : false;
+            
+            // Try to restore last active section from localStorage
+            const savedSection = localStorage.getItem('activeSection');
+            let initialSection = savedSection || 'dashboard';
+            
+            // Validate the saved section based on user access
+            // If user doesn't have dashboard access and saved section is dashboard, use custom-dashboard
+            if (!hasDashboardAccess && (initialSection === 'dashboard' || !savedSection)) {
+              initialSection = 'custom-dashboard';
+            }
+            // If saved section is custom-dashboard but user now has dashboard access, allow it
+            // Otherwise, use the saved section
+            
+            setActiveSection(initialSection);
+            // Update localStorage to match what we actually set
+            localStorage.setItem('activeSection', initialSection);
+            
+            // Check user role to determine portal type
+            let userType: 'admin' | 'parent' = 'admin';
+            if (userData.role === 'Parent') {
+              userType = 'parent';
+            } else if (parsedModules && Array.isArray(parsedModules)) {
+              const hasParentPortal = parsedModules.some((m: any) => 
+                m.label === 'Parent Portal' || m.module === 'Parent Portal' || m.id === 'parent-portal'
+              );
+              if (hasParentPortal) {
+                userType = 'parent';
+              }
+            }
+            
+            setUser({ 
+              email: userData.email || session.user.email || 'User',
+              type: userType,
+              role: userData.role || 'Admin',
+              selectedModules: parsedModules,
+              username: userData.username || null,
+              description: userData.description || null
+            });
+          } else {
+            // Fallback if user not found in users table
+            const savedSection = localStorage.getItem('activeSection');
+            const initialSection = savedSection || 'custom-dashboard';
+            setActiveSection(initialSection);
+            localStorage.setItem('activeSection', initialSection);
+            setUser({ 
+              email: session.user.email || 'User',
+              type: 'admin',
+              role: 'Admin',
+              selectedModules: null,
+              username: null,
+              description: null
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Error checking session:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    checkSession();
     
-    // Only listen for auth changes (when user logs in through form)
-    // NOTE: We don't set user here if password change is required - Login component handles that
+    // Listen for auth changes (when user logs in/out)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         // Don't set user immediately - let Login component handle password change check

@@ -18,6 +18,7 @@ export interface CustomFieldsProps {
   onShowAddField: () => void; // preserved for prop compatibility
   onChange?: (values: Record<string, string>) => void;
   values?: Record<string, string>;
+  isDisabled?: boolean;
 }
 
 // Interface for the data/logic provided by the custom hook
@@ -51,4 +52,5 @@ export interface CustomFieldsRenderProps extends Omit<CustomFieldsHook,
   onShowEdit: () => void;
   onModalCloseAndRefresh: () => void;
   onEditModalClose: () => void;
+  isDisabled?: boolean;
 }

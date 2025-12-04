@@ -245,7 +245,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onView, on
                                     {invoice.balanceDue > 0 ? (
                                         <span className="text-red-600">Ksh.{invoice.balanceDue.toFixed(2)}</span>
                                     ) : (
-                                        <span className="text-gray-400">-</span>
+                                        <span className="text-gray-600">Ksh. 0.00</span>
                                     )}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">

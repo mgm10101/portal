@@ -5,7 +5,9 @@ import {
   fetchStudents,
   fetchPayments,
   fetchPaymentMethods,
+  updatePaymentMethod,
   fetchAccounts,
+  updateAccount,
   fetchStudentInvoicesForPayment,
   createPayment,
   updatePayment,
@@ -1676,16 +1678,38 @@ export const PaymentsReceived: React.FC = () => {
               setPaymentMethods(methods);
             }}
             onDelete={async (id: number) => {
-              const { error } = await supabase
-                .from('payment_methods')
-                .delete()
-                .eq('id', id);
-              
-              if (error) throw error;
-              
-              // Refresh payment methods
-              const methods = await fetchPaymentMethods();
-              setPaymentMethods(methods);
+              try {
+                const { error } = await supabase
+                  .from('payment_methods')
+                  .delete()
+                  .eq('id', id);
+                
+                if (error) {
+                  // Check for foreign key constraint violation
+                  if (error.code === '23503' || error.message?.includes('foreign key') || error.message?.includes('violates foreign key')) {
+                    throw new Error('Cannot delete this payment method because it is being used by existing payments. Please remove or update those payments first.');
+                  }
+                  throw error;
+                }
+                
+                // Refresh payment methods
+                const methods = await fetchPaymentMethods();
+                setPaymentMethods(methods);
+              } catch (error: any) {
+                console.error('Error deleting payment method:', error);
+                alert(error.message || 'Failed to delete payment method. It may be in use by existing payments.');
+                throw error;
+              }
+            }}
+            onEdit={async (id: number, newName: string) => {
+              try {
+                await updatePaymentMethod(id, newName);
+                const methods = await fetchPaymentMethods();
+                setPaymentMethods(methods);
+              } catch (error: any) {
+                console.error('Error updating payment method:', error);
+                alert(error.message || 'Failed to update payment method');
+              }
             }}
             onClose={() => setShowPaymentMethodModal(false)}
             tableName="payment_methods"
@@ -1715,16 +1739,38 @@ export const PaymentsReceived: React.FC = () => {
               setAccounts(accountsData);
             }}
             onDelete={async (id: number) => {
-              const { error } = await supabase
-                .from('accounts')
-                .delete()
-                .eq('id', id);
-              
-              if (error) throw error;
-              
-              // Refresh accounts
-              const accountsData = await fetchAccounts();
-              setAccounts(accountsData);
+              try {
+                const { error } = await supabase
+                  .from('accounts')
+                  .delete()
+                  .eq('id', id);
+                
+                if (error) {
+                  // Check for foreign key constraint violation
+                  if (error.code === '23503' || error.message?.includes('foreign key') || error.message?.includes('violates foreign key')) {
+                    throw new Error('Cannot delete this account because it is being used by existing payments. Please remove or update those payments first.');
+                  }
+                  throw error;
+                }
+                
+                // Refresh accounts
+                const accountsData = await fetchAccounts();
+                setAccounts(accountsData);
+              } catch (error: any) {
+                console.error('Error deleting account:', error);
+                alert(error.message || 'Failed to delete account. It may be in use by existing payments.');
+                throw error;
+              }
+            }}
+            onEdit={async (id: number, newName: string) => {
+              try {
+                await updateAccount(id, newName);
+                const accountsData = await fetchAccounts();
+                setAccounts(accountsData);
+              } catch (error: any) {
+                console.error('Error updating account:', error);
+                alert(error.message || 'Failed to update account');
+              }
             }}
             onClose={() => setShowAccountModal(false)}
             tableName="accounts"

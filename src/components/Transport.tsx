@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Search, Filter, Bus, Users, MapPin, Wrench, CheckCircle, Calendar, Edit, Trash2, AlertCircle, Clock, FileCheck, Route, Car, Sun, Moon, X } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../supabaseClient';
@@ -161,6 +161,7 @@ export const Transport: React.FC = () => {
   const [selectedZone, setSelectedZone] = useState<TransportZone | null>(null);
   const [showAreaForm, setShowAreaForm] = useState(false);
   const [selectedZoneForArea, setSelectedZoneForArea] = useState<number | null>(null);
+  const [zoneSearchTerm, setZoneSearchTerm] = useState('');
   
   // Batch zone assignment state
   const [showBatchAssignModal, setShowBatchAssignModal] = useState(false);
@@ -357,6 +358,64 @@ export const Transport: React.FC = () => {
     retry: false, // Don't retry on error to avoid spam
     staleTime: 30000 // Cache for 30 seconds
   });
+
+  // Fetch all zone areas for search functionality
+  const fetchAllZoneAreas = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('transport_zone_areas')
+        .select('id, zone_id, name, description')
+        .order('name');
+      
+      if (error) {
+        if (error.code === 'PGRST116' || error.message?.includes('relation') || error.message?.includes('does not exist')) {
+          return [] as TransportZoneArea[];
+        }
+        throw error;
+      }
+      
+      return (data || []) as TransportZoneArea[];
+    } catch (err) {
+      console.error('Error fetching all zone areas:', err);
+      return [] as TransportZoneArea[];
+    }
+  };
+
+  const { data: allZoneAreas = [] } = useQuery({
+    queryKey: ['transport_zone_areas_all'],
+    queryFn: fetchAllZoneAreas,
+    staleTime: 30000,
+  });
+
+  // Filter zones based on search term (moved to top level to follow Rules of Hooks)
+  const filteredZones = useMemo(() => {
+    if (!zoneSearchTerm.trim()) {
+      return transportZones;
+    }
+    
+    const searchLower = zoneSearchTerm.toLowerCase();
+    
+    return transportZones.filter((zone) => {
+      // Check zone name
+      if (zone.name?.toLowerCase().includes(searchLower)) {
+        return true;
+      }
+      
+      // Check zone description
+      if (zone.description?.toLowerCase().includes(searchLower)) {
+        return true;
+      }
+      
+      // Check if any area in this zone matches
+      const zoneAreas = allZoneAreas.filter((area) => area.zone_id === zone.id);
+      const hasMatchingArea = zoneAreas.some((area) => 
+        area.name?.toLowerCase().includes(searchLower) ||
+        area.description?.toLowerCase().includes(searchLower)
+      );
+      
+      return hasMatchingArea;
+    });
+  }, [transportZones, allZoneAreas, zoneSearchTerm]);
 
   const { data: transportTypes = [], isLoading: isLoadingTypes } = useQuery({
     queryKey: ['transport_types'],
@@ -1075,47 +1134,51 @@ export const Transport: React.FC = () => {
           )}
 
           {activeTab === 'zones' && (
-            <div>
-              {/* Search and Add Zone Button */}
-              <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center space-x-2">
-                  <Search className="w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search zones..."
-                    className="border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                <button
-                  onClick={() => {
-                    setSelectedZone(null);
-                    setShowZoneForm(true);
-                  }}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add Zone</span>
-                </button>
-              </div>
-
-              {/* Zones List */}
-              <div className="space-y-4">
-                {zonesError ? (
-                  <div className="text-center py-8">
-                    <div className="text-red-600 mb-2">
-                      <AlertCircle className="w-5 h-5 mx-auto mb-2" />
-                      <p className="font-semibold">Failed to load zones</p>
-                      <p className="text-sm text-gray-600 mt-1">
-                        The transport_zones table doesn't exist yet. Please run the database migration first.
-                      </p>
-                    </div>
+              <div>
+                {/* Search and Add Zone Button */}
+                <div className="flex justify-between items-center mb-4 gap-4">
+                  <div className="flex items-center space-x-2 flex-1">
+                    <Search className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                    <input
+                      type="text"
+                      placeholder="Search zones or areas..."
+                      value={zoneSearchTerm}
+                      onChange={(e) => setZoneSearchTerm(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
                   </div>
-                ) : isLoadingZones ? (
-                  <div className="text-center text-gray-500 py-8">Loading zones...</div>
-                ) : transportZones.length === 0 ? (
-                  <div className="text-center text-gray-500 py-8">No zones found. Create your first zone!</div>
-                ) : (
-                  transportZones.map((zone) => (
+                  <button
+                    onClick={() => {
+                      setSelectedZone(null);
+                      setShowZoneForm(true);
+                    }}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2 flex-shrink-0"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add Zone</span>
+                  </button>
+                </div>
+
+                {/* Zones List */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {zonesError ? (
+                    <div className="col-span-full text-center py-8">
+                      <div className="text-red-600 mb-2">
+                        <AlertCircle className="w-5 h-5 mx-auto mb-2" />
+                        <p className="font-semibold">Failed to load zones</p>
+                        <p className="text-sm text-gray-600 mt-1">
+                          The transport_zones table doesn't exist yet. Please run the database migration first.
+                        </p>
+                      </div>
+                    </div>
+                  ) : isLoadingZones ? (
+                    <div className="col-span-full text-center text-gray-500 py-8">Loading zones...</div>
+                  ) : filteredZones.length === 0 ? (
+                    <div className="col-span-full text-center text-gray-500 py-8">
+                      {zoneSearchTerm ? 'No zones found matching your search.' : 'No zones found. Create your first zone!'}
+                    </div>
+                  ) : (
+                    filteredZones.map((zone) => (
                     <div key={zone.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
                       <div className="flex items-start justify-between mb-4">
                         <div>
@@ -1606,8 +1669,32 @@ export const Transport: React.FC = () => {
               if (error) throw new Error(error.message);
             }}
             onDelete={async (id: number) => {
-              const { error } = await supabase.from('transport_types').delete().eq('id', id);
-              if (error) throw new Error(error.message);
+              try {
+                const { error } = await supabase.from('transport_types').delete().eq('id', id);
+                if (error) {
+                  // Check for foreign key constraint violation
+                  if (error.code === '23503' || error.message?.includes('foreign key') || error.message?.includes('violates foreign key')) {
+                    throw new Error('Cannot delete this transport type because it is being used by existing transport records. Please update those records first.');
+                  }
+                  throw new Error(error.message);
+                }
+              } catch (error: any) {
+                alert(error.message || 'Failed to delete transport type. This type may be in use by existing transport records.');
+                throw error;
+              }
+            }}
+            onEdit={async (id: number, newName: string) => {
+              try {
+                const { error } = await supabase
+                  .from('transport_types')
+                  .update({ name: newName })
+                  .eq('id', id);
+                if (error) throw new Error(error.message);
+                queryClient.invalidateQueries({ queryKey: ['transport_types'] });
+              } catch (error: any) {
+                alert(error.message || 'Failed to update transport type');
+                throw error;
+              }
             }}
             onClose={() => setShowTransportTypesModal(false)}
             tableName="transport_types"

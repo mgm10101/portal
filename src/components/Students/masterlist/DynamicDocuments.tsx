@@ -9,12 +9,14 @@ interface DynamicDocumentsProps {
   selectedStudent: any;
   values?: Record<string, string>;
   onChange?: (values: Record<string, string>) => void;
+  isDisabled?: boolean;
 }
 
 export const DynamicDocuments: React.FC<DynamicDocumentsProps> = ({
   selectedStudent,
   values = {},
   onChange,
+  isDisabled = false,
 }) => {
   const queryClient = useQueryClient();
   const [documentValues, setDocumentValues] = useState<Record<string, string>>({});
@@ -78,7 +80,10 @@ export const DynamicDocuments: React.FC<DynamicDocumentsProps> = ({
           <button
             type="button"
             onClick={() => setShowDocumentTypesModal(true)}
-            className="flex items-center text-sm text-blue-600 hover:text-blue-700"
+            disabled={isDisabled}
+            className={`flex items-center text-sm ${
+              isDisabled ? 'text-gray-400 cursor-not-allowed' : 'text-blue-600 hover:text-blue-700'
+            }`}
           >
             <Pencil className="w-4 h-4 mr-1" />
             Edit Fields
@@ -91,7 +96,10 @@ export const DynamicDocuments: React.FC<DynamicDocumentsProps> = ({
             <button
               type="button"
               onClick={() => setShowDocumentTypesModal(true)}
-              className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+              disabled={isDisabled}
+              className={`text-sm font-medium ${
+                isDisabled ? 'text-gray-400 cursor-not-allowed' : 'text-blue-600 hover:text-blue-700'
+              }`}
             >
               Add Document Types
             </button>
@@ -108,7 +116,10 @@ export const DynamicDocuments: React.FC<DynamicDocumentsProps> = ({
                   <select
                     value={documentValues[docId] || ''}
                     onChange={(e) => handleValueChange(docId, e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={isDisabled}
+                    className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      isDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                    }`}
                   >
                     <option value="">Select status...</option>
                     <option value="Submitted">Submitted</option>

@@ -21,6 +21,7 @@ export const ClassProgressionModal: React.FC<ClassProgressionModalProps> = ({
   onSuccess,
 }) => {
   const [classMapping, setClassMapping] = useState<Record<number, number>>({});
+  const [graduationMapping, setGraduationMapping] = useState<Set<number>>(new Set());
   const [students, setStudents] = useState<Student[]>([]);
   const [excludedStudents, setExcludedStudents] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
@@ -103,10 +104,27 @@ export const ClassProgressionModal: React.FC<ClassProgressionModalProps> = ({
   };
 
   const handleClassMapping = (fromClassId: number, toClassId: number) => {
-    setClassMapping(prev => ({
-      ...prev,
-      [fromClassId]: toClassId,
-    }));
+    // If "Graduation" is selected (value will be -1)
+    if (toClassId === -1) {
+      setGraduationMapping(prev => new Set(prev).add(fromClassId));
+      // Remove from class mapping if it was there
+      setClassMapping(prev => {
+        const newMapping = { ...prev };
+        delete newMapping[fromClassId];
+        return newMapping;
+      });
+    } else {
+      // Remove from graduation mapping if it was there
+      setGraduationMapping(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(fromClassId);
+        return newSet;
+      });
+      setClassMapping(prev => ({
+        ...prev,
+        [fromClassId]: toClassId,
+      }));
+    }
   };
 
   const addStudentToExclusion = (admissionNumber: string) => {
@@ -143,23 +161,46 @@ export const ClassProgressionModal: React.FC<ClassProgressionModalProps> = ({
   const handleProgressStudents = async () => {
     setIsProcessing(true);
     try {
-      // Filter students who will progress
+      // Filter students who will progress to a new class
       const studentsToProgress = students.filter(student => 
         !excludedStudents.has(student.admission_number) &&
-        classMapping[student.current_class_id]
+        classMapping[student.current_class_id] &&
+        !graduationMapping.has(student.current_class_id)
       );
 
-      // Update each student's current class
-      const updates = studentsToProgress.map(student =>
+      // Filter students who will graduate (set to inactive)
+      const studentsToGraduate = students.filter(student => 
+        !excludedStudents.has(student.admission_number) &&
+        graduationMapping.has(student.current_class_id)
+      );
+
+      // Update students to new classes
+      const classUpdates = studentsToProgress.map(student =>
         supabase
           .from('students')
           .update({ current_class_id: classMapping[student.current_class_id] })
           .eq('admission_number', student.admission_number)
       );
 
-      await Promise.all(updates);
+      // Set graduating students to inactive with withdrawal date set to today
+      const today = new Date().toISOString().split('T')[0];
+      const graduationUpdates = studentsToGraduate.map(student =>
+        supabase
+          .from('students')
+          .update({ 
+            status: 'Inactive',
+            withdrawal_date: today
+          })
+          .eq('admission_number', student.admission_number)
+      );
+
+      await Promise.all([...classUpdates, ...graduationUpdates]);
       
-      alert(`Successfully progressed ${studentsToProgress.length} students to their next classes!`);
+      const totalProcessed = studentsToProgress.length + studentsToGraduate.length;
+      const message = `Successfully processed ${totalProcessed} student(s)! ` +
+        `${studentsToProgress.length} progressed to new classes, ` +
+        `${studentsToGraduate.length} graduated (set to inactive).`;
+      alert(message);
       onSuccess();
       onClose();
     } catch (error) {
@@ -177,7 +218,7 @@ export const ClassProgressionModal: React.FC<ClassProgressionModalProps> = ({
   const getProgressionCount = () => {
     return students.filter(s => 
       !excludedStudents.has(s.admission_number) &&
-      classMapping[s.current_class_id]
+      (classMapping[s.current_class_id] || graduationMapping.has(s.current_class_id))
     ).length;
   };
 
@@ -225,11 +266,15 @@ export const ClassProgressionModal: React.FC<ClassProgressionModalProps> = ({
                     </div>
                     <ArrowRight className="w-5 h-5 text-gray-400" />
                     <select
-                      value={classMapping[fromClass.id] || ''}
-                      onChange={(e) => handleClassMapping(fromClass.id, parseInt(e.target.value))}
+                      value={graduationMapping.has(fromClass.id) ? -1 : (classMapping[fromClass.id] || '')}
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value);
+                        handleClassMapping(fromClass.id, value);
+                      }}
                       className="p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
                       <option value="">Select next class...</option>
+                      <option value="-1">Graduation (Set to Inactive)</option>
                       {classes.map(toClass => (
                         <option key={toClass.id} value={toClass.id}>
                           {toClass.name}
@@ -345,7 +390,8 @@ export const ClassProgressionModal: React.FC<ClassProgressionModalProps> = ({
           <div className="bg-blue-50 p-4 rounded-lg">
             <h4 className="font-semibold text-blue-900 mb-2">Progression Summary</h4>
             <div className="text-sm text-blue-800">
-              <p><strong>{getProgressionCount()}</strong> students will be progressed</p>
+              <p><strong>{students.filter(s => !excludedStudents.has(s.admission_number) && classMapping[s.current_class_id] && !graduationMapping.has(s.current_class_id)).length}</strong> students will be progressed to new classes</p>
+              <p><strong>{students.filter(s => !excludedStudents.has(s.admission_number) && graduationMapping.has(s.current_class_id)).length}</strong> students will graduate (set to inactive)</p>
               <p><strong>{excludedStudents.size}</strong> students will remain in current class</p>
             </div>
           </div>
@@ -375,7 +421,7 @@ export const ClassProgressionModal: React.FC<ClassProgressionModalProps> = ({
                 Processing...
               </>
             ) : (
-              `Progress ${getProgressionCount()} Students`
+              `Process ${getProgressionCount()} Students`
             )}
           </button>
         </div>

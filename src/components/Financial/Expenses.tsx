@@ -2,11 +2,14 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Plus, Search, Filter, Eye, Edit, Trash2, X, ChevronDown } from 'lucide-react';
 import { DropdownField } from '../Students/masterlist/DropdownField';
 import { OptionsModal } from '../Students/masterlist/OptionsModal';
+import { VoidReasonPopup } from './VoidReasonPopup';
+import { supabase } from '../../supabaseClient';
 import {
   fetchExpenses,
   createExpense,
   updateExpense,
   markExpenseAsPaid,
+  fetchExpensePayments,
   voidExpense,
   voidExpenses,
   fetchExpenseCategories,
@@ -14,12 +17,16 @@ import {
   fetchExpenseVendors,
   fetchExpensePaidThrough,
   addExpenseCategory,
+  updateExpenseCategory,
   deleteExpenseCategory,
   addExpenseDescription,
+  updateExpenseDescription,
   deleteExpenseDescription,
   addExpenseVendor,
+  updateExpenseVendor,
   deleteExpenseVendor,
   addExpensePaidThrough,
+  updateExpensePaidThrough,
   deleteExpensePaidThrough
 } from '../../services/expenseService';
 import { Expense, ExpenseCategory, ExpenseDescription, ExpenseVendor, ExpensePaidThrough } from '../../types/database';
@@ -28,14 +35,35 @@ import { Expense, ExpenseCategory, ExpenseDescription, ExpenseVendor, ExpensePai
 const MarkAsPaidPopup: React.FC<{ 
   expense: Expense; 
   onClose: () => void; 
-  onConfirm: (datePaid: string, reference: string) => void;
-}> = ({ expense, onClose, onConfirm }) => {
+  onConfirm: (datePaid: string, reference: string, paidThroughId: number | undefined, amountPaid: number) => void;
+  paidThroughOptions: ExpensePaidThrough[];
+}> = ({ expense, onClose, onConfirm, paidThroughOptions }) => {
   const [datePaid, setDatePaid] = useState<string>(new Date().toISOString().split('T')[0]);
   const [reference, setReference] = useState<string>('');
+  const [selectedPaidThroughId, setSelectedPaidThroughId] = useState<number | undefined>(undefined);
+  const [amountPaid, setAmountPaid] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const balanceDue = (expense as any).balance_due || expense.amount;
+  const totalAmount = expense.amount;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onConfirm(datePaid, reference);
+    const paidAmount = parseFloat(amountPaid) || totalAmount;
+    if (paidAmount <= 0) {
+      alert('Please enter a valid payment amount');
+      return;
+    }
+    if (paidAmount > balanceDue) {
+      alert(`Payment amount cannot exceed balance due of Ksh. ${balanceDue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await onConfirm(datePaid, reference, selectedPaidThroughId, paidAmount);
+    } catch (error) {
+      console.error('Error recording payment:', error);
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -43,10 +71,11 @@ const MarkAsPaidPopup: React.FC<{
       <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
         <div className="p-6">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-bold text-gray-800">Mark as Paid</h2>
+            <h2 className="text-xl font-normal text-gray-800">Payment Details</h2>
             <button
               onClick={onClose}
               className="text-gray-500 hover:text-gray-700"
+              disabled={isSubmitting}
             >
               <X className="w-6 h-6" />
             </button>
@@ -61,6 +90,40 @@ const MarkAsPaidPopup: React.FC<{
                 type="date"
                 value={datePaid}
                 onChange={(e) => setDatePaid(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Paid Through
+              </label>
+              <select
+                value={selectedPaidThroughId || ''}
+                onChange={(e) => setSelectedPaidThroughId(e.target.value ? parseInt(e.target.value) : undefined)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                required
+              >
+                <option value="">Select payment method...</option>
+                {paidThroughOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Amount Paid (Balance Due: Ksh. {balanceDue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={amountPaid}
+                onChange={(e) => setAmountPaid(e.target.value)}
+                placeholder={totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 required
               />
@@ -84,14 +147,24 @@ const MarkAsPaidPopup: React.FC<{
                 type="button"
                 onClick={onClose}
                 className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                disabled={isSubmitting}
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                disabled={isSubmitting}
+                className={`px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 ${
+                  isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
               >
-                Mark as Paid
+                {isSubmitting && (
+                  <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                )}
+                Record
               </button>
             </div>
           </form>
@@ -102,9 +175,11 @@ const MarkAsPaidPopup: React.FC<{
 };
 
 // Expense Display Component (Read-only view)
-const ExpenseDisplay: React.FC<{ expense: Expense; onClose: () => void; onMarkAsPaid?: (expense: Expense, datePaid: string, reference: string) => void }> = ({ expense, onClose, onMarkAsPaid }) => {
+const ExpenseDisplay: React.FC<{ expense: Expense; onClose: () => void; onMarkAsPaid?: (expense: Expense, datePaid: string, reference: string, paidThroughId: number | undefined, amountPaid: number) => void; paidThroughOptions?: ExpensePaidThrough[] }> = ({ expense, onClose, onMarkAsPaid, paidThroughOptions = [] }) => {
   const [showMarkAsPaidPopup, setShowMarkAsPaidPopup] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
+  const [payments, setPayments] = useState<any[]>([]);
+  const [loadingPayments, setLoadingPayments] = useState(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const status = expense.payment_status === 'Paid' ? 'Paid' : 
                  (expense.due_date && new Date(expense.due_date) < new Date() ? 'Payment Overdue' : 'Pending Payment');
@@ -115,6 +190,53 @@ const ExpenseDisplay: React.FC<{ expense: Expense; onClose: () => void; onMarkAs
   };
   
   const canMarkAsPaid = status === 'Pending Payment' || status === 'Payment Overdue';
+  
+  // Fetch payments for this expense
+  useEffect(() => {
+    const loadPayments = async () => {
+      setLoadingPayments(true);
+      try {
+        const paymentsData = await fetchExpensePayments(expense.id);
+        // If expense is paid but no payment records exist, create one from expense data
+        if (expense.payment_status === 'Paid' && paymentsData.length === 0 && expense.date_paid) {
+          setPayments([{
+            id: 'expense-record',
+            expense_id: expense.id,
+            payment_date: expense.date_paid,
+            amount: expense.amount,
+            paid_through_id: expense.paid_through_id,
+            paid_through_name: expense.paid_through_name,
+            payment_reference_no: expense.payment_reference_no,
+            notes: null,
+            created_at: expense.date_paid,
+            updated_at: expense.date_paid
+          }]);
+        } else {
+          setPayments(paymentsData);
+        }
+      } catch (error) {
+        console.error('Error fetching payments:', error);
+        // If expense is paid but fetch failed, try to show payment from expense record
+        if (expense.payment_status === 'Paid' && expense.date_paid) {
+          setPayments([{
+            id: 'expense-record',
+            expense_id: expense.id,
+            payment_date: expense.date_paid,
+            amount: expense.amount,
+            paid_through_id: expense.paid_through_id,
+            paid_through_name: expense.paid_through_name,
+            payment_reference_no: expense.payment_reference_no,
+            notes: null,
+            created_at: expense.date_paid,
+            updated_at: expense.date_paid
+          }]);
+        }
+      } finally {
+        setLoadingPayments(false);
+      }
+    };
+    loadPayments();
+  }, [expense.id, expense.payment_status, expense.date_paid, expense.amount, expense.paid_through_id, expense.paid_through_name, expense.payment_reference_no]);
 
   // Keyboard navigation for scrolling
   React.useEffect(() => {
@@ -162,7 +284,7 @@ const ExpenseDisplay: React.FC<{ expense: Expense; onClose: () => void; onMarkAs
         <div className="p-8">
           {/* Header */}
           <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-bold text-gray-900">Expense Details</h1>
+            <h1 className="text-2xl font-normal text-gray-900">Expense Details</h1>
             <button
               onClick={onClose}
               className="text-gray-500 hover:text-gray-700"
@@ -173,7 +295,7 @@ const ExpenseDisplay: React.FC<{ expense: Expense; onClose: () => void; onMarkAs
 
           {/* Expense Details */}
           <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-3 gap-6">
               <div>
                 <p className="text-sm text-gray-500 mb-1">Internal Reference</p>
                 <p className="text-lg font-semibold text-gray-900">{expense.internal_reference}</p>
@@ -182,8 +304,6 @@ const ExpenseDisplay: React.FC<{ expense: Expense; onClose: () => void; onMarkAs
                 <p className="text-sm text-gray-500 mb-1">Date</p>
                 <p className="text-lg font-semibold text-gray-900">{expense.expense_date}</p>
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-6">
               <div>
                 <p className="text-sm text-gray-500 mb-1">Status</p>
                 <span className={`inline-flex px-3 py-1 text-sm font-semibold rounded-full ${statusClasses[status as keyof typeof statusClasses] || 'bg-gray-100 text-gray-800'}`}>
@@ -192,8 +312,33 @@ const ExpenseDisplay: React.FC<{ expense: Expense; onClose: () => void; onMarkAs
               </div>
             </div>
 
+            <div className="flex gap-6 items-center">
+              {/* Date field on the left */}
+              <div className="flex-shrink-0">
+                {expense.payment_status === 'Paid' && expense.date_paid ? (
+                  <div>
+                    <p className="text-sm text-gray-500 mb-1">Date Paid</p>
+                    <p className="text-base font-medium text-gray-900">{expense.date_paid}</p>
+                  </div>
+                ) : expense.due_date ? (
+                  <div>
+                    <p className="text-sm text-gray-500 mb-1">Due Date</p>
+                    <p className="text-base font-medium text-gray-900">{expense.due_date}</p>
+                  </div>
+                ) : null}
+              </div>
+              
+              {/* Amount card on the right */}
+              <div className="bg-gray-50 p-6 rounded-lg flex-1 ml-10">
+                <div className="grid grid-cols-2 gap-4 items-center pl-12">
+                  <span className="text-lg text-gray-700">Amount</span>
+                  <span className="text-xl font-normal text-red-600 pl-2">Ksh. {expense.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+              </div>
+            </div>
+
             <div className="border-t border-gray-200 pt-6">
-              <div className="grid grid-cols-2 gap-6 mb-4">
+              <div className="grid grid-cols-3 gap-6 mb-4">
                 <div>
                   <p className="text-sm text-gray-500 mb-1">Category</p>
                   <p className="text-base font-medium text-gray-900">{expense.category_name || 'N/A'}</p>
@@ -202,45 +347,68 @@ const ExpenseDisplay: React.FC<{ expense: Expense; onClose: () => void; onMarkAs
                   <p className="text-sm text-gray-500 mb-1">Description</p>
                   <p className="text-base font-medium text-gray-900">{expense.description_name || 'N/A'}</p>
                 </div>
+                <div>
+                  <p className="text-sm text-gray-500 mb-1">Vendor</p>
+                  <p className="text-base font-medium text-gray-900">{expense.vendor_name || 'N/A'}</p>
+                </div>
               </div>
             </div>
 
-            <div className="bg-gray-50 p-6 rounded-lg">
-              <div className="flex justify-between items-center">
-                <span className="text-lg text-gray-700">Amount</span>
-                <span className="text-3xl font-normal text-red-600">Ksh. {expense.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-6">
-              <div>
-                <p className="text-sm text-gray-500 mb-1">Vendor</p>
-                <p className="text-base font-medium text-gray-900">{expense.vendor_name || 'N/A'}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-500 mb-1">Paid Through</p>
-                <p className="text-base font-medium text-gray-900">{expense.paid_through_name || 'N/A'}</p>
-              </div>
-            </div>
-
-            {expense.payment_reference_no && (
-              <div>
-                <p className="text-sm text-gray-500 mb-1">Payment Reference No.</p>
-                <p className="text-base font-medium text-gray-900">{expense.payment_reference_no}</p>
+            {/* Payment History / Payment Details */}
+            {payments.length > 0 && (
+              <div className="border-t border-gray-200 pt-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-semibold text-gray-800">
+                    {expense.payment_status === 'Paid' ? 'Payment Details' : 'Payment History'}
+                  </h3>
+                  {/* Balance Due for unpaid expenses only - on same line */}
+                  {expense.payment_status !== 'Paid' && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-500">Balance Due</span>
+                      <span className="text-sm font-semibold text-red-600">
+                        Ksh. {((expense as any).balance_due || expense.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                {loadingPayments ? (
+                  <p className="text-sm text-gray-500">Loading payments...</p>
+                ) : (
+                  <div className="space-y-3">
+                    {payments.map((payment: any) => (
+                      <div key={payment.id} className="bg-gray-50 p-4 rounded-lg">
+                        <div className="grid grid-cols-4 gap-4">
+                          <div>
+                            <p className="text-xs text-gray-500 mb-1">Date</p>
+                            <p className="text-sm font-medium text-gray-900">{payment.payment_date}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 mb-1">Amount</p>
+                            <p className="text-sm font-medium text-gray-900">
+                              Ksh. {payment.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 mb-1">Paid Through</p>
+                            <p className="text-sm font-medium text-gray-900">{payment.paid_through_name || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 mb-1">Reference</p>
+                            <p className="text-sm font-medium text-gray-900">{payment.payment_reference_no || 'N/A'}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
-            {expense.payment_status === 'Paid' && expense.date_paid && (
-              <div>
-                <p className="text-sm text-gray-500 mb-1">Date Paid</p>
-                <p className="text-base font-medium text-gray-900">{expense.date_paid}</p>
-              </div>
-            )}
-
-            {expense.payment_status === 'Unpaid' && expense.due_date && (
-              <div>
-                <p className="text-sm text-gray-500 mb-1">Due Date</p>
-                <p className="text-base font-medium text-gray-900">{expense.due_date}</p>
+            {/* Notes Section */}
+            {(expense as any).notes && (
+              <div className="border-t border-gray-200 pt-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">Notes</h3>
+                <p className="text-base text-gray-700 whitespace-pre-wrap">{(expense as any).notes}</p>
               </div>
             )}
           </div>
@@ -252,7 +420,7 @@ const ExpenseDisplay: React.FC<{ expense: Expense; onClose: () => void; onMarkAs
                 onClick={() => setShowMarkAsPaidPopup(true)}
                 className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
               >
-                Mark as Paid
+                Record Payment
               </button>
             )}
             <button
@@ -269,13 +437,21 @@ const ExpenseDisplay: React.FC<{ expense: Expense; onClose: () => void; onMarkAs
         <MarkAsPaidPopup
           expense={expense}
           onClose={() => setShowMarkAsPaidPopup(false)}
-          onConfirm={(datePaid, reference) => {
+          onConfirm={async (datePaid, reference, paidThroughId, amountPaid) => {
             if (onMarkAsPaid) {
-              onMarkAsPaid(expense, datePaid, reference);
+              await onMarkAsPaid(expense, datePaid, reference, paidThroughId, amountPaid);
+              // Reload payments after payment is recorded
+              try {
+                const paymentsData = await fetchExpensePayments(expense.id);
+                setPayments(paymentsData);
+              } catch (error) {
+                console.error('Error reloading payments:', error);
+              }
             }
             setShowMarkAsPaidPopup(false);
             onClose();
           }}
+          paidThroughOptions={paidThroughOptions}
         />
       )}
     </div>
@@ -293,6 +469,7 @@ export const Expenses: React.FC = () => {
   const [amount, setAmount] = useState<number>(0);
   const [amountInput, setAmountInput] = useState<string>('');
   const [paymentReferenceNo, setPaymentReferenceNo] = useState<string>('');
+  const [notes, setNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   // Hover and selection state
@@ -439,6 +616,8 @@ export const Expenses: React.FC = () => {
   const [showPaidThroughModal, setShowPaidThroughModal] = useState(false);
   const [showVendorModal, setShowVendorModal] = useState(false);
   const [showDescriptionModal, setShowDescriptionModal] = useState(false);
+  const [showVoidReasonPopup, setShowVoidReasonPopup] = useState(false);
+  const [expenseToVoid, setExpenseToVoid] = useState<number | number[] | null>(null);
 
   // Calculate status based on payment status and due date
   const getExpenseStatus = useCallback((expense: Expense): string => {
@@ -578,11 +757,13 @@ export const Expenses: React.FC = () => {
         description_id: selectedDescriptionId || null,
         amount: amount,
         vendor_id: selectedVendorId || null,
-        paid_through_id: selectedPaidThroughId || null,
+        paid_through_id: paymentStatus === 'Unpaid' ? null : (selectedPaidThroughId || null),
         payment_status: paymentStatus as 'Paid' | 'Unpaid',
         due_date: paymentStatus === 'Unpaid' ? dueDate : null,
         date_paid: paymentStatus === 'Paid' ? datePaid : null,
-        payment_reference_no: paymentReferenceNo || null
+        payment_reference_no: paymentReferenceNo || null,
+        notes: notes || null,
+        balance_due: paymentStatus === 'Unpaid' ? amount : 0
       };
 
       if (selectedExpense) {
@@ -609,6 +790,7 @@ export const Expenses: React.FC = () => {
       setAmount(0);
       setAmountInput('');
       setPaymentReferenceNo('');
+      setNotes('');
       setSelectedCategoryId(undefined);
       setSelectedDescriptionId(undefined);
       setSelectedVendorId(undefined);
@@ -631,6 +813,7 @@ export const Expenses: React.FC = () => {
     setDueDate(expense.due_date || '');
     setDatePaid(expense.date_paid || '');
     setPaymentReferenceNo(expense.payment_reference_no || '');
+    setNotes((expense as any).notes || '');
     setSelectedCategoryId(expense.category_id);
     setSelectedDescriptionId(expense.description_id || undefined);
     setSelectedVendorId(expense.vendor_id || undefined);
@@ -639,59 +822,73 @@ export const Expenses: React.FC = () => {
   };
 
   // Handle mark as paid
-  const handleMarkAsPaid = async (expense: Expense, datePaid: string, reference: string) => {
+  const handleMarkAsPaid = async (expense: Expense, datePaid: string, reference: string, paidThroughId: number | undefined, amountPaid: number) => {
     try {
-      await markExpenseAsPaid(expense.id, datePaid, reference || null);
-      alert('Expense marked as paid successfully!');
+      await markExpenseAsPaid(expense.id, datePaid, reference || null, paidThroughId, amountPaid);
+      alert('Payment recorded successfully!');
       
       // Refresh expenses list
       const expensesData = await fetchExpenses();
       setExpenses(expensesData);
     } catch (error) {
-      console.error('Error marking expense as paid:', error);
-      alert('Failed to mark expense as paid. Please try again.');
+      console.error('Error recording payment:', error);
+      alert('Failed to record payment. Please try again.');
+    }
+  };
+
+  // Get current user email for voided_by
+  const getCurrentUserEmail = async (): Promise<string | undefined> => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      return user?.email || undefined;
+    } catch (error) {
+      console.error('Error getting current user:', error);
+      return undefined;
     }
   };
 
   // Handle void expense
-  const handleVoidExpense = async (expenseId: number) => {
-    if (!window.confirm('Are you sure you want to void this expense? This action cannot be undone.')) {
-      return;
-    }
-
-    try {
-      await voidExpense(expenseId);
-      alert('Expense voided successfully!');
-      
-      // Refresh expenses list
-      const expensesData = await fetchExpenses();
-      setExpenses(expensesData);
-    } catch (error) {
-      console.error('Error voiding expense:', error);
-      alert('Failed to void expense. Please try again.');
-    }
+  const handleVoidExpense = (expenseId: number) => {
+    setExpenseToVoid(expenseId);
+    setShowVoidReasonPopup(true);
   };
 
   // Handle void selected expenses
-  const handleVoidSelected = async () => {
+  const handleVoidSelected = () => {
     const selectedArray = Array.from(selectedExpenses);
     if (selectedArray.length === 0) return;
+    setExpenseToVoid(selectedArray);
+    setShowVoidReasonPopup(true);
+  };
 
-    if (!window.confirm(`Are you sure you want to void ${selectedArray.length} expense(s)? This action cannot be undone.`)) {
-      return;
-    }
+  // Confirm void with reason
+  const handleConfirmVoid = async (reason: string) => {
+    if (!expenseToVoid) return;
 
     try {
-      await voidExpenses(selectedArray);
-      alert(`Successfully voided ${selectedArray.length} expense(s).`);
+      const voidedBy = await getCurrentUserEmail();
+      const expenseIds = Array.isArray(expenseToVoid) ? expenseToVoid : [expenseToVoid];
+      
+      if (expenseIds.length === 1) {
+        await voidExpense(expenseIds[0], reason, voidedBy);
+        alert('Expense voided successfully!');
+      } else {
+        await voidExpenses(expenseIds, reason, voidedBy);
+        alert(`Successfully voided ${expenseIds.length} expense(s).`);
+      }
+
       setSelectedExpenses(new Set());
+      setShowVoidReasonPopup(false);
+      setExpenseToVoid(null);
       
       // Refresh expenses list
       const expensesData = await fetchExpenses();
       setExpenses(expensesData);
-    } catch (error) {
-      console.error('Error voiding expenses:', error);
-      alert('Failed to void expenses. Please try again.');
+    } catch (error: any) {
+      console.error('Error voiding expense(s):', error);
+      alert(error.message || 'Failed to void expense(s). Please try again.');
+      setShowVoidReasonPopup(false);
+      setExpenseToVoid(null);
     }
   };
 
@@ -811,6 +1008,7 @@ export const Expenses: React.FC = () => {
               setAmount(0);
               setAmountInput('');
               setPaymentReferenceNo('');
+              setNotes('');
               setSelectedCategoryId(undefined);
               setSelectedDescriptionId(undefined);
               setSelectedVendorId(undefined);
@@ -873,6 +1071,7 @@ export const Expenses: React.FC = () => {
                   } else {
                     setDatePaid('');
                     setPaymentReferenceNo(''); // Clear payment reference when status changes to Unpaid
+                    setSelectedPaidThroughId(undefined); // Clear paid through when status changes to Unpaid
                   }
                 }}
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -965,6 +1164,7 @@ export const Expenses: React.FC = () => {
                 onSelect={setSelectedPaidThroughId}
                 tableName="expense_paid_through"
                 disableFetch={false}
+                disabled={paymentStatus === 'Unpaid'}
               />
             </div>
           </div>
@@ -986,6 +1186,8 @@ export const Expenses: React.FC = () => {
             <label className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
             <textarea
               rows={3}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
               className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="Additional notes about the expense..."
             ></textarea>
@@ -1004,6 +1206,7 @@ export const Expenses: React.FC = () => {
                 setAmount(0);
                 setAmountInput('');
                 setPaymentReferenceNo('');
+                setNotes('');
                 setSelectedCategoryId(undefined);
                 setSelectedDescriptionId(undefined);
                 setSelectedVendorId(undefined);
@@ -1058,9 +1261,19 @@ export const Expenses: React.FC = () => {
               await deleteExpenseCategory(id);
               const updatedCategories = await fetchExpenseCategories();
               setCategories(updatedCategories);
-            } catch (error) {
+            } catch (error: any) {
               console.error('Error deleting category:', error);
-              alert('Failed to delete category');
+              alert(error.message || 'Failed to delete category. This category may be in use by existing expenses.');
+            }
+          }}
+          onEdit={async (id: number, newName: string) => {
+            try {
+              await updateExpenseCategory(id, newName);
+              const updatedCategories = await fetchExpenseCategories();
+              setCategories(updatedCategories);
+            } catch (error: any) {
+              console.error('Error updating category:', error);
+              alert(error.message || 'Failed to update category');
             }
           }}
           onClose={() => setShowCategoryModal(false)}
@@ -1092,9 +1305,19 @@ export const Expenses: React.FC = () => {
               await deleteExpensePaidThrough(id);
               const updatedOptions = await fetchExpensePaidThrough();
               setPaidThroughOptions(updatedOptions);
-            } catch (error) {
+            } catch (error: any) {
               console.error('Error deleting paid through option:', error);
-              alert('Failed to delete paid through option');
+              alert(error.message || 'Failed to delete paid through option. This option may be in use by existing expenses.');
+            }
+          }}
+          onEdit={async (id: number, newName: string) => {
+            try {
+              await updateExpensePaidThrough(id, newName);
+              const updatedOptions = await fetchExpensePaidThrough();
+              setPaidThroughOptions(updatedOptions);
+            } catch (error: any) {
+              console.error('Error updating paid through option:', error);
+              alert(error.message || 'Failed to update paid through option');
             }
           }}
           onClose={() => setShowPaidThroughModal(false)}
@@ -1126,9 +1349,19 @@ export const Expenses: React.FC = () => {
               await deleteExpenseVendor(id);
               const updatedVendors = await fetchExpenseVendors();
               setVendors(updatedVendors);
-            } catch (error) {
+            } catch (error: any) {
               console.error('Error deleting vendor:', error);
-              alert('Failed to delete vendor');
+              alert(error.message || 'Failed to delete vendor. This vendor may be in use by existing expenses.');
+            }
+          }}
+          onEdit={async (id: number, newName: string) => {
+            try {
+              await updateExpenseVendor(id, newName);
+              const updatedVendors = await fetchExpenseVendors();
+              setVendors(updatedVendors);
+            } catch (error: any) {
+              console.error('Error updating vendor:', error);
+              alert(error.message || 'Failed to update vendor');
             }
           }}
           onClose={() => setShowVendorModal(false)}
@@ -1168,9 +1401,23 @@ export const Expenses: React.FC = () => {
               const descArrays = await Promise.all(descPromises);
               const allDesc = descArrays.flat();
               setAllDescriptions(allDesc);
-            } catch (error) {
+            } catch (error: any) {
               console.error('Error deleting description:', error);
-              alert('Failed to delete description');
+              alert(error.message || 'Failed to delete description. This description may be in use by existing expenses.');
+            }
+          }}
+          onEdit={async (id: number, newName: string) => {
+            try {
+              await updateExpenseDescription(id, newName);
+              // Refresh all descriptions
+              const allCats = await fetchExpenseCategories();
+              const descPromises = allCats.map(cat => fetchExpenseDescriptions(cat.id));
+              const descArrays = await Promise.all(descPromises);
+              const allDesc = descArrays.flat();
+              setAllDescriptions(allDesc);
+            } catch (error: any) {
+              console.error('Error updating description:', error);
+              alert(error.message || 'Failed to update description');
             }
           }}
           onClose={() => setShowDescriptionModal(false)}
@@ -1477,6 +1724,7 @@ export const Expenses: React.FC = () => {
         {expenseToDisplay && (
           <ExpenseDisplay
             expense={expenseToDisplay}
+            paidThroughOptions={paidThroughOptions}
             onClose={() => setExpenseToDisplay(null)}
             onMarkAsPaid={handleMarkAsPaid}
           />
@@ -1673,6 +1921,18 @@ export const Expenses: React.FC = () => {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Void Reason Popup */}
+        {showVoidReasonPopup && expenseToVoid && (
+          <VoidReasonPopup
+            onClose={() => {
+              setShowVoidReasonPopup(false);
+              setExpenseToVoid(null);
+            }}
+            onConfirm={handleConfirmVoid}
+            expenseCount={Array.isArray(expenseToVoid) ? expenseToVoid.length : 1}
+          />
         )}
       </div>
     </div>

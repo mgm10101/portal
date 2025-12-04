@@ -196,14 +196,17 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
   return (
     <div
       id="invoice-container"
-      className="font-sans antialiased text-gray-900 bg-white shadow-2xl"
+      className="font-sans antialiased text-gray-900 bg-white"
       style={{
         width: '794px', // exact A4 width for html2canvas
         margin: '0 auto',
         boxSizing: 'border-box',
+        minHeight: '1123px', // A4 height
+        display: 'flex',
+        flexDirection: 'column',
       }}
     >
-      <div style={{ padding: '37.8px' }}>
+      <div style={{ padding: '37.8px', flex: '1', display: 'flex', flexDirection: 'column' }}>
         <header className="flex justify-between items-start mb-0">
           <div className="flex flex-col relative">
             {/* ✅ Logo from invoice settings or fallback */}
@@ -295,38 +298,41 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
             </div>
           </div>
 
-          <div className="text-right">
-            <h1 className="text-5xl font-normal mb-1">INVOICE</h1>
-            <p className="text-2xl font-medium mb-4">#{invoiceNumber}</p>
+          <div className="text-right flex flex-col justify-end">
+            <div className="mb-auto">
+              <h1 className="text-5xl font-normal mb-1">INVOICE</h1>
+              <p className="text-2xl font-medium mb-4">#{invoiceNumber}</p>
 
-            {/* BALANCE DUE DISPLAY: Uses updated 'balanceDue' variable */}
-            <div className="text-right mt-8">
-              <p className="text-base font-semibold uppercase text-gray-700 mb-1">Balance Due</p>
-              <p className="text-2xl font-normal text-black">
-                KES {Number(balanceDue).toLocaleString('en-KE', { minimumFractionDigits: 2 })}
-              </p>
+              {/* BALANCE DUE DISPLAY: Uses updated 'balanceDue' variable */}
+              <div className="text-right mt-8">
+                <p className="text-base font-semibold uppercase text-gray-700 mb-1">Balance Due</p>
+                <p className="text-2xl font-normal text-black">
+                  KES {Number(balanceDue).toLocaleString('en-KE', { minimumFractionDigits: 2 })}
+                </p>
+              </div>
+            </div>
+
+            {/* Invoice Date, Due Date, Status - aligned to bottom with Bill To */}
+            <div className="text-right text-sm mt-auto" style={{ marginTop: 'auto', paddingTop: '165px' }}>
+              <div className="space-y-1">
+                <div className="flex justify-end gap-4">
+                  <span className="font-medium">Invoice Date:</span>
+                  <span>{invoiceDate}</span>
+                </div>
+                <div className="flex justify-end gap-4">
+                  <span className="font-medium">Due Date:</span>
+                  <span>{dueDate}</span>
+                </div>
+                <div className="flex justify-end gap-4">
+                  <span className="font-medium">Status:</span>
+                  <span className={`font-bold ${statusColor}`}>{status}</span>
+                </div>
+              </div>
             </div>
           </div>
         </header>
 
-        <div className="flex justify-end text-sm mb-12 mt-4">
-          <div className="w-1/3 space-y-1">
-            <div className="flex justify-between">
-              <span className="font-medium">Invoice Date:</span>
-              <span>{invoiceDate}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="font-medium">Due Date:</span>
-              <span>{dueDate}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="font-medium">Status:</span>
-              <span className={`font-bold ${statusColor}`}>{status}</span>
-            </div>
-          </div>
-        </div>
-
-        <table className="w-full text-sm border-collapse" style={{ minWidth: '100%' }}>
+        <table className="w-full text-sm border-collapse" style={{ minWidth: '100%', marginTop: '12px' }}>
           <thead>
             <tr className="text-white font-bold text-left bg-gray-900 h-10">
               <th className="py-2 px-4 w-1/12 text-center">#</th>
@@ -354,7 +360,7 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
             ))}
             <tr className="border-b border-gray-300 bg-gray-50 font-bold">
               <td colSpan={3}></td>
-              <td className="p-2 text-right">Sub Total</td>
+              <td className="p-2 text-left" style={{ paddingLeft: '16px' }}>Sub Total</td>
               <td className="p-2 text-right">{Number(subTotal).toLocaleString()}</td>
             </tr>
           </tbody>
@@ -411,6 +417,13 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
                 </span>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Footer with page number */}
+        <div className="invoice-footer mt-auto pt-4 border-t border-gray-200" style={{ height: '50px', marginTop: 'auto', paddingTop: '24px', flexShrink: 0 }}>
+          <div className="text-center text-sm text-gray-600">
+            Page 1 of 1
           </div>
         </div>
       </div>

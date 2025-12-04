@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { FileText, Download, Calendar, Filter } from 'lucide-react';
+import { VoidedRecordsReport } from './Financial/VoidedRecordsReport';
 
 export const ReportBuilder: React.FC = () => {
   const [selectedRecord, setSelectedRecord] = useState('');
   const [selectedField, setSelectedField] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [showVoidedRecordsReport, setShowVoidedRecordsReport] = useState(false);
 
   const recordTypes = [
     { value: 'students', label: 'Students' },
@@ -166,6 +168,13 @@ export const ReportBuilder: React.FC = () => {
               <h4 className="font-medium text-gray-800">Asset Issuance Summary</h4>
               <p className="text-sm text-gray-500 mt-1">Asset issuance records by staff, department, and status</p>
             </button>
+            <button 
+              onClick={() => setShowVoidedRecordsReport(true)}
+              className="p-4 border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors text-left"
+            >
+              <h4 className="font-medium text-gray-800">Voided Records</h4>
+              <p className="text-sm text-gray-500 mt-1">View and export voided financial records with reasons</p>
+            </button>
           </div>
         </div>
 
@@ -208,6 +217,13 @@ export const ReportBuilder: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Voided Records Report */}
+      {showVoidedRecordsReport && (
+        <VoidedRecordsReport
+          onClose={() => setShowVoidedRecordsReport(false)}
+        />
+      )}
     </div>
   );
 };
