@@ -251,7 +251,7 @@ export const CustomDashboard: React.FC<CustomDashboardProps> = ({
                 </div>
               </div>
             </div>
-            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 border border-white/20 max-w-[40%]">
+            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4 border border-white/20 w-full md:max-w-[40%]">
               <div className="text-white/80 text-xs md:text-sm mb-1">Modules Accessed</div>
               <div className="text-white font-semibold text-sm md:text-base">{getModuleNames()}</div>
             </div>

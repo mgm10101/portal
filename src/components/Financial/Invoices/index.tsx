@@ -26,6 +26,7 @@ export const Invoices: React.FC = () => {
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceHeader | null>(null);
   const [invoiceToDisplay, setInvoiceToDisplay] = useState<InvoiceData | null>(null);
   const [dynamicBottomPadding, setDynamicBottomPadding] = useState<number>(0);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const invoiceContentRef = useRef<HTMLDivElement>(null);
 
   const loadInvoices = useCallback(async () => {
@@ -147,11 +148,13 @@ export const Invoices: React.FC = () => {
 
   // --- OPTIMIZED PDF EXPORT (Reduced file size) ---
   const handleExportToPdf = useCallback(async () => {
-    if (!invoiceToDisplay) return;
+    if (!invoiceToDisplay || exportingPdf) return;
     const element = document.getElementById('invoice-pdf-wrapper');
     if (!element) return;
 
-    // Get row positions BEFORE hiding footer (so measurements are accurate)
+    setExportingPdf(true);
+    try {
+      // Get row positions BEFORE hiding footer (so measurements are accurate)
     const invoiceContainer = element.querySelector('#invoice-container') as HTMLElement;
     const tableRows: number[] = [];
     
@@ -450,14 +453,25 @@ export const Invoices: React.FC = () => {
     const studentName = invoiceToDisplay.billToName || 'Unknown';
     const filename = `${sanitizeFilename(admissionNumber)} - ${sanitizeFilename(studentName)}.pdf`;
     
-    pdf.save(filename);
-    
-    // Restore footer display
-    if (footer) {
-      footer.style.display = originalFooterDisplay;
+      pdf.save(filename);
+      
+      // Restore footer display
+      if (footer) {
+        footer.style.display = originalFooterDisplay;
+      }
+      element.classList.remove('exporting');
+    } catch (error) {
+      console.error('Error exporting to PDF:', error);
+      alert('Failed to export PDF. Please try again.');
+      // Restore footer display even on error
+      if (footer) {
+        footer.style.display = originalFooterDisplay;
+      }
+      element.classList.remove('exporting');
+    } finally {
+      setExportingPdf(false);
     }
-    element.classList.remove('exporting');
-  }, [invoiceToDisplay]);
+  }, [invoiceToDisplay, exportingPdf]);
 
   const handleDataMutationSuccess = useCallback(() => {
     loadInvoices();
@@ -502,9 +516,19 @@ export const Invoices: React.FC = () => {
             <div className="flex gap-3">
               <button
                 onClick={handleExportToPdf}
-                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 font-semibold"
+                disabled={exportingPdf}
+                className={`bg-green-600 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 ${
+                  exportingPdf ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-700'
+                }`}
               >
-                Export to PDF
+                {exportingPdf ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  'Export to PDF'
+                )}
               </button>
             </div>
           </div>

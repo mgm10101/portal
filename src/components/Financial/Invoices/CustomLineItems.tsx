@@ -1,6 +1,6 @@
 // src/components/Financial/Invoices/CustomLineItems.tsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Plus, X, Info } from 'lucide-react';
 import { ItemMaster } from '../../../types/database';
 import { supabase } from '../../../supabaseClient';
@@ -95,9 +95,35 @@ export const CustomLineItems: React.FC<CustomLineItemsProps> = ({
     isSubmitting,
     selectedStudentIds,
 }) => {
+    // Filter out "Balance Brought Forward" from available items
+    const availableItems = useMemo(() => 
+        masterItems.filter(i => i.item_name !== 'Balance Brought Forward'),
+        [masterItems]
+    );
+    
     const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
     const [fieldOptions, setFieldOptions] = useState<Record<string, any[]>>({});
     const [loadingOptions, setLoadingOptions] = useState(false);
+    
+    // State for searchable dropdowns (one per rule)
+    const [searchQueries, setSearchQueries] = useState<{ [key: string]: string }>({});
+    const [activeDropdowns, setActiveDropdowns] = useState<{ [key: string]: boolean }>({});
+    const dropdownRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
+    
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            Object.keys(dropdownRefs.current).forEach(ruleId => {
+                const ref = dropdownRefs.current[ruleId];
+                if (ref && !ref.contains(event.target as Node)) {
+                    setActiveDropdowns(prev => ({ ...prev, [ruleId]: false }));
+                    setSearchQueries(prev => ({ ...prev, [ruleId]: '' }));
+                }
+            });
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
     const [availableFields, setAvailableFields] = useState<FieldDefinition[]>(BASE_FIELDS);
 
     // Fetch all field definitions and their options on mount
@@ -304,12 +330,16 @@ export const CustomLineItems: React.FC<CustomLineItemsProps> = ({
                 // Auto-populate item details when selectedItemId changes
                 if (field === 'selectedItemId') {
                     // Find item by ID (unique identifier) to handle duplicate names correctly
-                    const selectedItem = masterItems.find(i => i.id === value);
+                    const selectedItem = availableItems.find(i => i.id === value);
                     if (selectedItem) {
                         updatedRule.selectedItemId = selectedItem.id;
                         updatedRule.itemName = selectedItem.item_name; // Store the name for DB
                         updatedRule.unitPrice = selectedItem.current_unit_price;
                         updatedRule.description = selectedItem.description;
+                        // Set quantity to 1 by default when an item is selected
+                        if (!updatedRule.quantity || updatedRule.quantity === 0) {
+                            updatedRule.quantity = 1;
+                        }
                     }
                 }
 
@@ -563,25 +593,85 @@ export const CustomLineItems: React.FC<CustomLineItemsProps> = ({
                                     </div>
 
                                     
-                                    {/* Item Selection */}
+                                    {/* Item Selection - Searchable Dropdown */}
                                     <div className="border-t pt-4 mt-4">
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
                                             Item to Add <span className="text-red-500">*</span>
                                         </label>
-                                        <select
-                                            value={rule.selectedItemId || ''}
-                                            onChange={(e) => handleRuleChange(rule.ruleId, 'selectedItemId', e.target.value)}
-                                            className="w-full p-2 border rounded-lg"
-                                            disabled={isSubmitting}
-                                        >
-                                            <option value="">Select item...</option>
-                                            {masterItems.map(item => (
-                                                <option key={item.id} value={item.id}>
-                                                    {item.item_name} - Ksh.{item.current_unit_price.toFixed(2)}
-                                                    {item.description && ` (${item.description})`}
-                                                </option>
-                                            ))}
-                                        </select>
+                                        {(() => {
+                                            // Get selected item display name
+                                            const selectedItem = availableItems.find(i => i.id === rule.selectedItemId);
+                                            const selectedItemDisplay = selectedItem
+                                                ? `${selectedItem.item_name}${selectedItem.description ? ` (${selectedItem.description})` : ''}`
+                                                : 'Select item...';
+                                            
+                                            // Get search query and dropdown state for this rule
+                                            const searchQuery = searchQueries[rule.ruleId] || '';
+                                            const isSearching = activeDropdowns[rule.ruleId] || false;
+                                            
+                                            // Filter items based on search query
+                                            const filteredItems = availableItems.filter(i => {
+                                                if (!searchQuery.trim()) return true;
+                                                const query = searchQuery.toLowerCase();
+                                                const itemName = i.item_name?.toLowerCase() || '';
+                                                const description = i.description?.toLowerCase() || '';
+                                                return itemName.includes(query) || description.includes(query);
+                                            });
+                                            
+                                            // Handle item selection
+                                            const handleSelectItem = (selectedItem: ItemMaster) => {
+                                                handleRuleChange(rule.ruleId, 'selectedItemId', selectedItem.id.toString());
+                                                setActiveDropdowns(prev => ({ ...prev, [rule.ruleId]: false }));
+                                                setSearchQueries(prev => ({ ...prev, [rule.ruleId]: '' }));
+                                            };
+                                            
+                                            return (
+                                                <div 
+                                                    className="relative"
+                                                    ref={(el) => { dropdownRefs.current[rule.ruleId] = el; }}
+                                                >
+                                                    <input
+                                                        type="text"
+                                                        value={isSearching ? searchQuery : selectedItemDisplay}
+                                                        onChange={(e) => {
+                                                            setSearchQueries(prev => ({ ...prev, [rule.ruleId]: e.target.value }));
+                                                            setActiveDropdowns(prev => ({ ...prev, [rule.ruleId]: true }));
+                                                        }}
+                                                        onFocus={() => {
+                                                            setActiveDropdowns(prev => ({ ...prev, [rule.ruleId]: true }));
+                                                            if (!rule.selectedItemId) {
+                                                                setSearchQueries(prev => ({ ...prev, [rule.ruleId]: '' }));
+                                                            }
+                                                        }}
+                                                        placeholder="Select item..."
+                                                        className="w-full p-2 border rounded-lg"
+                                                        disabled={isSubmitting}
+                                                    />
+                                                    {isSearching && (
+                                                        <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 max-h-48 overflow-y-auto shadow-lg">
+                                                            {filteredItems.length > 0 ? (
+                                                                filteredItems.map(i => (
+                                                                    <li
+                                                                        key={i.id}
+                                                                        onMouseDown={() => handleSelectItem(i)}
+                                                                        className="p-3 cursor-pointer hover:bg-blue-50"
+                                                                    >
+                                                                        <span className="font-medium text-gray-900">{i.item_name}</span>
+                                                                        {i.description && (
+                                                                            <span className="text-sm text-gray-500 ml-2">({i.description})</span>
+                                                                        )}
+                                                                    </li>
+                                                                ))
+                                                            ) : (
+                                                                <li className="p-3 text-gray-500 italic">
+                                                                    {searchQuery ? `No items found matching "${searchQuery}"` : 'No items available'}
+                                                                </li>
+                                                            )}
+                                                        </ul>
+                                                    )}
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
 
                                     {/* Quantity, Price, Discount */}

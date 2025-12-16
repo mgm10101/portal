@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Download, Eye, Calendar } from 'lucide-react';
+import { X, Download, Eye, Calendar, Loader2 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { fetchVoidedExpenses } from '../../services/expenseService';
@@ -34,6 +34,7 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
   const [dateTo, setDateTo] = useState<string>('');
   const [voidedExpenses, setVoidedExpenses] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings | null>(null);
   const [pages, setPages] = useState<PageData[]>([]);
@@ -321,6 +322,14 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
     }
   }, [voidedExpenses, splitIntoPages, measuredHeights]);
 
+  // Reset state when component closes
+  const handleClose = () => {
+    setShowPreview(false);
+    setShowConfigPopup(false);
+    setVoidedExpenses([]);
+    onClose();
+  };
+
   const handleGenerate = async () => {
     if (!dateFrom || !dateTo) {
       alert('Please select a date range');
@@ -346,47 +355,55 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
   };
 
   const handleExportToPdf = useCallback(async () => {
-    if (pages.length === 0) return;
+    if (pages.length === 0 || exportingPdf) return;
 
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const margin = 10; // 10mm margin
+    setExportingPdf(true);
+    try {
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 10; // 10mm margin
 
-    // Process each page separately
-    for (let i = 0; i < pages.length; i++) {
-      const pageElement = pageRefs.current[i];
-      if (!pageElement) continue;
+      // Process each page separately
+      for (let i = 0; i < pages.length; i++) {
+        const pageElement = pageRefs.current[i];
+        if (!pageElement) continue;
 
-      // Add new page (except for first page)
-      if (i > 0) {
-        pdf.addPage();
+        // Add new page (except for first page)
+        if (i > 0) {
+          pdf.addPage();
+        }
+
+        // Capture the page element
+        const canvas = await html2canvas(pageElement, {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff',
+          width: A4_WIDTH,
+          windowWidth: A4_WIDTH,
+          imageTimeout: 15000,
+          removeContainer: false,
+        });
+
+        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+        const imgWidth = pageWidth - (margin * 2);
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+        // Add image to PDF
+        pdf.addImage(imgData, 'JPEG', margin, margin, imgWidth, imgHeight);
       }
 
-      // Capture the page element
-      const canvas = await html2canvas(pageElement, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-        width: A4_WIDTH,
-        windowWidth: A4_WIDTH,
-        imageTimeout: 15000,
-        removeContainer: false,
-      });
-
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
-      const imgWidth = pageWidth - (margin * 2);
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-      // Add image to PDF
-      pdf.addImage(imgData, 'JPEG', margin, margin, imgWidth, imgHeight);
+      const sanitizeFilename = (str: string) => str.replace(/[<>:"/\\|?*]/g, '_').trim();
+      const filename = `Voided_${recordType}_${dateFrom}_to_${dateTo}.pdf`;
+      pdf.save(sanitizeFilename(filename));
+    } catch (error) {
+      console.error('Error exporting to PDF:', error);
+      alert('Failed to export PDF. Please try again.');
+    } finally {
+      setExportingPdf(false);
     }
-
-    const sanitizeFilename = (str: string) => str.replace(/[<>:"/\\|?*]/g, '_').trim();
-    const filename = `Voided_${recordType}_${dateFrom}_to_${dateTo}.pdf`;
-    pdf.save(sanitizeFilename(filename));
-  }, [pages, recordType, dateFrom, dateTo]);
+  }, [pages, recordType, dateFrom, dateTo, exportingPdf]);
 
   const totalAmount = voidedExpenses.reduce((sum, exp) => sum + exp.amount, 0);
 
@@ -418,7 +435,7 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-semibold text-gray-800">Voided Records Report</h2>
               <button
-                onClick={onClose}
+                onClick={handleClose}
                 className="text-gray-500 hover:text-gray-700"
               >
                 <X className="w-6 h-6" />
@@ -471,7 +488,7 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
 
               <div className="flex justify-end space-x-3 mt-6">
                 <button
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
                 >
                   Cancel
@@ -524,13 +541,25 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
               <div className="flex gap-3">
                 <button
                   onClick={handleExportToPdf}
-                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 font-semibold flex items-center gap-2"
+                  disabled={exportingPdf}
+                  className={`bg-green-600 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 ${
+                    exportingPdf ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-700'
+                  }`}
                 >
-                  <Download className="w-4 h-4" />
-                  Export to PDF
+                  {exportingPdf ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Exporting...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4" />
+                      Export to PDF
+                    </>
+                  )}
                 </button>
                 <button
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
                 >
                   Close

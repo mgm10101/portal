@@ -27,6 +27,7 @@ export interface StaffMember {
   date_of_termination: string | null;
   date_of_retirement: string | null;
   qualifications: string | null;
+  number_of_leave_days: number | null;
   basic_pay: number;
   gross_pay: number;
   net_pay: number;
@@ -82,6 +83,7 @@ export interface StaffSubmissionData {
   date_of_termination?: string | null;
   date_of_retirement?: string | null;
   qualifications?: string | null;
+  number_of_leave_days?: number | null;
   basic_pay: number;
   allowances?: Array<{ name: string; amount: number }>;
   statutory_deductions?: Array<{ name: string; amount: number }>;

@@ -497,7 +497,10 @@ export async function fetchFullInvoice(invoiceNumber: string): Promise<FullInvoi
  * @param data The batch creation details including conditional rules and BBF config.
  * @returns A promise resolving to the number of invoices successfully created.
  */
-export async function createBatchInvoices(data: BatchCreationData): Promise<number> {
+export async function createBatchInvoices(
+    data: BatchCreationData,
+    onProgress?: (current: number, total: number) => void
+): Promise<number> {
     console.log(`🐛 [DEBUG] Initiating batch invoice creation for ${data.selectedStudentIds.length} requested students.`);
     
     if (data.selectedStudentIds.length === 0) {
@@ -523,11 +526,18 @@ export async function createBatchInvoices(data: BatchCreationData): Promise<numb
 
     let successfullyCreatedCount = 0;
     const failedStudents: { name: string, error: string }[] = [];
+    const totalStudents = studentsToInvoice.length;
 
     // The common line items provided by the BatchForm
     const commonLineItems: InvoiceLineItem[] = data.lineItems as InvoiceLineItem[];
 
-    for (const student of studentsToInvoice) {
+    for (let i = 0; i < studentsToInvoice.length; i++) {
+        const student = studentsToInvoice[i];
+        
+        // Update progress
+        if (onProgress) {
+            onProgress(i + 1, totalStudents);
+        }
         console.log(`🐛 [DEBUG] Processing invoice for ${student.name} (${student.admission_number})...`);
         try {
             // Start with common line items

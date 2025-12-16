@@ -1,6 +1,6 @@
 // src/components/Financial/Invoices/InvoiceBatchCreate.tsx
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { ItemMaster, InvoiceLineItem, StudentInfo } from '../../../types/database'; 
 import { Plus, X, Search, CheckCircle, AlertTriangle } from 'lucide-react';
 import { createBatchInvoices } from '../../../services/financialService'; // Assuming this service function exists
@@ -79,7 +79,8 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
     const [dueDate, setDueDate] = useState(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
     const [generalDescription, setGeneralDescription] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [submissionError, setSubmissionError] = useState<string | null>(null); 
+    const [submissionError, setSubmissionError] = useState<string | null>(null);
+    const [creationProgress, setCreationProgress] = useState({ current: 0, total: 0 }); 
     
     // --- New State for Class Filtering ---
     // Changed default to empty string - no class selected initially
@@ -87,6 +88,33 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
     
     // Generate unique class list for the filter dropdown
     const uniqueClasses = useMemo(() => getUniqueClasses(allStudents), [allStudents]);
+    
+    // Filter out "Balance Brought Forward" from available items
+    const availableItems = useMemo(() => 
+        masterItems.filter(i => i.item_name !== 'Balance Brought Forward'),
+        [masterItems]
+    );
+    
+    // State for searchable dropdowns (one per line item)
+    const [searchQueries, setSearchQueries] = useState<{ [key: number]: string }>({});
+    const [activeDropdowns, setActiveDropdowns] = useState<{ [key: number]: boolean }>({});
+    const dropdownRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
+    
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            Object.keys(dropdownRefs.current).forEach(key => {
+                const index = parseInt(key);
+                const ref = dropdownRefs.current[index];
+                if (ref && !ref.contains(event.target as Node)) {
+                    setActiveDropdowns(prev => ({ ...prev, [index]: false }));
+                    setSearchQueries(prev => ({ ...prev, [index]: '' }));
+                }
+            });
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
 
     // --- Handlers & Calculations (ORIGINAL LOGIC) ---
@@ -131,12 +159,16 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
             
             if (name === 'selectedItemId') {
                 // Find item by ID (unique identifier) to handle duplicate names correctly
-                const selectedItem = masterItems.find(i => i.id === value);
+                const selectedItem = availableItems.find(i => i.id === value);
                 if (selectedItem) {
                     item.selectedItemId = selectedItem.id;
                     item.itemName = selectedItem.item_name; // Store the name for DB
                     item.description = selectedItem.description; 
                     item.unitPrice = selectedItem.current_unit_price;
+                    // Set quantity to 1 by default when an item is selected
+                    if (!item.quantity || item.quantity === 0) {
+                        item.quantity = 1;
+                    }
                 } else {
                     item.selectedItemId = '';
                     item.itemName = '';
@@ -230,6 +262,7 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
 
         // --- Actual Submission Process ---
         setIsSubmitting(true);
+        setCreationProgress({ current: 0, total: selectedStudentIds.length });
         
         try {
             // Map Common Line Items for submission (Original Logic)
@@ -258,9 +291,14 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                 conditionalLineRules: conditionalRules, 
             };
             
+            // Progress callback to update UI
+            const progressCallback = (current: number, total: number) => {
+                setCreationProgress({ current, total });
+            };
+            
             // NOTE: The 'as any' is a temporary fix if the service function expects a less strict type, 
             // but the BatchCreationData type should be correct for the backend. Removed it for cleaner code.
-            const successCount = await createBatchInvoices(batchSubmission); 
+            const successCount = await createBatchInvoices(batchSubmission, progressCallback); 
             
             alert(`Batch creation successful! ${successCount} invoices created.`);
             onClose();
@@ -272,6 +310,7 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
             alert(`Submission Error: ${errorMessage}`);
         } finally {
             setIsSubmitting(false);
+            setCreationProgress({ current: 0, total: 0 });
         }
     };
     
@@ -348,25 +387,86 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
 
                     {/* Item Rows */}
                     <div className="space-y-3">
-                        {lineItems.map((item, index) => (
+                        {lineItems.map((item, index) => {
+                            // Get selected item display name
+                            const selectedItem = availableItems.find(i => i.id === item.selectedItemId);
+                            const selectedItemDisplay = selectedItem
+                                ? `${selectedItem.item_name}${selectedItem.description ? ` (${selectedItem.description})` : ''}`
+                                : (loadingItems ? 'Loading...' : 'Select Item');
+                            
+                            // Get search query and dropdown state for this item
+                            const searchQuery = searchQueries[index] || '';
+                            const isSearching = activeDropdowns[index] || false;
+                            
+                            // Filter items based on search query
+                            const filteredItems = availableItems.filter(i => {
+                                if (!searchQuery.trim()) return true;
+                                const query = searchQuery.toLowerCase();
+                                const itemName = i.item_name?.toLowerCase() || '';
+                                const description = i.description?.toLowerCase() || '';
+                                return itemName.includes(query) || description.includes(query);
+                            });
+                            
+                            // Handle item selection
+                            const handleSelectItem = (selectedItem: ItemMaster) => {
+                                const syntheticEvent = {
+                                    target: {
+                                        name: 'selectedItemId',
+                                        value: selectedItem.id.toString()
+                                    }
+                                } as React.ChangeEvent<HTMLSelectElement>;
+                                handleLineItemChange(index, syntheticEvent);
+                                setActiveDropdowns(prev => ({ ...prev, [index]: false }));
+                                setSearchQueries(prev => ({ ...prev, [index]: '' }));
+                            };
+                            
+                            return (
                             <div key={index} className="grid grid-cols-10 md:grid-cols-12 gap-2 items-center border-b pb-2">
-                                {/* Item Name/ID */}
-                                <div className="col-span-3 md:col-span-4">
-                                    <select
-                                        name="selectedItemId"
-                                        value={item.selectedItemId || ''}
-                                        onChange={(e) => handleLineItemChange(index, e)}
+                                {/* Item Name/ID - Searchable Dropdown */}
+                                <div 
+                                    className="col-span-3 md:col-span-4 relative"
+                                    ref={(el) => { dropdownRefs.current[index] = el; }}
+                                >
+                                    <input
+                                        type="text"
+                                        value={isSearching ? searchQuery : selectedItemDisplay}
+                                        onChange={(e) => {
+                                            setSearchQueries(prev => ({ ...prev, [index]: e.target.value }));
+                                            setActiveDropdowns(prev => ({ ...prev, [index]: true }));
+                                        }}
+                                        onFocus={() => {
+                                            setActiveDropdowns(prev => ({ ...prev, [index]: true }));
+                                            if (!item.selectedItemId) {
+                                                setSearchQueries(prev => ({ ...prev, [index]: '' }));
+                                            }
+                                        }}
+                                        placeholder={loadingItems ? 'Loading...' : 'Select Item'}
                                         className="w-full p-2 border rounded-lg text-xs md:text-sm"
                                         disabled={loadingItems || isSubmitting}
                                         required
-                                    >
-                                        <option value="">{loadingItems ? 'Loading...' : 'Select Item'}</option>
-                                        {masterItems.map(mItem => (
-                                            <option key={mItem.id} value={mItem.id}>
-                                                {mItem.item_name} {mItem.description && `(${mItem.description})`}
-                                            </option>
-                                        ))}
-                                    </select>
+                                    />
+                                    {isSearching && (
+                                        <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 max-h-48 overflow-y-auto shadow-lg">
+                                            {filteredItems.length > 0 ? (
+                                                filteredItems.map(i => (
+                                                    <li
+                                                        key={i.id}
+                                                        onMouseDown={() => handleSelectItem(i)}
+                                                        className="p-3 cursor-pointer hover:bg-blue-50"
+                                                    >
+                                                        <span className="font-medium text-gray-900 text-xs md:text-sm">{i.item_name}</span>
+                                                        {i.description && (
+                                                            <span className="text-xs text-gray-500 ml-2">({i.description})</span>
+                                                        )}
+                                                    </li>
+                                                ))
+                                            ) : (
+                                                <li className="p-3 text-gray-500 italic text-xs md:text-sm">
+                                                    {searchQuery ? `No items found matching "${searchQuery}"` : 'No items available'}
+                                                </li>
+                                            )}
+                                        </ul>
+                                    )}
                                 </div>
                                 {/* Quantity */}
                                 <input 
@@ -416,7 +516,8 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                                     <X size={16} />
                                 </button>
                             </div>
-                        ))}
+                            );
+                        })}
                     </div>
                     
                     {/* Add Item Button & Totals */}
@@ -551,6 +652,26 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                         )}
                     </div>
                 </div>
+
+                {/* Creation Progress */}
+                {isSubmitting && (
+                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-medium text-blue-800">
+                                Creating Invoices...
+                            </span>
+                            <span className="text-sm text-blue-600">
+                                {creationProgress.current} / {creationProgress.total}
+                            </span>
+                        </div>
+                        <div className="w-full bg-blue-200 rounded-full h-2">
+                            <div 
+                                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                style={{ width: `${creationProgress.total > 0 ? (creationProgress.current / creationProgress.total) * 100 : 0}%` }}
+                            />
+                        </div>
+                    </div>
+                )}
 
                 {/* --- 4. Action Buttons (UPDATED) --- */}
                 <div className="flex justify-between items-center border-t pt-4">

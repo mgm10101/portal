@@ -53,7 +53,9 @@ export const StaffInfo: React.FC = () => {
   const [emergencyContact2Phone, setEmergencyContact2Phone] = useState<string>('');
   const [emergencyContact2Relationship, setEmergencyContact2Relationship] = useState<string>('');
   const [dateHired, setDateHired] = useState<string>('');
-  const [qualifications, setQualifications] = useState<string>('');
+  const [qualifications, setQualifications] = useState<string[]>([]);
+  const [newQualification, setNewQualification] = useState<string>('');
+  const [numberOfLeaveDays, setNumberOfLeaveDays] = useState<number | null>(null);
   
   // Calculate age from birthday
   const calculateAge = (birthDate: string) => {
@@ -98,7 +100,7 @@ export const StaffInfo: React.FC = () => {
   const [otherDeductions, setOtherDeductions] = useState<Array<{ id: string; name: string; amount: number }>>([]);
   
   // Tab state
-  const [activeTab, setActiveTab] = useState<'staff' | 'statutory'>('staff');
+  const [activeTab, setActiveTab] = useState<'staff' | 'statutory' | 'salary'>('staff');
   
   // Statutory Deductions Configuration State
   const [statutoryDeductionConfigs, setStatutoryDeductionConfigs] = useState<Array<{
@@ -223,7 +225,9 @@ export const StaffInfo: React.FC = () => {
     setStatus('Active');
     setDateOfTermination('');
     setDateOfRetirement('');
-    setQualifications('');
+    setQualifications([]);
+    setNewQualification('');
+    setNumberOfLeaveDays(null);
     setBasicPay(0);
     setAllowances([{ id: '1', name: 'House Allowance', amount: 0 }]);
     setStatutoryDeductions([{ id: '1', name: 'SHIF', amount: 0 }]);
@@ -264,7 +268,21 @@ export const StaffInfo: React.FC = () => {
         setStatus(selectedStaff.status || 'Active');
         setDateOfTermination(selectedStaff.date_of_termination || '');
         setDateOfRetirement(selectedStaff.date_of_retirement || '');
-        setQualifications(selectedStaff.qualifications || '');
+        // Parse qualifications from JSON string or use empty array
+        try {
+          const parsed = selectedStaff.qualifications 
+            ? (typeof selectedStaff.qualifications === 'string' 
+                ? JSON.parse(selectedStaff.qualifications) 
+                : selectedStaff.qualifications)
+            : [];
+          setQualifications(Array.isArray(parsed) ? parsed : []);
+        } catch {
+          // If parsing fails, try to use as string and convert to array
+          const quals = selectedStaff.qualifications || '';
+          setQualifications(quals ? [quals] : []);
+        }
+        setNewQualification('');
+        setNumberOfLeaveDays(selectedStaff.number_of_leave_days || null);
         setSelectedDepartmentId(selectedStaff.department_id || undefined);
         setBasicPay(selectedStaff.basic_pay || 0);
         
@@ -626,6 +644,7 @@ export const StaffInfo: React.FC = () => {
               setDateOfRetirement('');
               setBirthday('');
               setAge(null);
+              setNumberOfLeaveDays(null);
               savedScrollPosition.current = 0;
             }}
             className="text-gray-500 hover:text-gray-700"
@@ -658,6 +677,17 @@ export const StaffInfo: React.FC = () => {
               }`}
             >
               Statutory Deductions
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('salary')}
+              className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'salary'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Salary
             </button>
           </nav>
         </div>
@@ -694,7 +724,8 @@ export const StaffInfo: React.FC = () => {
                 status: status as any,
                 date_of_termination: dateOfTermination || null,
                 date_of_retirement: dateOfRetirement || null,
-                qualifications: qualifications || null,
+                qualifications: qualifications.length > 0 ? JSON.stringify(qualifications) : null,
+                number_of_leave_days: numberOfLeaveDays || null,
                 basic_pay: basicPay,
                 allowances: allowances.map(a => ({ name: a.name, amount: a.amount })),
                 statutory_deductions: statutoryDeductions.map(d => ({ name: d.name, amount: d.amount })),
@@ -817,20 +848,20 @@ export const StaffInfo: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-800 mb-4">Contact Information</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
               <input
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
               </div>
@@ -903,280 +934,10 @@ export const StaffInfo: React.FC = () => {
             </div>
           </div>
 
-          {/* Salary Section */}
-          <div className="border-t pt-4">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Salary Information</h3>
-            
-            {/* Earnings Section */}
-            <div className="mb-6">
-              <h4 className="font-medium text-gray-700 mb-3">Earnings (Ksh)</h4>
-              <div className="space-y-3">
-            <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Basic Pay</label>
-              <input
-                type="number"
-                    step="0.01"
-                    value={basicPay}
-                    onChange={(e) => setBasicPay(parseFloat(e.target.value) || 0)}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="0.00"
-                  />
-                </div>
-                
-                {/* Allowances */}
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="block text-sm font-medium text-gray-700">Allowances</label>
-                    <button
-                      type="button"
-                      onClick={addAllowance}
-                      className="text-sm text-blue-600 hover:text-blue-700 flex items-center"
-                    >
-                      <Plus className="w-4 h-4 mr-1" />
-                      Add Allowance
-                    </button>
-                  </div>
-                  <div className="space-y-2">
-                    {allowances.map((allowance) => (
-                      <div key={allowance.id} className="flex gap-2">
-                        <input
-                          type="text"
-                          value={allowance.name}
-                          onChange={(e) => updateAllowance(allowance.id, 'name', e.target.value)}
-                          placeholder="Allowance name (e.g., House Allowance)"
-                          className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={allowance.amount}
-                          onChange={(e) => updateAllowance(allowance.id, 'amount', parseFloat(e.target.value) || 0)}
-                          placeholder="Amount"
-                          className="w-32 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => deleteAllowance(allowance.id)}
-                          className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                
-                {/* Gross Pay Display */}
-                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                  <div className="flex justify-between items-center">
-                    <span className="font-medium text-gray-700">Gross Pay</span>
-                    <span className="text-xl font-normal text-blue-600">
-                      Ksh. {grossPay.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Deductions Section */}
-            <div>
-              <h4 className="font-medium text-gray-700 mb-3">Deductions (Ksh)</h4>
-              
-              {/* Statutory Deductions - Read Only (Calculated from Statutory Deductions tab) */}
-              <div className="mb-4">
-                <div className="flex justify-between items-center mb-2">
-                  <label className="block text-sm font-medium text-gray-700">Statutory Deductions</label>
-                  <span className="text-xs text-gray-500 italic">Configured in Statutory Deductions tab</span>
-                </div>
-                <div className="space-y-2">
-                  {statutoryDeductionConfigs.length === 0 ? (
-                    <p className="text-sm text-gray-500 italic">No statutory deductions configured. Go to Statutory Deductions tab to add them.</p>
-                  ) : (
-                    statutoryDeductionConfigs.map((config) => {
-                      // Calculate amount based on configuration
-                      let calculatedAmount = 0;
-                      let earningBase = 0;
-                      
-                      if (config.earningType === 'Gross Earnings') {
-                        earningBase = grossPay;
-                      } else if (config.earningType === 'Basic Salary') {
-                        earningBase = basicPay;
-                      } else {
-                        const allowance = allowances.find(a => a.name === config.earningType);
-                        earningBase = allowance?.amount || 0;
-                      }
-                      
-                      if (config.hasBands && config.bands.length > 0) {
-                        // Calculate based on bands
-                        for (const band of config.bands) {
-                          if (earningBase >= band.min && (band.max === null || earningBase <= band.max)) {
-                            const bandAmount = earningBase * (band.percentage / 100);
-                            calculatedAmount = bandAmount;
-                            break;
-                          }
-                        }
-                      } else {
-                        calculatedAmount = earningBase * (config.percentage / 100);
-                      }
-                      
-                      // Apply limits
-                      if (config.limits.type === 'deduction') {
-                        if (config.limits.lower !== null && calculatedAmount < config.limits.lower) {
-                          calculatedAmount = config.limits.lower;
-                        }
-                        if (config.limits.upper !== null && calculatedAmount > config.limits.upper) {
-                          calculatedAmount = config.limits.upper;
-                        }
-                      } else if (config.limits.type === 'earning') {
-                        if (config.limits.lower !== null && earningBase < config.limits.lower) {
-                          calculatedAmount = 0;
-                        }
-                        if (config.limits.upper !== null && earningBase > config.limits.upper) {
-                          earningBase = config.limits.upper;
-                          if (config.hasBands && config.bands.length > 0) {
-                            for (const band of config.bands) {
-                              if (earningBase >= band.min && (band.max === null || earningBase <= band.max)) {
-                                calculatedAmount = earningBase * (band.percentage / 100);
-                                break;
-                              }
-                            }
-                          } else {
-                            calculatedAmount = earningBase * (config.percentage / 100);
-                          }
-                        }
-                      }
-                      
-                      // Calculate employee deduction (percentage of earnings paid by employee)
-                      // The calculatedAmount is based on the total percentage, but we need to show what the employee pays
-                      // If using bands, we need to recalculate based on employee percentage
-                      const employerPercent = config.paidBy?.employer ?? 0;
-                      const employeePercent = config.paidBy?.employee ?? 0;
-                      let employeeDeduction = 0;
-                      if (config.hasBands && config.bands && config.bands.length > 0) {
-                        for (const band of config.bands) {
-                          if (earningBase >= (band.min ?? 0) && (band.max === null || band.max === undefined || earningBase <= band.max)) {
-                            employeeDeduction = earningBase * (employeePercent / 100);
-                            break;
-                          }
-                        }
-                      } else {
-                        employeeDeduction = earningBase * (employeePercent / 100);
-                      }
-                      
-                      // Apply limits to employee deduction
-                      if (config.limits && config.limits.type === 'deduction') {
-                        const totalDeduction = earningBase * ((employerPercent + employeePercent) / 100);
-                        if (config.limits.lower !== null && totalDeduction < config.limits.lower) {
-                          // If total is below lower limit, adjust proportionally
-                          employeeDeduction = config.limits.lower * (employeePercent / (employerPercent + employeePercent || 1));
-                        }
-                        if (config.limits.upper !== null && totalDeduction > config.limits.upper) {
-                          // If total is above upper limit, adjust proportionally
-                          employeeDeduction = config.limits.upper * (employeePercent / (employerPercent + employeePercent || 1));
-                        }
-                      } else if (config.limits && config.limits.type === 'earning') {
-                        if (config.limits.lower !== null && earningBase < config.limits.lower) {
-                          employeeDeduction = 0;
-                        }
-                        if (config.limits.upper !== null && earningBase > config.limits.upper) {
-                          earningBase = config.limits.upper;
-                          employeeDeduction = earningBase * (employeePercent / 100);
-                        }
-                      }
-                      
-                      const totalPercentage = employerPercent + employeePercent;
-                      const employerPortion = earningBase * (employerPercent / 100);
-                      
-                      return (
-                        <div key={config.id} className="flex gap-2 items-center bg-gray-50 p-2 rounded-lg">
-                          <input
-                            type="text"
-                            value={config.name}
-                            readOnly
-                            className="flex-1 p-2 border border-gray-200 rounded-lg bg-white cursor-not-allowed"
-                          />
-                          <input
-                            type="number"
-                            value={employeeDeduction.toFixed(2)}
-                            readOnly
-                            className="w-32 p-2 border border-gray-200 rounded-lg bg-white cursor-not-allowed"
-                            title={`Employee deduction: ${employeeDeduction.toFixed(2)} | Employer portion: ${employerPortion.toFixed(2)} | Total remitted: ${(employeeDeduction + employerPortion).toFixed(2)}`}
-                          />
-                          <div className="text-xs text-gray-500 w-40">
-                            <div>Employer: {config.paidBy?.employer ?? 0}%</div>
-                            <div>Employee: {config.paidBy?.employee ?? 0}%</div>
-                            <div className="text-gray-400">Total: {totalPercentage.toFixed(2)}%</div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-
-              {/* Other Deductions */}
-              <div className="mb-4">
-                <div className="flex justify-between items-center mb-2">
-                  <label className="block text-sm font-medium text-gray-700">Other Deductions</label>
-                  <button
-                    type="button"
-                    onClick={addOtherDeduction}
-                    className="text-sm text-blue-600 hover:text-blue-700 flex items-center"
-                  >
-                    <Plus className="w-4 h-4 mr-1" />
-                    Add Deduction
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {otherDeductions.length === 0 ? (
-                    <p className="text-sm text-gray-500 italic">No other deductions added</p>
-                  ) : (
-                    otherDeductions.map((deduction) => (
-                      <div key={deduction.id} className="flex gap-2">
-                        <input
-                          type="text"
-                          value={deduction.name}
-                          onChange={(e) => updateOtherDeduction(deduction.id, 'name', e.target.value)}
-                          placeholder="Deduction name"
-                          className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={deduction.amount}
-                          onChange={(e) => updateOtherDeduction(deduction.id, 'amount', parseFloat(e.target.value) || 0)}
-                          placeholder="Amount"
-                          className="w-32 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => deleteOtherDeduction(deduction.id)}
-                          className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {/* Net Pay Display */}
-              <div className="bg-green-50 p-4 rounded-lg border border-green-200">
-                <div className="flex justify-between items-center">
-                  <span className="font-medium text-gray-700">Net Pay</span>
-                  <span className="text-xl font-normal text-green-600">
-                    Ksh. {netPay.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* Other Information */}
           <div className="border-t pt-4">
             <h3 className="text-lg font-semibold text-gray-800 mb-4">Other Information</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Date Hired</label>
                 <input
@@ -1213,6 +974,20 @@ export const StaffInfo: React.FC = () => {
                 <option>Retired</option>
               </select>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Number of Leave Days in a Year</label>
+              <input
+                type="text"
+                value={numberOfLeaveDays !== null ? numberOfLeaveDays.toString() : ''}
+                onChange={(e) => {
+                  // Only allow numbers
+                  const value = e.target.value.replace(/[^0-9]/g, '');
+                  setNumberOfLeaveDays(value === '' ? null : parseInt(value, 10));
+                }}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Enter number of leave days"
+              />
+            </div>
           </div>
 
           {/* Date of Termination - appears when status is Terminated */}
@@ -1243,14 +1018,72 @@ export const StaffInfo: React.FC = () => {
             </div>
           )}
           
+            {/* Qualifications List */}
             <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Qualifications</label>
-              <input
-                type="text"
-                value={qualifications}
-                onChange={(e) => setQualifications(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+              <label className="block text-sm font-medium text-gray-700 mb-2">Qualifications</label>
+              <div className="space-y-2">
+                {/* Add Qualification Input */}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newQualification}
+                    onChange={(e) => setNewQualification(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newQualification.trim()) {
+                        e.preventDefault();
+                        setQualifications([...qualifications, newQualification.trim()]);
+                        setNewQualification('');
+                      }
+                    }}
+                    className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter qualification and press Enter"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (newQualification.trim()) {
+                        setQualifications([...qualifications, newQualification.trim()]);
+                        setNewQualification('');
+                      }
+                    }}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+                
+                {/* Qualifications List */}
+                {qualifications.length > 0 && (
+                  <div className="space-y-1.5">
+                    {qualifications.map((qual, index) => {
+                      // Convert index to lowercase alphabet (0 -> a, 1 -> b, etc.)
+                      const alphabetLabel = String.fromCharCode(97 + index); // 97 is 'a' in ASCII
+                      return (
+                        <div
+                          key={index}
+                          className="flex items-center justify-between p-2.5 bg-gray-50 border border-gray-200 rounded-lg group hover:bg-gray-100 transition-colors"
+                        >
+                          <span className="text-sm text-gray-700 flex-1">
+                            <span className="text-gray-500 font-medium">({alphabetLabel})</span> {qual}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQualifications(qualifications.filter((_, i) => i !== index));
+                            }}
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {qualifications.length === 0 && (
+                  <p className="text-sm text-gray-400 italic py-2">No qualifications added yet</p>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1274,6 +1107,7 @@ export const StaffInfo: React.FC = () => {
                 setDateOfRetirement('');
                 setBirthday('');
                 setAge(null);
+                setNumberOfLeaveDays(null);
                 savedScrollPosition.current = 0;
               }}
               className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
@@ -1302,6 +1136,291 @@ export const StaffInfo: React.FC = () => {
             basicPay={basicPay}
             grossPay={grossPay}
           />
+        )}
+
+        {activeTab === 'salary' && (
+          <form 
+            className="space-y-6"
+            onSubmit={(e) => e.preventDefault()}
+          >
+            {/* Salary Information */}
+            <div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Salary Information</h3>
+              
+              {/* Earnings Section */}
+              <div className="mb-6">
+                <h4 className="font-medium text-gray-700 mb-3">Earnings (Ksh)</h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Basic Pay</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={basicPay}
+                      onChange={(e) => setBasicPay(parseFloat(e.target.value) || 0)}
+                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="0.00"
+                    />
+                  </div>
+                  
+                  {/* Allowances */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="block text-sm font-medium text-gray-700">Allowances</label>
+                      <button
+                        type="button"
+                        onClick={addAllowance}
+                        className="text-sm text-blue-600 hover:text-blue-700 flex items-center"
+                      >
+                        <Plus className="w-4 h-4 mr-1" />
+                        Add Allowance
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {allowances.map((allowance) => (
+                        <div key={allowance.id} className="flex gap-2">
+                          <input
+                            type="text"
+                            value={allowance.name}
+                            onChange={(e) => updateAllowance(allowance.id, 'name', e.target.value)}
+                            placeholder="Allowance name (e.g., House Allowance)"
+                            className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={allowance.amount}
+                            onChange={(e) => updateAllowance(allowance.id, 'amount', parseFloat(e.target.value) || 0)}
+                            placeholder="Amount"
+                            className="w-32 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => deleteAllowance(allowance.id)}
+                            className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* Gross Pay Display */}
+                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium text-gray-700">Gross Pay</span>
+                      <span className="text-xl font-normal text-blue-600">
+                        Ksh. {grossPay.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Deductions Section */}
+              <div>
+                <h4 className="font-medium text-gray-700 mb-3">Deductions (Ksh)</h4>
+                
+                {/* Statutory Deductions - Read Only (Calculated from Statutory Deductions tab) */}
+                <div className="mb-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="block text-sm font-medium text-gray-700">Statutory Deductions</label>
+                    <span className="text-xs text-gray-500 italic">Configured in Statutory Deductions tab</span>
+                  </div>
+                  <div className="space-y-2">
+                    {statutoryDeductionConfigs.length === 0 ? (
+                      <p className="text-sm text-gray-500 italic">No statutory deductions configured. Go to Statutory Deductions tab to add them.</p>
+                    ) : (
+                      statutoryDeductionConfigs.map((config) => {
+                        // Calculate amount based on configuration
+                        let calculatedAmount = 0;
+                        let earningBase = 0;
+                        
+                        if (config.earningType === 'Gross Earnings') {
+                          earningBase = grossPay;
+                        } else if (config.earningType === 'Basic Salary') {
+                          earningBase = basicPay;
+                        } else {
+                          const allowance = allowances.find(a => a.name === config.earningType);
+                          earningBase = allowance?.amount || 0;
+                        }
+                        
+                        if (config.hasBands && config.bands.length > 0) {
+                          // Calculate based on bands
+                          for (const band of config.bands) {
+                            if (earningBase >= band.min && (band.max === null || earningBase <= band.max)) {
+                              const bandAmount = earningBase * (band.percentage / 100);
+                              calculatedAmount = bandAmount;
+                              break;
+                            }
+                          }
+                        } else {
+                          calculatedAmount = earningBase * (config.percentage / 100);
+                        }
+                        
+                        // Apply limits
+                        if (config.limits.type === 'deduction') {
+                          if (config.limits.lower !== null && calculatedAmount < config.limits.lower) {
+                            calculatedAmount = config.limits.lower;
+                          }
+                          if (config.limits.upper !== null && calculatedAmount > config.limits.upper) {
+                            calculatedAmount = config.limits.upper;
+                          }
+                        } else if (config.limits.type === 'earning') {
+                          if (config.limits.lower !== null && earningBase < config.limits.lower) {
+                            calculatedAmount = 0;
+                          }
+                          if (config.limits.upper !== null && earningBase > config.limits.upper) {
+                            earningBase = config.limits.upper;
+                            if (config.hasBands && config.bands.length > 0) {
+                              for (const band of config.bands) {
+                                if (earningBase >= band.min && (band.max === null || earningBase <= band.max)) {
+                                  calculatedAmount = earningBase * (band.percentage / 100);
+                                  break;
+                                }
+                              }
+                            } else {
+                              calculatedAmount = earningBase * (config.percentage / 100);
+                            }
+                          }
+                        }
+                        
+                        // Calculate employee deduction (percentage of deduction amount, not earnings)
+                        // First calculate the total deduction amount
+                        let totalDeductionAmount = calculatedAmount;
+                        
+                        // Now calculate employee and employer portions as percentages of the total deduction amount
+                        const employerPercentOfDeduction = config.paidBy?.employer ?? 0; // Percentage of deduction amount
+                        const employeePercentOfDeduction = config.paidBy?.employee ?? 0; // Percentage of deduction amount
+                        
+                        let employeeDeduction = totalDeductionAmount * (employeePercentOfDeduction / 100);
+                        let employerPortion = totalDeductionAmount * (employerPercentOfDeduction / 100);
+                        
+                        // Apply limits to total deduction first, then split
+                        if (config.limits && config.limits.type === 'deduction') {
+                          if (config.limits.lower !== null && totalDeductionAmount < config.limits.lower) {
+                            totalDeductionAmount = config.limits.lower;
+                            employeeDeduction = totalDeductionAmount * (employeePercentOfDeduction / 100);
+                            employerPortion = totalDeductionAmount * (employerPercentOfDeduction / 100);
+                          }
+                          if (config.limits.upper !== null && totalDeductionAmount > config.limits.upper) {
+                            totalDeductionAmount = config.limits.upper;
+                            employeeDeduction = totalDeductionAmount * (employeePercentOfDeduction / 100);
+                            employerPortion = totalDeductionAmount * (employerPercentOfDeduction / 100);
+                          }
+                        } else if (config.limits && config.limits.type === 'earning') {
+                          if (config.limits.lower !== null && earningBase < config.limits.lower) {
+                            totalDeductionAmount = 0;
+                            employeeDeduction = 0;
+                            employerPortion = 0;
+                          }
+                          if (config.limits.upper !== null && earningBase > config.limits.upper) {
+                            earningBase = config.limits.upper;
+                            // Recalculate total deduction with new earning base
+                            if (config.hasBands && config.bands.length > 0) {
+                              for (const band of config.bands) {
+                                if (earningBase >= band.min && (band.max === null || earningBase <= band.max)) {
+                                  totalDeductionAmount = earningBase * (band.percentage / 100);
+                                  break;
+                                }
+                              }
+                            } else {
+                              totalDeductionAmount = earningBase * (config.percentage / 100);
+                            }
+                            employeeDeduction = totalDeductionAmount * (employeePercentOfDeduction / 100);
+                            employerPortion = totalDeductionAmount * (employerPercentOfDeduction / 100);
+                          }
+                        }
+                        
+                        const totalPercentage = employerPercentOfDeduction + employeePercentOfDeduction;
+                        
+                        return (
+                          <div key={config.id} className="flex gap-2 items-center bg-gray-50 p-2 rounded-lg">
+                            <input
+                              type="text"
+                              value={config.name}
+                              readOnly
+                              className="flex-1 p-2 border border-gray-200 rounded-lg bg-white cursor-not-allowed"
+                            />
+                            <input
+                              type="number"
+                              value={employeeDeduction.toFixed(2)}
+                              readOnly
+                              className="w-32 p-2 border border-gray-200 rounded-lg bg-white cursor-not-allowed"
+                              title={`Employee deduction: ${employeeDeduction.toFixed(2)} | Employer portion: ${employerPortion.toFixed(2)} | Total remitted: ${(employeeDeduction + employerPortion).toFixed(2)}`}
+                            />
+                            <div className="text-xs text-gray-500 w-40">
+                              <div>Employer: {config.paidBy?.employer ?? 0}%</div>
+                              <div>Employee: {config.paidBy?.employee ?? 0}%</div>
+                              <div className="text-gray-400">Total: {totalPercentage.toFixed(2)}%</div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                {/* Other Deductions */}
+                <div className="mb-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="block text-sm font-medium text-gray-700">Other Deductions</label>
+                    <button
+                      type="button"
+                      onClick={addOtherDeduction}
+                      className="text-sm text-blue-600 hover:text-blue-700 flex items-center"
+                    >
+                      <Plus className="w-4 h-4 mr-1" />
+                      Add Deduction
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {otherDeductions.length === 0 ? (
+                      <p className="text-sm text-gray-500 italic">No other deductions added</p>
+                    ) : (
+                      otherDeductions.map((deduction) => (
+                        <div key={deduction.id} className="flex gap-2">
+                          <input
+                            type="text"
+                            value={deduction.name}
+                            onChange={(e) => updateOtherDeduction(deduction.id, 'name', e.target.value)}
+                            placeholder="Deduction name"
+                            className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={deduction.amount}
+                            onChange={(e) => updateOtherDeduction(deduction.id, 'amount', parseFloat(e.target.value) || 0)}
+                            placeholder="Amount"
+                            className="w-32 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => deleteOtherDeduction(deduction.id)}
+                            className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Net Pay Display */}
+                <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium text-gray-700">Net Pay</span>
+                    <span className="text-xl font-normal text-green-600">
+                      Ksh. {netPay.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </form>
         )}
       </div>
     </div>
@@ -1731,29 +1850,12 @@ const StatutoryDeductionsTab: React.FC<StatutoryDeductionsTabProps> = ({
                   {/* Who Pays - Percentage Split */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Who Pays (Percentage of Earnings)
+                      Who Pays (Percentage of Deduction Amount)
                     </label>
                     <p className="text-xs text-gray-600 mb-3">
-                      Specify the percentage of earnings paid by employer and employee. Example: For 12% NSSF, employer pays 6.5% and employee pays 5.5%.
+                      Specify the percentage of the total deduction amount paid by employer and employee. Example: For 12% NSSF where employer pays 5.5% of earnings, enter 45.8% (5.5/12 * 100) for employer and 54.2% (6.5/12 * 100) for employee.
                     </p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Employer Percentage (%)
-                        </label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          max="100"
-                          value={config.paidBy?.employer ?? 0}
-                          onChange={(e) => updateDeductionConfig(config.id, 'paidBy', {
-                            employer: parseFloat(e.target.value) || 0,
-                            employee: config.paidBy?.employee ?? 0
-                          })}
-                          className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                      </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Employee Percentage (%)
@@ -1764,10 +1866,35 @@ const StatutoryDeductionsTab: React.FC<StatutoryDeductionsTabProps> = ({
                           min="0"
                           max="100"
                           value={config.paidBy?.employee ?? 0}
-                          onChange={(e) => updateDeductionConfig(config.id, 'paidBy', {
-                            employer: config.paidBy?.employer ?? 0,
-                            employee: parseFloat(e.target.value) || 0
-                          })}
+                          onChange={(e) => {
+                            const employeePercent = parseFloat(e.target.value) || 0;
+                            const employerPercent = 100 - employeePercent;
+                            updateDeductionConfig(config.id, 'paidBy', {
+                              employer: employerPercent >= 0 && employerPercent <= 100 ? employerPercent : config.paidBy?.employer ?? 0,
+                              employee: employeePercent >= 0 && employeePercent <= 100 ? employeePercent : 0
+                            });
+                          }}
+                          className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Employer Percentage (%)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max="100"
+                          value={config.paidBy?.employer ?? 0}
+                          onChange={(e) => {
+                            const employerPercent = parseFloat(e.target.value) || 0;
+                            const employeePercent = 100 - employerPercent;
+                            updateDeductionConfig(config.id, 'paidBy', {
+                              employer: employerPercent >= 0 && employerPercent <= 100 ? employerPercent : 0,
+                              employee: employeePercent >= 0 && employeePercent <= 100 ? employeePercent : config.paidBy?.employee ?? 0
+                            });
+                          }}
                           className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         />
                       </div>
@@ -1820,7 +1947,7 @@ const StatutoryDeductionsTab: React.FC<StatutoryDeductionsTabProps> = ({
                             min="0"
                             value={config.limits.lower || ''}
                             onChange={(e) => updateDeductionConfig(config.id, 'limits', { ...config.limits, lower: e.target.value ? parseFloat(e.target.value) : null })}
-                            placeholder="No lower limit"
+                            placeholder={config.limits.type === 'deduction' ? 'No lower limit on deduction amount' : 'No lower limit on earning amount'}
                             className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                           />
                         </div>
@@ -1832,12 +1959,37 @@ const StatutoryDeductionsTab: React.FC<StatutoryDeductionsTabProps> = ({
                             min={config.limits.lower || 0}
                             value={config.limits.upper || ''}
                             onChange={(e) => updateDeductionConfig(config.id, 'limits', { ...config.limits, upper: e.target.value ? parseFloat(e.target.value) : null })}
-                            placeholder="No upper limit"
+                            placeholder={config.limits.type === 'deduction' ? 'No upper limit on deduction amount' : 'No upper limit on earning amount'}
                             className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                           />
                         </div>
                       </div>
                     </div>
+                  </div>
+
+                  {/* Save and Discard Buttons */}
+                  <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // TODO: Save to database when database is configured
+                        // For now, just collapse the card
+                        setEditingDeductionConfig(null);
+                      }}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Discard changes - same as delete
+                        deleteDeductionConfig(config.id);
+                      }}
+                      className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      Discard
+                    </button>
                   </div>
                 </div>
               )}

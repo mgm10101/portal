@@ -56,17 +56,33 @@ interface UserInfo {
 }
 
 function App() {
-  // Try to restore last active section from localStorage, default to 'dashboard'
+  // Check if this is a refresh (not a new session)
+  // We use sessionStorage to track if the page was refreshed
+  const isRefresh = sessionStorage.getItem('isRefresh') === 'true';
+  
+  // Only restore last active section from localStorage on refresh, not on fresh login
   const [activeSection, setActiveSection] = useState(() => {
-    const saved = localStorage.getItem('activeSection');
-    return saved || 'dashboard';
+    if (isRefresh) {
+      const saved = localStorage.getItem('activeSection');
+      return saved || 'dashboard';
+    }
+    // Fresh session - always start at dashboard
+    return 'dashboard';
   });
   const [user, setUser] = useState<UserInfo | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const mainRef = useRef<HTMLDivElement>(null);
+  
+  // Mark this as a refresh for next time (if user refreshes, this will be true)
+  useEffect(() => {
+    sessionStorage.setItem('isRefresh', 'true');
+  }, []);
 
   const handleLogin = async (email: string, userType: 'admin' | 'parent') => {
+    // Mark as fresh login (not a refresh) - clear the refresh flag
+    sessionStorage.removeItem('isRefresh');
+    
     // Fetch user details from users table
     try {
       const { data: { user: authUser } } = await supabase.auth.getUser();
@@ -99,14 +115,8 @@ function App() {
               )
             : false;
           
-          // Try to restore last active section from localStorage
-          const savedSection = localStorage.getItem('activeSection');
-          let initialSection = savedSection || 'dashboard';
-          
-          // Validate the saved section based on user access
-          if (!hasDashboardAccess && (initialSection === 'dashboard' || !savedSection)) {
-            initialSection = 'custom-dashboard';
-          }
+          // Always start at dashboard on fresh login (not restore from localStorage)
+          let initialSection = hasDashboardAccess ? 'dashboard' : 'custom-dashboard';
           
           setActiveSection(initialSection);
           localStorage.setItem('activeSection', initialSection);
@@ -122,6 +132,7 @@ function App() {
         } else {
           // Fallback if user not found in users table
           setActiveSection('custom-dashboard');
+          localStorage.setItem('activeSection', 'custom-dashboard');
           setUser({ 
             email, 
             type: userType,
@@ -133,12 +144,14 @@ function App() {
         }
       } else {
         setActiveSection('custom-dashboard');
+        localStorage.setItem('activeSection', 'custom-dashboard');
         setUser({ email, type: userType, role: 'Admin', selectedModules: null, username: null, description: null });
       }
     } catch (err) {
       console.error('Error fetching user details:', err);
       // Fallback on error
       setActiveSection('custom-dashboard');
+      localStorage.setItem('activeSection', 'custom-dashboard');
       setUser({ email, type: userType, role: 'Admin', selectedModules: null, username: null, description: null });
     }
   };
@@ -149,6 +162,8 @@ function App() {
     setActiveSection('dashboard');
     // Clear the saved section from localStorage so user lands on dashboard after next login
     localStorage.removeItem('activeSection');
+    // Clear refresh flag so next login is treated as fresh
+    sessionStorage.removeItem('isRefresh');
   };
 
   // Function to refresh current user's data (for when modules are updated)
@@ -215,9 +230,16 @@ function App() {
     setIsSidebarOpen(false); // Close sidebar when section is selected
   };
 
+  // Scroll to top on section change (navigation to a new page)
+  // This ensures users always start at the top when navigating to a page
   useEffect(() => {
     if (mainRef.current) {
-      mainRef.current.scrollTop = 0;
+      // Use requestAnimationFrame to ensure DOM is ready and content is rendered
+      requestAnimationFrame(() => {
+        if (mainRef.current) {
+          mainRef.current.scrollTop = 0;
+        }
+      });
     }
   }, [activeSection]);
 
@@ -282,17 +304,22 @@ function App() {
                 )
               : false;
             
-            // Try to restore last active section from localStorage
-            const savedSection = localStorage.getItem('activeSection');
-            let initialSection = savedSection || 'dashboard';
-            
-            // Validate the saved section based on user access
-            // If user doesn't have dashboard access and saved section is dashboard, use custom-dashboard
-            if (!hasDashboardAccess && (initialSection === 'dashboard' || !savedSection)) {
-              initialSection = 'custom-dashboard';
+            // Only restore last active section if this is a refresh (not a fresh login)
+            // If isRefresh is false, it means user just logged in, so go to dashboard
+            let initialSection: string;
+            if (isRefresh) {
+              // This is a refresh - restore from localStorage
+              const savedSection = localStorage.getItem('activeSection');
+              initialSection = savedSection || (hasDashboardAccess ? 'dashboard' : 'custom-dashboard');
+              
+              // Validate the saved section based on user access
+              if (!hasDashboardAccess && initialSection === 'dashboard') {
+                initialSection = 'custom-dashboard';
+              }
+            } else {
+              // Fresh login - always go to dashboard (or custom-dashboard if no access)
+              initialSection = hasDashboardAccess ? 'dashboard' : 'custom-dashboard';
             }
-            // If saved section is custom-dashboard but user now has dashboard access, allow it
-            // Otherwise, use the saved section
             
             setActiveSection(initialSection);
             // Update localStorage to match what we actually set
@@ -321,8 +348,9 @@ function App() {
             });
           } else {
             // Fallback if user not found in users table
-            const savedSection = localStorage.getItem('activeSection');
-            const initialSection = savedSection || 'custom-dashboard';
+            const initialSection = isRefresh 
+              ? (localStorage.getItem('activeSection') || 'custom-dashboard')
+              : 'custom-dashboard';
             setActiveSection(initialSection);
             localStorage.setItem('activeSection', initialSection);
             setUser({ 
@@ -356,6 +384,17 @@ function App() {
     });
 
     return () => subscription.unsubscribe();
+  }, [isRefresh]);
+  
+  // Handle tab/browser close detection
+  // The key insight: sessionStorage persists on refresh but is cleared on tab close
+  // So if isRefresh doesn't exist on mount, it means tab was closed (or fresh login)
+  // We already handle this in the initial state - if isRefresh is false, we go to dashboard
+  // This useEffect just ensures we clean up on logout
+  useEffect(() => {
+    // On logout or tab close, sessionStorage will be cleared automatically
+    // So the next time the page loads, isRefresh will be false, and user goes to dashboard
+    // No additional cleanup needed here - the initial state logic handles it
   }, []);
 
   // Show loading state while checking session
@@ -488,6 +527,7 @@ function App() {
       <Header 
         onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)} 
         username={user?.email || 'Admin'}
+        description={user?.description || null}
       />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar 

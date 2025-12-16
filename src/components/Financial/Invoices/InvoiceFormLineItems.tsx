@@ -1,6 +1,6 @@
 // src/components/Financial/Invoices/InvoiceFormLineItems.tsx
 
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Plus, X } from 'lucide-react';
 import { ItemMaster, InvoiceLineItem } from '../../../types/database';
 
@@ -35,6 +35,30 @@ export const InvoiceFormLineItems: React.FC<InvoiceFormLineItemsProps> = ({
     handleLineItemChange,
     calculateLineTotal,
 }) => {
+    // Filter out "Balance Brought Forward" from available items
+    const availableItems = masterItems.filter(i => i.item_name !== 'Balance Brought Forward');
+    
+    // State for searchable dropdowns (one per line item)
+    const [searchQueries, setSearchQueries] = useState<{ [key: number]: string }>({});
+    const [activeDropdowns, setActiveDropdowns] = useState<{ [key: number]: boolean }>({});
+    const dropdownRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
+    
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            Object.keys(dropdownRefs.current).forEach(key => {
+                const index = parseInt(key);
+                const ref = dropdownRefs.current[index];
+                if (ref && !ref.contains(event.target as Node)) {
+                    setActiveDropdowns(prev => ({ ...prev, [index]: false }));
+                    setSearchQueries(prev => ({ ...prev, [index]: '' }));
+                }
+            });
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+    
     const renderLineItem = (item: InvoiceLineItem, index: number) => {
         // Determine the selected item ID for the dropdown
         // If selectedItemId exists, use it; otherwise try to find by itemName
@@ -42,14 +66,14 @@ export const InvoiceFormLineItems: React.FC<InvoiceFormLineItemsProps> = ({
         if (!selectedItemId && item.itemName) {
             // For existing items, find the first matching item by name
             // (This handles items loaded from DB that don't have selectedItemId)
-            const foundItem = masterItems.find(i => i.item_name === item.itemName);
+            const foundItem = availableItems.find(i => i.item_name === item.itemName);
             selectedItemId = foundItem?.id || '';
         }
         
         // Look up the master item details based on selectedItemId or itemName
         const itemMaster = selectedItemId 
-            ? masterItems.find(i => i.id === selectedItemId)
-            : masterItems.find(i => i.item_name === item.itemName);
+            ? availableItems.find(i => i.id === selectedItemId)
+            : availableItems.find(i => i.item_name === item.itemName);
         
         // Use the master item's current price, but fall back to the invoice line item's stored price 
         // if the master item isn't found (e.g., if it was deleted or changed after invoice creation).
@@ -63,6 +87,32 @@ export const InvoiceFormLineItems: React.FC<InvoiceFormLineItemsProps> = ({
             // If the item has been loaded or selected, use its details (itemName comes from the fetched data)
             ? `${item.itemName} (${item.description || 'No description'})` 
             : (loadingItems ? 'Loading Items...' : 'Select Item');
+        
+        // Get search query and dropdown state for this item
+        const searchQuery = searchQueries[index] || '';
+        const isSearching = activeDropdowns[index] || false;
+        
+        // Filter items based on search query
+        const filteredItems = availableItems.filter(i => {
+            if (!searchQuery.trim()) return true;
+            const query = searchQuery.toLowerCase();
+            const itemName = i.item_name?.toLowerCase() || '';
+            const description = i.description?.toLowerCase() || '';
+            return itemName.includes(query) || description.includes(query);
+        });
+        
+        // Handle item selection
+        const handleSelectItem = (selectedItem: ItemMaster) => {
+            const syntheticEvent = {
+                target: {
+                    name: 'selectedItemId',
+                    value: selectedItem.id.toString()
+                }
+            } as React.ChangeEvent<HTMLSelectElement>;
+            handleLineItemChange(index, syntheticEvent);
+            setActiveDropdowns(prev => ({ ...prev, [index]: false }));
+            setSearchQueries(prev => ({ ...prev, [index]: '' }));
+        };
 
 
         return (
@@ -70,37 +120,50 @@ export const InvoiceFormLineItems: React.FC<InvoiceFormLineItemsProps> = ({
             // Sticking with 'index' as per your original code for now, but be aware of the risk.
             <div key={index} className="grid grid-cols-6 md:grid-cols-12 gap-2 p-3 border-b border-gray-100 items-center bg-white rounded-lg shadow-sm">
                 
-                {/* Item Dropdown */}
-                <div className="col-span-3 md:col-span-4">
-                    <select
-                        name="selectedItemId"
-                        value={selectedItemId || ''} // Use item ID for unique selection (handles duplicate names)
-                        onChange={(e) => handleLineItemChange(index, e)}
+                {/* Item Searchable Dropdown */}
+                <div 
+                    className="col-span-3 md:col-span-4 relative" 
+                    ref={(el) => { dropdownRefs.current[index] = el; }}
+                >
+                    <input
+                        type="text"
+                        value={isSearching ? searchQuery : selectedItemDisplay}
+                        onChange={(e) => {
+                            setSearchQueries(prev => ({ ...prev, [index]: e.target.value }));
+                            setActiveDropdowns(prev => ({ ...prev, [index]: true }));
+                        }}
+                        onFocus={() => {
+                            setActiveDropdowns(prev => ({ ...prev, [index]: true }));
+                            if (!selectedItemId) {
+                                setSearchQueries(prev => ({ ...prev, [index]: '' }));
+                            }
+                        }}
+                        placeholder={loadingItems ? 'Loading Items...' : 'Select Item'}
                         className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500"
                         disabled={loadingItems || isSubmitting || isForwarded}
-                    >
-                        {/* 🚨 FIX APPLIED HERE: 
-                            1. Use item ID as value to handle duplicate names correctly
-                            2. Display item name and description for user clarity
-                            3. Render the empty placeholder only if no item is selected.
-                        */}
-                        
-                        {selectedItemId ? (
-                            // Display the item that was loaded from the database (its stored name/description)
-                            <option value={selectedItemId}>{selectedItemDisplay}</option>
-                        ) : (
-                            // Placeholder for when no item is selected
-                            <option value="">{selectedItemDisplay}</option>
-                        )}
-
-                        {/* Map over all master items, allowing the user to change the item */}
-                        {masterItems.map(i => (
-                            <option key={i.id} value={i.id}>
-                                {/* Use ID as value for unique selection, but display name and description */}
-                                {i.item_name} ({i.description || 'No description'}) 
-                            </option>
-                        ))}
-                    </select>
+                    />
+                    {isSearching && (
+                        <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 max-h-48 overflow-y-auto shadow-lg">
+                            {filteredItems.length > 0 ? (
+                                filteredItems.map(i => (
+                                    <li
+                                        key={i.id}
+                                        onMouseDown={() => handleSelectItem(i)}
+                                        className="p-3 cursor-pointer hover:bg-blue-50"
+                                    >
+                                        <span className="font-medium text-gray-900">{i.item_name}</span>
+                                        {i.description && (
+                                            <span className="text-sm text-gray-500 ml-2">({i.description})</span>
+                                        )}
+                                    </li>
+                                ))
+                            ) : (
+                                <li className="p-3 text-gray-500 italic">
+                                    {searchQuery ? `No items found matching "${searchQuery}"` : 'No items available'}
+                                </li>
+                            )}
+                        </ul>
+                    )}
                 </div>
                 
                 {/* Unit Price (Display/Locked) */}
@@ -195,7 +258,7 @@ export const InvoiceFormLineItems: React.FC<InvoiceFormLineItemsProps> = ({
             </div>
 
             {/* Render Line Items */}
-            <div className="space-y-3 max-h-60 overflow-y-auto">
+            <div className="space-y-3">
                 {lineItems.map(renderLineItem)}
             </div>
             {lineItems.length === 0 && (

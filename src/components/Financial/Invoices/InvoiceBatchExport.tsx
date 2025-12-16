@@ -268,147 +268,318 @@ export const InvoiceBatchExport: React.FC<InvoiceBatchExportProps> = ({ onClose 
             // Set the invoice data to render it in the DOM
             setCurrentInvoiceData(invoiceData);
 
-            // Smart wait: Check for actual content, not just element existence
-            const waitForContent = async (maxWait = 3000) => {
-                const startTime = Date.now();
-                while (Date.now() - startTime < maxWait) {
-                    const element = document.getElementById('export-invoice-container');
-                    if (element) {
-                        // Check if loading message is gone and actual content exists
-                        const hasLoadingText = element.textContent?.includes('Loading updated financial details');
-                        const hasInvoiceNumber = element.textContent?.includes(invoiceNumber);
-                        const hasItemsTable = element.querySelector('table');
-                        
-                        // Element is ready when: no loading text, has invoice number, and has items table
-                        if (!hasLoadingText && hasInvoiceNumber && hasItemsTable && element.offsetHeight > 100) {
-                            // One more frame to ensure everything is painted
-                            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-                            return element;
-                        }
+            // Wait for ALL content to be fully loaded - no hard-coded delays
+            const waitForContentReady = async (): Promise<HTMLElement | null> => {
+                const maxAttempts = 300; // Maximum attempts (30 seconds at 100ms intervals)
+                let attempts = 0;
+                
+                while (attempts < maxAttempts) {
+                    const container = document.getElementById('export-invoice-container');
+                    if (!container) {
+                        attempts++;
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                        continue;
                     }
-                    await new Promise(resolve => setTimeout(resolve, 100)); // Check every 100ms
+
+                    const invoiceContainer = container.querySelector('#invoice-container') as HTMLElement;
+                    if (!invoiceContainer) {
+                        attempts++;
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                        continue;
+                    }
+
+                    // Check for loading state - must be completely gone
+                    const hasLoadingText = container.textContent?.includes('Loading updated financial details');
+                    if (hasLoadingText) {
+                        attempts++;
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                        continue;
+                    }
+
+                    // Verify all required fields are present and rendered
+                    const hasInvoiceNumber = container.textContent?.includes(invoiceNumber);
+                    const hasBillToName = invoiceData.billToName && container.textContent?.includes(invoiceData.billToName);
+                    const hasItemsTable = invoiceContainer.querySelector('table tbody');
+                    const hasBalanceDue = container.textContent?.includes('Balance Due') || container.textContent?.includes('KES');
+                    const hasSubtotal = container.textContent?.includes('Sub Total') || container.textContent?.includes('Subtotal');
+                    
+                    // Check that table has actual rows (not just header)
+                    const tableRows = invoiceContainer.querySelectorAll('table tbody tr');
+                    const hasTableRows = tableRows.length > 0;
+                    
+                    // Check that invoice container has reasonable height (content is rendered)
+                    const hasContentHeight = invoiceContainer.offsetHeight > 200;
+
+                    // All checks must pass before proceeding
+                    if (
+                        hasInvoiceNumber &&
+                        hasBillToName &&
+                        hasItemsTable &&
+                        hasBalanceDue &&
+                        hasSubtotal &&
+                        hasTableRows &&
+                        hasContentHeight
+                    ) {
+                        // Double-check: wait for images to load and one more frame for paint
+                        await new Promise(resolve => {
+                            const checkImages = () => {
+                                const images = invoiceContainer.querySelectorAll('img');
+                                let imagesLoaded = 0;
+                                let imagesToLoad = images.length;
+                                
+                                if (imagesToLoad === 0) {
+                                    requestAnimationFrame(() => requestAnimationFrame(resolve));
+                                    return;
+                                }
+                                
+                                images.forEach((img) => {
+                                    if ((img as HTMLImageElement).complete) {
+                                        imagesLoaded++;
+                                    } else {
+                                        img.addEventListener('load', () => {
+                                            imagesLoaded++;
+                                            if (imagesLoaded === imagesToLoad) {
+                                                requestAnimationFrame(() => requestAnimationFrame(resolve));
+                                            }
+                                        });
+                                        img.addEventListener('error', () => {
+                                            imagesLoaded++;
+                                            if (imagesLoaded === imagesToLoad) {
+                                                requestAnimationFrame(() => requestAnimationFrame(resolve));
+                                            }
+                                        });
+                                    }
+                                });
+                                
+                                if (imagesLoaded === imagesToLoad) {
+                                    requestAnimationFrame(() => requestAnimationFrame(resolve));
+                                }
+                            };
+                            checkImages();
+                        });
+                        
+                        return invoiceContainer;
+                    }
+                    
+                    attempts++;
+                    await new Promise(resolve => setTimeout(resolve, 100));
                 }
-                // Fallback: return element even if checks didn't pass (better than nothing)
-                return document.getElementById('export-invoice-container');
+                
+                // If we've exhausted attempts, log warning but return element anyway
+                console.warn(`⚠️ [BATCH PDF] Invoice ${invoiceNumber} - Content verification timeout, proceeding anyway`);
+                const container = document.getElementById('export-invoice-container');
+                return container?.querySelector('#invoice-container') as HTMLElement || null;
             };
 
-            // Capture with html2canvas
-            const invoiceElement = await waitForContent();
+            // Wait for content to be fully ready
+            const invoiceElement = await waitForContentReady();
             if (!invoiceElement) {
-                console.error('Invoice container not found');
+                console.error(`❌ [BATCH PDF] Invoice ${invoiceNumber} - Invoice container not found or not ready`);
                 return null;
             }
 
-            // DEBUG: Log element dimensions
-            const rect = invoiceElement.getBoundingClientRect();
-            console.log(`🔍 [BATCH PDF DEBUG] Invoice ${invoiceNumber} - Element dimensions:`, {
-                width: rect.width,
-                height: rect.height,
-                scrollWidth: invoiceElement.scrollWidth,
-                scrollHeight: invoiceElement.scrollHeight,
-                offsetWidth: invoiceElement.offsetWidth,
-                offsetHeight: invoiceElement.offsetHeight
-            });
+            // Get row positions BEFORE hiding footer (so measurements are accurate)
+            const tableRows: number[] = [];
+            const container = document.getElementById('export-invoice-container');
+            const wrapperElement = container || invoiceElement;
+            
+            if (invoiceElement) {
+                // Find all table rows (including header and data rows)
+                const rows = invoiceElement.querySelectorAll('table tbody tr, table thead tr');
+                const wrapperRect = wrapperElement.getBoundingClientRect();
+                
+                rows.forEach((row) => {
+                    const rect = row.getBoundingClientRect();
+                    // Calculate relative position from top of wrapper element
+                    const relativeTop = rect.top - wrapperRect.top;
+                    const relativeBottom = rect.bottom - wrapperRect.top;
+                    // Account for canvas scale (1.5) - the canvas will be scaled
+                    const canvasTop = relativeTop * 1.5;
+                    const canvasBottom = relativeBottom * 1.5;
+                    // Store both top and bottom of each row
+                    tableRows.push(Math.floor(canvasTop));
+                    tableRows.push(Math.floor(canvasBottom));
+                });
+                
+                // Sort row boundaries and remove duplicates
+                tableRows.sort((a, b) => a - b);
+                const uniqueRows = Array.from(new Set(tableRows));
+                tableRows.length = 0;
+                tableRows.push(...uniqueRows);
+            }
 
-            const canvas = await html2canvas(invoiceElement, {
-                scale: 1.5, // Reduced from 2 to 1.5 (still high quality, smaller file)
+            // Hide the footer in the HTML (we'll add it in PDF)
+            const footer = invoiceElement.querySelector('.invoice-footer') as HTMLElement;
+            const originalFooterDisplay = footer ? footer.style.display : '';
+            if (footer) {
+                footer.style.display = 'none';
+            }
+
+            // Wait a moment for the DOM to update
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            const canvas = await html2canvas(wrapperElement || invoiceElement, {
+                scale: 1.5,
                 useCORS: true,
                 logging: false,
                 backgroundColor: '#ffffff',
-                width: 794, // A4 width in pixels at 96 DPI
+                width: 794, // A4 width at 96 DPI
                 windowWidth: 794,
-                imageTimeout: 5000, // Reduced timeout (images should load faster)
+                imageTimeout: 15000,
                 removeContainer: false,
-                allowTaint: false,
-                foreignObjectRendering: false, // Faster rendering
             });
 
-            // DEBUG: Log canvas dimensions
-            console.log(`🔍 [BATCH PDF DEBUG] Invoice ${invoiceNumber} - Canvas dimensions:`, {
-                canvasWidth: canvas.width,
-                canvasHeight: canvas.height,
-                canvasAspectRatio: canvas.width / canvas.height
-            });
-
-            // Convert to JPEG with quality 0.85 instead of PNG (much smaller file size)
+            // Convert to JPEG
             const imgData = canvas.toDataURL('image/jpeg', 0.85);
-            const pdf = new jsPDF({
-                orientation: 'portrait',
-                unit: 'mm',
-                format: 'a4'
-            });
+            const pdf = new jsPDF('p', 'mm', 'a4');
 
             const pageWidth = pdf.internal.pageSize.getWidth(); // 210mm
             const pageHeight = pdf.internal.pageSize.getHeight(); // 297mm
-
-            // DEBUG: Log PDF page dimensions
-            console.log(`🔍 [BATCH PDF DEBUG] Invoice ${invoiceNumber} - PDF page dimensions:`, {
-                pageWidth,
-                pageHeight
-            });
 
             // Convert canvas pixels to mm: At 96 DPI, 1 pixel = 25.4/96 mm = 0.264583mm
             const pixelsToMm = 25.4 / 96;
             
             // The canvas is captured at scale 1.5, so canvas.width = element.width * 1.5
-            // To get the original element size in mm, divide by scale
-            const elementWidthMm = (canvas.width / 1.5) * pixelsToMm;
-            const elementHeightMm = (canvas.height / 1.5) * pixelsToMm;
-            
-            // DEBUG: Log conversion calculations
-            console.log(`🔍 [BATCH PDF DEBUG] Invoice ${invoiceNumber} - Conversion calculations:`, {
-                pixelsToMm,
-                canvasWidthPx: canvas.width,
-                canvasHeightPx: canvas.height,
-                elementWidthMm,
-                elementHeightMm,
-                elementAspectRatio: elementWidthMm / elementHeightMm,
-                expectedElementWidthMm: 210, // A4 width
-                pdfPageWidth: pageWidth
-            });
-            
-            // DON'T scale - use exact dimensions to match PDF
-            // The element is designed to be 210mm (A4 width), so use it directly
             const margin = 10;
-            const imgWidth = pageWidth - (margin * 2); // 190mm - exact fit
-            const imgHeight = (canvas.height / canvas.width) * (imgWidth / pixelsToMm) * pixelsToMm;
-            
-            console.log(`🔍 [BATCH PDF DEBUG] Invoice ${invoiceNumber} - Final dimensions (NO SCALING):`, {
-                margin,
-                imgWidth,
-                imgHeight,
-                imgWidthPx: imgWidth / pixelsToMm,
-                imgHeightPx: imgHeight / pixelsToMm,
-                aspectRatio: imgWidth / imgHeight,
-                canvasAspectRatio: canvas.width / canvas.height
-            });
-
-            // Calculate how to fit the canvas into PDF maintaining aspect ratio
-            // Canvas aspect: canvas.width / canvas.height
-            // Available space: imgWidth (190mm) x (pageHeight - 20mm)
+            const imgWidth = pageWidth - (margin * 2); // 190mm
             const availableHeight = pageHeight - (margin * 2);
             const canvasAspectRatio = canvas.width / canvas.height;
             const finalImgWidth = imgWidth;
             const finalImgHeight = finalImgWidth / canvasAspectRatio;
 
-            console.log(`🔍 [BATCH PDF DEBUG] Invoice ${invoiceNumber} - PDF placement:`, {
-                availableHeight,
-                finalImgWidth,
-                finalImgHeight,
-                willNeedPages: Math.ceil(finalImgHeight / availableHeight)
-            });
+            // Calculate how many canvas pixels correspond to the available height per page
+            const availableHeightInCanvasPx = (availableHeight / finalImgHeight) * canvas.height;
             
-            let position = margin; // top margin
-            let heightLeft = finalImgHeight;
+            // Helper function to find a safe cut point before a given position
+            const findPreviousRowBoundary = (position: number): number => {
+                if (tableRows.length === 0) {
+                    const estimatedRowHeight = 70;
+                    return Math.floor(position / estimatedRowHeight) * estimatedRowHeight;
+                }
+                
+                let lastBoundary = 0;
+                for (const boundary of tableRows) {
+                    if (boundary <= position) {
+                        lastBoundary = boundary;
+                    } else {
+                        break;
+                    }
+                }
+                return lastBoundary;
+            };
+            
+            // Helper function to find the next row boundary after a given position
+            const findNextRowBoundary = (position: number): number => {
+                if (tableRows.length === 0) {
+                    const estimatedRowHeight = 70;
+                    return Math.ceil(position / estimatedRowHeight) * estimatedRowHeight;
+                }
+                
+                for (const boundary of tableRows) {
+                    if (boundary > position) {
+                        return boundary;
+                    }
+                }
+                return canvas.height;
+            };
+            
+            // Process pages, adjusting for row boundaries
+            const pages: Array<{ sourceY: number; sourceHeight: number }> = [];
+            let currentSourceY = 0;
+            
+            while (currentSourceY < canvas.height) {
+                const pageEndY = currentSourceY + availableHeightInCanvasPx;
+                const adjustedPageEndY = findPreviousRowBoundary(pageEndY);
+                
+                const remainingHeight = canvas.height - currentSourceY;
+                let sourceHeight: number;
+                
+                if (adjustedPageEndY <= currentSourceY) {
+                    const nextRowBoundary = findNextRowBoundary(currentSourceY);
+                    if (nextRowBoundary > currentSourceY && nextRowBoundary < canvas.height) {
+                        sourceHeight = nextRowBoundary - currentSourceY;
+                    } else {
+                        sourceHeight = remainingHeight;
+                    }
+                } else if (adjustedPageEndY >= canvas.height || remainingHeight <= availableHeightInCanvasPx) {
+                    sourceHeight = remainingHeight;
+                } else {
+                    sourceHeight = adjustedPageEndY - currentSourceY;
+                }
+                
+                if (sourceHeight <= 0) {
+                    break;
+                }
+                
+                pages.push({
+                    sourceY: currentSourceY,
+                    sourceHeight: sourceHeight
+                });
+                
+                currentSourceY += sourceHeight;
+            }
+            
+            const totalPages = pages.length || 1;
+            
+            // Process each page
+            for (let pageNum = 0; pageNum < pages.length; pageNum++) {
+                if (pageNum > 0) {
+                    pdf.addPage();
+                }
 
-            pdf.addImage(imgData, 'JPEG', margin, position, finalImgWidth, finalImgHeight, undefined, 'FAST');
-            heightLeft -= availableHeight;
+                const { sourceY, sourceHeight } = pages[pageNum];
 
-            while (heightLeft > 0) {
-                position = heightLeft - finalImgHeight + margin;
-                pdf.addPage();
-                pdf.addImage(imgData, 'JPEG', margin, position, finalImgWidth, finalImgHeight, undefined, 'FAST');
-                heightLeft -= availableHeight;
+                // Calculate destination height in mm (proportional to source)
+                const destHeight = (sourceHeight / canvas.height) * finalImgHeight;
+                
+                // Create a temporary canvas for this page's portion
+                const pageCanvas = document.createElement('canvas');
+                pageCanvas.width = canvas.width;
+                pageCanvas.height = sourceHeight;
+                const pageCtx = pageCanvas.getContext('2d');
+                
+                if (pageCtx) {
+                    // Fill with white background first
+                    pageCtx.fillStyle = '#ffffff';
+                    pageCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+                    
+                    // Draw only the portion of the image that belongs to this page
+                    pageCtx.drawImage(
+                        canvas,
+                        0, sourceY, canvas.width, sourceHeight,
+                        0, 0, canvas.width, sourceHeight
+                    );
+                    
+                    // Convert to image data
+                    const pageImgData = pageCanvas.toDataURL('image/jpeg', 0.95);
+                    
+                    // Add to PDF at the top of the page (margin position)
+                    pdf.addImage(
+                        pageImgData,
+                        'JPEG',
+                        margin,
+                        margin,
+                        finalImgWidth,
+                        destHeight,
+                        undefined,
+                        'FAST'
+                    );
+                }
+                
+                // Add page number to each page
+                pdf.setFontSize(10);
+                pdf.setTextColor(128, 128, 128);
+                pdf.text(
+                    `Page ${pageNum + 1} of ${totalPages}`,
+                    pageWidth / 2,
+                    pageHeight - margin / 2,
+                    { align: 'center' }
+                );
+            }
+
+            // Restore footer display
+            if (footer) {
+                footer.style.display = originalFooterDisplay;
             }
 
             const blob = pdf.output('blob');
@@ -533,7 +704,7 @@ export const InvoiceBatchExport: React.FC<InvoiceBatchExportProps> = ({ onClose 
             {/* Hidden invoice for PDF generation */}
             {currentInvoiceData && (
                 <div style={{ position: 'absolute', left: '-9999px', top: 0 }}>
-                    <div id="export-invoice-container">
+                    <div id="export-invoice-container" style={{ width: '794px' }}>
                         <InvoiceDisplay data={currentInvoiceData} />
                     </div>
                 </div>

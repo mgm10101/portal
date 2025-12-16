@@ -12,6 +12,11 @@ interface InvoiceDetailsData {
     payment_details: string;
 }
 
+interface ParsedContactInfo {
+    email: string;
+    phone: string;
+}
+
 /**
  * Component to manage Invoice Details Configuration
  * (Logo, School Name, Contact Info, Address, Payment Details)
@@ -30,6 +35,31 @@ export const InvoiceDetails: React.FC = () => {
         address: '',
         payment_details: ''
     });
+
+    // Parse contact_info into email and phone
+    const parseContactInfo = (contactInfo: string): ParsedContactInfo => {
+        const emailMatch = contactInfo.match(/Email:\s*(.+)/i);
+        const phoneMatch = contactInfo.match(/Phone:\s*(.+)/i);
+        return {
+            email: emailMatch ? emailMatch[1].trim() : '',
+            phone: phoneMatch ? phoneMatch[1].trim() : ''
+        };
+    };
+
+    // Format email and phone back into contact_info string
+    const formatContactInfo = (email: string, phone: string): string => {
+        const parts: string[] = [];
+        if (email.trim()) {
+            parts.push(`Email: ${email.trim()}`);
+        }
+        if (phone.trim()) {
+            parts.push(`Phone: ${phone.trim()}`);
+        }
+        return parts.join('\n');
+    };
+
+    const [contactEmail, setContactEmail] = useState<string>('');
+    const [contactPhone, setContactPhone] = useState<string>('');
 
     // Load existing data on mount
     React.useEffect(() => {
@@ -64,6 +94,10 @@ export const InvoiceDetails: React.FC = () => {
                     address: data.address || '',
                     payment_details: data.payment_details || ''
                 });
+                // Parse contact_info into email and phone
+                const parsed = parseContactInfo(data.contact_info || '');
+                setContactEmail(parsed.email);
+                setContactPhone(parsed.phone);
                 // Track original logo URL for deletion on save
                 setOriginalLogoUrl(data.logo_url || '');
                 if (data.logo_url) {
@@ -229,6 +263,9 @@ export const InvoiceDetails: React.FC = () => {
         try {
             setIsSaving(true);
             
+            // Format contact_info from email and phone fields
+            const formattedContactInfo = formatContactInfo(contactEmail, contactPhone);
+            
             // Delete old logo from storage if logo was changed (new logo uploaded or logo removed)
             const newLogoUrl = formData.logo_url;
             if (originalLogoUrl && originalLogoUrl !== newLogoUrl) {
@@ -263,6 +300,7 @@ export const InvoiceDetails: React.FC = () => {
                 .upsert({
                     id: 1, // Assuming single row configuration
                     ...formData,
+                    contact_info: formattedContactInfo, // Use formatted contact info
                     updated_at: new Date().toISOString()
                 }, {
                     onConflict: 'id'
@@ -304,6 +342,21 @@ export const InvoiceDetails: React.FC = () => {
         }
     };
 
+    // Display formatted contact info for non-editing mode
+    const displayContactInfo = (): string => {
+        if (!contactEmail && !contactPhone) {
+            return 'Not set';
+        }
+        const parts: string[] = [];
+        if (contactEmail) {
+            parts.push(`Email: ${contactEmail}`);
+        }
+        if (contactPhone) {
+            parts.push(`Phone: ${contactPhone}`);
+        }
+        return parts.join('\n');
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center border-b pb-2">
@@ -322,7 +375,7 @@ export const InvoiceDetails: React.FC = () => {
                 {/* Logo Upload Section */}
                 <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        1. Logo
+                        1. Logo <span className="text-red-500">*</span>
                     </label>
                     <div className="flex items-start gap-4">
                         {logoPreview && (
@@ -401,21 +454,36 @@ export const InvoiceDetails: React.FC = () => {
                 {/* Contact Info */}
                 <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        3. Contact Info
+                        3. Contact Info <span className="text-red-500">*</span>
                     </label>
                     {isEditing ? (
-                        <textarea
-                            name="contact_info"
-                            value={formData.contact_info}
-                            onChange={handleInputChange}
-                            placeholder="e.g., Phone: +254 700 000 000, Email: info@school.com"
-                            rows={3}
-                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            disabled={isSaving}
-                        />
+                        <div className="space-y-2">
+                            <div>
+                                <label className="block text-xs text-gray-600 mb-1">Email:</label>
+                                <input
+                                    type="email"
+                                    value={contactEmail}
+                                    onChange={(e) => setContactEmail(e.target.value)}
+                                    placeholder="info@school.com"
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    disabled={isSaving}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs text-gray-600 mb-1">Phone:</label>
+                                <input
+                                    type="text"
+                                    value={contactPhone}
+                                    onChange={(e) => setContactPhone(e.target.value)}
+                                    placeholder="+254 700 000 000"
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    disabled={isSaving}
+                                />
+                            </div>
+                        </div>
                     ) : (
                         <p className="text-gray-800 p-3 bg-gray-50 rounded-lg whitespace-pre-line">
-                            {formData.contact_info || 'Not set'}
+                            {displayContactInfo()}
                         </p>
                     )}
                 </div>
@@ -423,20 +491,21 @@ export const InvoiceDetails: React.FC = () => {
                 {/* Address */}
                 <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        4. Address
+                        4. Address <span className="text-red-500">*</span>
                     </label>
                     {isEditing ? (
-                        <textarea
+                        <input
+                            type="text"
                             name="address"
                             value={formData.address}
                             onChange={handleInputChange}
-                            placeholder="Enter full address"
-                            rows={3}
+                            placeholder="Enter full address (one line)"
                             className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             disabled={isSaving}
+                            maxLength={255}
                         />
                     ) : (
-                        <p className="text-gray-800 p-3 bg-gray-50 rounded-lg whitespace-pre-line">
+                        <p className="text-gray-800 p-3 bg-gray-50 rounded-lg">
                             {formData.address || 'Not set'}
                         </p>
                     )}
@@ -445,7 +514,7 @@ export const InvoiceDetails: React.FC = () => {
                 {/* Payment Details */}
                 <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        5. Payment Details
+                        5. Payment Details <span className="text-red-500">*</span>
                     </label>
                     {isEditing ? (
                         <textarea
@@ -479,7 +548,15 @@ export const InvoiceDetails: React.FC = () => {
                             type="button"
                             onClick={handleSave}
                             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center disabled:opacity-50"
-                            disabled={isSaving || !formData.school_name.trim()}
+                            disabled={
+                                isSaving || 
+                                !formData.logo_url.trim() ||
+                                !formData.school_name.trim() ||
+                                !contactEmail.trim() ||
+                                !contactPhone.trim() ||
+                                !formData.address.trim() ||
+                                !formData.payment_details.trim()
+                            }
                         >
                             <Save size={16} className="mr-2" />
                             {isSaving ? 'Saving...' : 'Save Changes'}

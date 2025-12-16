@@ -351,6 +351,10 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
                     item.itemName = selectedItem.item_name; // Store the name for DB
                     item.description = selectedItem.description; 
                     item.unitPrice = selectedItem.current_unit_price;
+                    // Set quantity to 1 by default when an item is selected
+                    if (!item.quantity || item.quantity === 0) {
+                        item.quantity = 1;
+                    }
                 } else {
                     item.selectedItemId = '';
                     item.itemName = '';

@@ -120,10 +120,10 @@ export const CoreStudentInfoForm: React.FC<CoreStudentInfoFormProps> = ({
           <button
             type="button"
             onClick={onOpenProgressionModal}
-            className="flex items-center px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+            className="flex items-center px-2 md:px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
           >
-            <TrendingUp className="w-4 h-4 mr-2" />
-            Batch Progress Students
+            <TrendingUp className="w-4 h-4 md:mr-2" />
+            <span className="hidden md:inline">Batch Progress Students</span>
           </button>
         )}
       </div>

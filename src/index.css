@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Kalam font is loaded via Google Fonts in index.html */
+.mgm-academy-text {
+  font-family: 'Kalam', sans-serif;
+}
+
 /* Hide scrollbar by default, show on hover */
 .scrollbar-hide {
   scrollbar-width: none; /* Firefox */
