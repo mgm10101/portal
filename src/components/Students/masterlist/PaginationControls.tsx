@@ -19,7 +19,7 @@ export const PaginationControls: React.FC<PaginationControlsProps> = ({
   const endRecord = Math.min((page + 1) * 50, totalRecords);
 
   return (
-    <div className="flex justify-between items-center my-4 px-4 py-3 bg-white rounded-lg border border-gray-200">
+    <div className="flex justify-between items-center my-4">
       <div className="text-sm text-gray-600">
         Showing {startRecord} to {endRecord} of {totalRecords} students
       </div>

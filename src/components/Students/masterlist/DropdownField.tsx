@@ -188,8 +188,13 @@ export const DropdownField: React.FC<DropdownFieldProps> = ({
 
         <button
           type="button"
-          onClick={onOpenModal}
-          className="flex items-center px-3 border-l border-gray-300 text-gray-500 hover:bg-gray-50"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onOpenModal();
+          }}
+          disabled={disabled}
+          className={`flex items-center px-3 border-l border-gray-300 text-gray-500 ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
         >
           <Plus className="w-4 h-4" />
         </button>

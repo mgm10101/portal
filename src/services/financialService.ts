@@ -1367,17 +1367,430 @@ export async function updatePayment(paymentId: number, data: PaymentSubmissionDa
 /**
  * Deletes a payment and its allocations
  */
+/**
+ * Deletes a payment record with consequential deletion logic.
+ * When a payment is deleted, it reverses the status of invoices it had paid for.
+ * The payment_allocations are deleted via CASCADE, and the trigger will update invoice statuses.
+ * @param paymentId The payment ID to delete
+ */
 export async function deletePayment(paymentId: number): Promise<void> {
-    // Allocations will be deleted automatically due to CASCADE
+    console.log(`🐛 [DEBUG] Deleting payment ${paymentId} with consequential deletion logic...`);
+    
+    // Step 1: Get all allocations for this payment before deletion
+    const { data: allocations, error: allocationsFetchError } = await supabase
+        .from('payment_allocations')
+        .select('invoice_number, allocated_amount')
+        .eq('payment_id', paymentId);
+    
+    if (allocationsFetchError) {
+        console.error('❌ [ERROR] Error fetching payment allocations:', allocationsFetchError);
+        throw new Error('Failed to fetch payment allocations');
+    }
+    
+    const affectedInvoices = allocations?.map(a => a.invoice_number) || [];
+    console.log(`📋 [DEBUG] Payment ${paymentId} had allocations to ${affectedInvoices.length} invoice(s): ${affectedInvoices.join(', ')}`);
+    
+    // Step 2: Delete the payment (allocations will be deleted via CASCADE FK)
+    // The trigger on payment_allocations DELETE will automatically update invoice payment_made and status
     const { error } = await supabase
         .from('payments')
         .delete()
         .eq('id', paymentId);
 
     if (error) {
-        console.error('Error deleting payment:', error);
+        console.error('❌ [ERROR] Error deleting payment:', error);
         throw new Error('Failed to delete payment');
     }
+    
+    console.log(`✅ [DEBUG] Successfully deleted payment ${paymentId}.`);
+    
+    // Step 3: Explicitly update payment_made and balance_due for all affected invoices
+    // The trigger will handle status updates automatically
+    if (affectedInvoices.length > 0) {
+        console.log(`🔄 [DEBUG] Updating payment_made for ${affectedInvoices.length} affected invoice(s)...`);
+        
+        // For each affected invoice, recalculate payment_made from remaining allocations
+        for (const invoiceNumber of affectedInvoices) {
+            // Calculate total allocated amount from remaining allocations
+            const { data: remainingAllocations, error: allocError } = await supabase
+                .from('payment_allocations')
+                .select('allocated_amount')
+                .eq('invoice_number', invoiceNumber);
+            
+            if (allocError) {
+                console.error(`❌ [ERROR] Error fetching remaining allocations for invoice ${invoiceNumber}:`, allocError);
+                continue;
+            }
+            
+            const totalAllocated = remainingAllocations?.reduce((sum, a) => sum + parseFloat(a.allocated_amount), 0) || 0;
+            
+            // Get invoice total_amount to calculate balance_due
+            const { data: invoiceData, error: invoiceFetchError } = await supabase
+                .from('invoices')
+                .select('total_amount')
+                .eq('invoice_number', invoiceNumber)
+                .single();
+            
+            if (invoiceFetchError || !invoiceData) {
+                console.error(`❌ [ERROR] Error fetching invoice ${invoiceNumber}:`, invoiceFetchError);
+                continue;
+            }
+            
+            const totalAmount = parseFloat(invoiceData.total_amount);
+            const balanceDue = totalAmount - totalAllocated;
+            
+            // Update only payment_made and balance_due - trigger will handle status
+            const { error: updateError } = await supabase
+                .from('invoices')
+                .update({
+                    payment_made: totalAllocated,
+                    balance_due: balanceDue
+                })
+                .eq('invoice_number', invoiceNumber);
+            
+            if (updateError) {
+                console.error(`❌ [ERROR] Error updating invoice ${invoiceNumber}:`, updateError);
+            } else {
+                console.log(`✅ [DEBUG] Updated invoice ${invoiceNumber}: payment_made=${totalAllocated}, balance_due=${balanceDue}. Status will be updated by trigger.`);
+            }
+        }
+        
+        console.log(`✅ [DEBUG] Completed updating invoice payment_made. Triggers will update statuses automatically.`);
+    }
+}
+
+/**
+ * Voids an invoice (hard delete with audit trail)
+ * Stores invoice data in voided_invoices table before deleting
+ */
+export async function voidInvoice(invoiceNumber: string, reason: string, voidedBy?: string): Promise<void> {
+    if (!reason || reason.trim() === '') {
+        throw new Error('Void reason is required');
+    }
+
+    // First, fetch the full invoice data
+    const { data: invoiceData, error: fetchError } = await supabase
+        .from('invoices')
+        .select('*')
+        .eq('invoice_number', invoiceNumber)
+        .single();
+
+    if (fetchError || !invoiceData) {
+        console.error('Error fetching invoice for void:', fetchError);
+        throw new Error('Failed to fetch invoice data for voiding');
+    }
+
+    // Store in voided_invoices table
+    const { error: voidError } = await supabase
+        .from('voided_invoices')
+        .insert({
+            original_invoice_number: invoiceData.invoice_number,
+            invoice_seq_number: invoiceData.invoice_seq_number,
+            admission_number: invoiceData.admission_number,
+            student_name: invoiceData.name,
+            invoice_date: invoiceData.invoice_date,
+            due_date: invoiceData.due_date,
+            description: invoiceData.description,
+            subtotal: invoiceData.subtotal,
+            total_amount: invoiceData.total_amount,
+            payment_made: invoiceData.payment_made,
+            balance_due: invoiceData.balance_due,
+            status: invoiceData.status,
+            void_reason: reason.trim(),
+            voided_by: voidedBy || null,
+            created_at: invoiceData.created_at,
+            updated_at: invoiceData.updated_at
+        });
+
+    if (voidError) {
+        console.error('Error storing voided invoice:', voidError);
+        throw new Error('Failed to store voided invoice record');
+    }
+
+    // Now delete the invoice (this will cascade delete allocations and line items)
+    await deleteInvoice(invoiceNumber);
+}
+
+/**
+ * Voids multiple invoices (bulk void with audit trail)
+ */
+export async function voidInvoices(invoiceNumbers: string[], reason: string, voidedBy?: string): Promise<void> {
+    if (!reason || reason.trim() === '') {
+        throw new Error('Void reason is required');
+    }
+
+    // Fetch all invoice data
+    const { data: invoicesData, error: fetchError } = await supabase
+        .from('invoices')
+        .select('*')
+        .in('invoice_number', invoiceNumbers);
+
+    if (fetchError || !invoicesData || invoicesData.length === 0) {
+        console.error('Error fetching invoices for void:', fetchError);
+        throw new Error('Failed to fetch invoice data for voiding');
+    }
+
+    // Store all in voided_invoices table
+    const voidedRecords = invoicesData.map(invoice => ({
+        original_invoice_number: invoice.invoice_number,
+        invoice_seq_number: invoice.invoice_seq_number,
+        admission_number: invoice.admission_number,
+        student_name: invoice.name,
+        invoice_date: invoice.invoice_date,
+        due_date: invoice.due_date,
+        description: invoice.description,
+        subtotal: invoice.subtotal,
+        total_amount: invoice.total_amount,
+        payment_made: invoice.payment_made,
+        balance_due: invoice.balance_due,
+        status: invoice.status,
+        void_reason: reason.trim(),
+        voided_by: voidedBy || null,
+        created_at: invoice.created_at,
+        updated_at: invoice.updated_at
+    }));
+
+    const { error: voidError } = await supabase
+        .from('voided_invoices')
+        .insert(voidedRecords);
+
+    if (voidError) {
+        console.error('Error storing voided invoices:', voidError);
+        throw new Error('Failed to store voided invoice records');
+    }
+
+    // Now delete all invoices
+    for (const invoiceNumber of invoiceNumbers) {
+        try {
+            await deleteInvoice(invoiceNumber);
+        } catch (error: any) {
+            console.error(`Error deleting invoice ${invoiceNumber}:`, error);
+            // Continue with other deletions even if one fails
+        }
+    }
+}
+
+/**
+ * Voids a payment (hard delete with audit trail)
+ * Stores payment data in voided_payments table before deleting
+ */
+export async function voidPayment(paymentId: number, reason: string, voidedBy?: string): Promise<void> {
+    if (!reason || reason.trim() === '') {
+        throw new Error('Void reason is required');
+    }
+
+    // First, fetch the full payment data with related info
+    const { data: paymentData, error: fetchError } = await supabase
+        .from('payments')
+        .select(`
+            *,
+            payment_methods(name),
+            accounts(name)
+        `)
+        .eq('id', paymentId)
+        .single();
+
+    if (fetchError || !paymentData) {
+        console.error('Error fetching payment for void:', fetchError);
+        throw new Error('Failed to fetch payment data for voiding');
+    }
+
+    // Store in voided_payments table
+    const { error: voidError } = await supabase
+        .from('voided_payments')
+        .insert({
+            original_payment_id: paymentData.id,
+            receipt_number: paymentData.receipt_number,
+            admission_number: paymentData.admission_number,
+            student_name: paymentData.student_name,
+            payment_date: paymentData.payment_date,
+            amount: paymentData.amount,
+            payment_method_id: paymentData.payment_method_id,
+            payment_method_name: (paymentData.payment_methods as any)?.name || null,
+            account_id: paymentData.account_id,
+            account_name: (paymentData.accounts as any)?.name || null,
+            reference_number: paymentData.reference_number,
+            notes: paymentData.notes,
+            void_reason: reason.trim(),
+            voided_by: voidedBy || null,
+            created_at: paymentData.created_at,
+            updated_at: paymentData.updated_at
+        });
+
+    if (voidError) {
+        console.error('Error storing voided payment:', voidError);
+        throw new Error('Failed to store voided payment record');
+    }
+
+    // Now delete the payment (this will cascade delete allocations)
+    await deletePayment(paymentId);
+}
+
+/**
+ * Voids multiple payments (bulk void with audit trail)
+ */
+export async function voidPayments(paymentIds: number[], reason: string, voidedBy?: string): Promise<void> {
+    if (!reason || reason.trim() === '') {
+        throw new Error('Void reason is required');
+    }
+
+    // Fetch all payment data with related info
+    const { data: paymentsData, error: fetchError } = await supabase
+        .from('payments')
+        .select(`
+            *,
+            payment_methods(name),
+            accounts(name)
+        `)
+        .in('id', paymentIds);
+
+    if (fetchError || !paymentsData || paymentsData.length === 0) {
+        console.error('Error fetching payments for void:', fetchError);
+        throw new Error('Failed to fetch payment data for voiding');
+    }
+
+    // Store all in voided_payments table
+    const voidedRecords = paymentsData.map(payment => ({
+        original_payment_id: payment.id,
+        receipt_number: payment.receipt_number,
+        admission_number: payment.admission_number,
+        student_name: payment.student_name,
+        payment_date: payment.payment_date,
+        amount: payment.amount,
+        payment_method_id: payment.payment_method_id,
+        payment_method_name: (payment.payment_methods as any)?.name || null,
+        account_id: payment.account_id,
+        account_name: (payment.accounts as any)?.name || null,
+        reference_number: payment.reference_number,
+        notes: payment.notes,
+        void_reason: reason.trim(),
+        voided_by: voidedBy || null,
+        created_at: payment.created_at,
+        updated_at: payment.updated_at
+    }));
+
+    const { error: voidError } = await supabase
+        .from('voided_payments')
+        .insert(voidedRecords);
+
+    if (voidError) {
+        console.error('Error storing voided payments:', voidError);
+        throw new Error('Failed to store voided payment records');
+    }
+
+    // Now delete all payments
+    for (const paymentId of paymentIds) {
+        try {
+            await deletePayment(paymentId);
+        } catch (error: any) {
+            console.error(`Error deleting payment ${paymentId}:`, error);
+            // Continue with other deletions even if one fails
+        }
+    }
+}
+
+/**
+ * Fetches voided invoices within a date range
+ */
+export async function fetchVoidedInvoices(dateFrom?: string, dateTo?: string): Promise<any[]> {
+    let query = supabase
+        .from('voided_invoices')
+        .select('*')
+        .order('voided_at', { ascending: false });
+
+    if (dateFrom) {
+        // Include the full day from 00:00:00
+        const fromDate = dateFrom.includes('T') ? dateFrom : `${dateFrom}T00:00:00`;
+        query = query.gte('voided_at', fromDate);
+        console.log('🔍 [DEBUG] Fetching voided invoices from:', fromDate);
+    }
+    if (dateTo) {
+        // Include the full day up to 23:59:59.999
+        const toDate = dateTo.includes('T') ? dateTo : `${dateTo}T23:59:59.999`;
+        query = query.lte('voided_at', toDate);
+        console.log('🔍 [DEBUG] Fetching voided invoices to:', toDate);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+        console.error('Error fetching voided invoices:', error);
+        throw new Error('Failed to fetch voided invoices');
+    }
+
+    console.log('🔍 [DEBUG] Fetched voided invoices count:', data?.length || 0);
+
+    return (data || []).map(item => ({
+        id: item.id,
+        original_invoice_number: item.original_invoice_number,
+        invoice_seq_number: item.invoice_seq_number,
+        admission_number: item.admission_number,
+        student_name: item.student_name,
+        invoice_date: item.invoice_date,
+        due_date: item.due_date,
+        description: item.description,
+        subtotal: item.subtotal ? parseFloat(item.subtotal) : 0,
+        total_amount: item.total_amount ? parseFloat(item.total_amount) : 0,
+        payment_made: item.payment_made ? parseFloat(item.payment_made) : 0,
+        balance_due: item.balance_due ? parseFloat(item.balance_due) : 0,
+        status: item.status,
+        void_reason: item.void_reason,
+        voided_by: item.voided_by,
+        voided_at: item.voided_at,
+        created_at: item.created_at,
+        updated_at: item.updated_at
+    }));
+}
+
+/**
+ * Fetches voided payments within a date range
+ */
+export async function fetchVoidedPayments(dateFrom?: string, dateTo?: string): Promise<any[]> {
+    let query = supabase
+        .from('voided_payments')
+        .select('*')
+        .order('voided_at', { ascending: false });
+
+    if (dateFrom) {
+        // Include the full day from 00:00:00
+        const fromDate = dateFrom.includes('T') ? dateFrom : `${dateFrom}T00:00:00`;
+        query = query.gte('voided_at', fromDate);
+        console.log('🔍 [DEBUG] Fetching voided payments from:', fromDate);
+    }
+    if (dateTo) {
+        // Include the full day up to 23:59:59.999
+        const toDate = dateTo.includes('T') ? dateTo : `${dateTo}T23:59:59.999`;
+        query = query.lte('voided_at', toDate);
+        console.log('🔍 [DEBUG] Fetching voided payments to:', toDate);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+        console.error('Error fetching voided payments:', error);
+        throw new Error('Failed to fetch voided payments');
+    }
+
+    console.log('🔍 [DEBUG] Fetched voided payments count:', data?.length || 0);
+
+    return (data || []).map(item => ({
+        id: item.id,
+        original_payment_id: item.original_payment_id,
+        receipt_number: item.receipt_number,
+        admission_number: item.admission_number,
+        student_name: item.student_name,
+        payment_date: item.payment_date,
+        amount: item.amount ? parseFloat(item.amount) : 0,
+        payment_method_name: item.payment_method_name,
+        account_name: item.account_name,
+        reference_number: item.reference_number,
+        notes: item.notes,
+        void_reason: item.void_reason,
+        voided_by: item.voided_by,
+        voided_at: item.voided_at,
+        created_at: item.created_at,
+        updated_at: item.updated_at
+    }));
 }
 
 /**
@@ -1510,14 +1923,211 @@ export async function finalizeAndTransferBalances(balancesToTransfer: Outstandin
 }
 
 /**
- * Deletes a single invoice and its associated line items.
+ * Deletes a single invoice and its associated line items with consequential deletion logic.
+ * Handles:
+ * 1. Payment allocations (automatically become overpayments when deleted)
+ * 2. Forwarded invoices (prevents deletion if referenced by other invoices)
+ * 3. Cascade deletion of invoices that were brought forward by this invoice
  * @param invoiceNumber The invoice number to delete
  * @returns True if deletion was successful, false otherwise
  */
 export async function deleteInvoice(invoiceNumber: string): Promise<boolean> {
-    console.log(`🐛 [DEBUG] Deleting invoice ${invoiceNumber}...`);
+    console.log(`🐛 [DEBUG] Deleting invoice ${invoiceNumber} with consequential deletion logic...`);
     
-    // First, delete all line items associated with this invoice
+    // Step 1: Check if this invoice is Forwarded and referenced by other invoices
+    const { data: invoiceData, error: fetchError } = await supabase
+        .from('invoices')
+        .select('status')
+        .eq('invoice_number', invoiceNumber)
+        .single();
+    
+    if (fetchError || !invoiceData) {
+        throw new Error(`Invoice ${invoiceNumber} not found`);
+    }
+    
+    // If invoice is Forwarded, check if any other invoice references it in BBF line items
+    if (invoiceData.status === 'Forwarded') {
+        const { data: referencingInvoices } = await supabase
+            .from('invoice_line_items')
+            .select('invoice_number, description')
+            .eq('item_name', 'Balance Brought Forward')
+            .like('description', `%${invoiceNumber}%`);
+        
+        if (referencingInvoices && referencingInvoices.length > 0) {
+            const referencingInvoiceNumbers = [...new Set(referencingInvoices.map(li => li.invoice_number))];
+            throw new Error(
+                `Cannot delete invoice ${invoiceNumber} because it has been brought forward by other invoice(s): ${referencingInvoiceNumbers.join(', ')}. ` +
+                `Please delete the invoice(s) that brought it forward first.`
+            );
+        }
+    }
+    
+    // Step 2: Find invoices that were brought forward by this invoice (cascade delete)
+    const { data: bbfLineItems } = await supabase
+        .from('invoice_line_items')
+        .select('description')
+        .eq('invoice_number', invoiceNumber)
+        .eq('item_name', 'Balance Brought Forward');
+    
+    const invoicesToCascadeDelete: string[] = [];
+    if (bbfLineItems && bbfLineItems.length > 0) {
+        // Parse description to extract invoice numbers (format: "Invoices: INV123, INV456")
+        bbfLineItems.forEach(item => {
+            if (item.description) {
+                const match = item.description.match(/Invoices:\s*(.+)/);
+                if (match) {
+                    const invoiceNumbers = match[1].split(',').map(inv => inv.trim());
+                    invoicesToCascadeDelete.push(...invoiceNumbers);
+                }
+            }
+        });
+    }
+    
+    // Step 3: Fetch allocations and student info BEFORE deleting (for reallocation)
+    const { data: allocationsToDelete, error: fetchAllocationsError } = await supabase
+        .from('payment_allocations')
+        .select('payment_id, allocated_amount, payments(admission_number)')
+        .eq('invoice_number', invoiceNumber);
+    
+    if (fetchAllocationsError) {
+        console.error("❌ [ERROR] Error fetching payment allocations:", fetchAllocationsError);
+        throw new Error(`Failed to fetch payment allocations for invoice ${invoiceNumber}: ${fetchAllocationsError.message}`);
+    }
+    
+    // Get the student's admission number from the invoice
+    const { data: invoiceInfo, error: invoiceInfoError } = await supabase
+        .from('invoices')
+        .select('admission_number')
+        .eq('invoice_number', invoiceNumber)
+        .single();
+    
+    if (invoiceInfoError || !invoiceInfo) {
+        console.error("❌ [ERROR] Error fetching invoice info:", invoiceInfoError);
+        throw new Error(`Failed to fetch invoice info for ${invoiceNumber}: ${invoiceInfoError?.message || 'Invoice not found'}`);
+    }
+    
+    const studentAdmissionNumber = invoiceInfo.admission_number;
+    
+    // Calculate total freed-up amount per payment
+    const freedUpAmountsByPayment = new Map<number, number>();
+    if (allocationsToDelete && allocationsToDelete.length > 0) {
+        allocationsToDelete.forEach((alloc: any) => {
+            const paymentId = alloc.payment_id;
+            const amount = parseFloat(alloc.allocated_amount);
+            freedUpAmountsByPayment.set(
+                paymentId,
+                (freedUpAmountsByPayment.get(paymentId) || 0) + amount
+            );
+        });
+    }
+    
+    console.log(`💰 [DEBUG] Freed-up amounts from deleted allocations:`, Array.from(freedUpAmountsByPayment.entries()).map(([pid, amt]) => `Payment ${pid}: Ksh.${amt.toFixed(2)}`).join(', '));
+    
+    // Step 4: Delete payment allocations (this will automatically make them overpayments via trigger)
+    // The CASCADE FK should handle this, but we'll do it explicitly to ensure proper cleanup
+    const { error: allocationsError } = await supabase
+        .from('payment_allocations')
+        .delete()
+        .eq('invoice_number', invoiceNumber);
+    
+    if (allocationsError) {
+        console.error("❌ [ERROR] Error deleting payment allocations:", allocationsError);
+        throw new Error(`Failed to delete payment allocations for invoice ${invoiceNumber}: ${allocationsError.message}`);
+    }
+    
+    console.log(`✅ [DEBUG] Deleted payment allocations for invoice ${invoiceNumber}.`);
+    
+    // Step 5: Auto-reallocate freed-up amounts to other pending/overdue invoices for the same student
+    if (freedUpAmountsByPayment.size > 0) {
+        console.log(`🔄 [DEBUG] Attempting to reallocate freed-up amounts to other invoices for student ${studentAdmissionNumber}...`);
+        
+        // Fetch other pending/overdue invoices for this student (excluding the one being deleted)
+        const { data: otherInvoices, error: fetchOtherInvoicesError } = await supabase
+            .from('invoices')
+            .select('invoice_number, balance_due, due_date')
+            .eq('admission_number', studentAdmissionNumber)
+            .neq('invoice_number', invoiceNumber)
+            .in('status', ['Pending', 'Overdue'])
+            .neq('status', 'Forwarded')
+            .gt('balance_due', 0)
+            .order('due_date', { ascending: true }); // Oldest due date first
+        
+        if (fetchOtherInvoicesError) {
+            console.error("❌ [ERROR] Error fetching other invoices for reallocation:", fetchOtherInvoicesError);
+            // Don't throw - just log and continue with deletion
+            console.warn("⚠️ [WARNING] Continuing with deletion without reallocation.");
+        } else if (otherInvoices && otherInvoices.length > 0) {
+            console.log(`📋 [DEBUG] Found ${otherInvoices.length} other invoice(s) to potentially reallocate to.`);
+            
+            // Process each payment's freed-up amount
+            for (const [paymentId, freedUpAmount] of freedUpAmountsByPayment.entries()) {
+                let remainingToAllocate = freedUpAmount;
+                
+                // Allocate to invoices in order (oldest due date first)
+                for (const invoice of otherInvoices) {
+                    if (remainingToAllocate <= 0) break;
+                    
+                    const invoiceBalance = parseFloat(invoice.balance_due);
+                    if (invoiceBalance <= 0) continue; // Skip fully paid invoices
+                    
+                    const amountToAllocate = Math.min(remainingToAllocate, invoiceBalance);
+                    
+                    // Check if allocation already exists and get current amount
+                    const { data: existingAlloc } = await supabase
+                        .from('payment_allocations')
+                        .select('allocated_amount')
+                        .eq('payment_id', paymentId)
+                        .eq('invoice_number', invoice.invoice_number)
+                        .maybeSingle();
+                    
+                    if (existingAlloc) {
+                        // Update existing allocation
+                        const currentAmount = parseFloat(existingAlloc.allocated_amount);
+                        const newAmount = currentAmount + amountToAllocate;
+                        
+                        const { error: updateError } = await supabase
+                            .from('payment_allocations')
+                            .update({ allocated_amount: newAmount })
+                            .eq('payment_id', paymentId)
+                            .eq('invoice_number', invoice.invoice_number);
+                        
+                        if (updateError) {
+                            console.error(`❌ [ERROR] Error updating allocation for invoice ${invoice.invoice_number}:`, updateError);
+                        } else {
+                            console.log(`✅ [DEBUG] Updated allocation: Payment ${paymentId} → Invoice ${invoice.invoice_number}: Ksh.${newAmount.toFixed(2)} (added Ksh.${amountToAllocate.toFixed(2)})`);
+                            remainingToAllocate -= amountToAllocate;
+                        }
+                    } else {
+                        // Create new allocation
+                        const { error: insertError } = await supabase
+                            .from('payment_allocations')
+                            .insert({
+                                payment_id: paymentId,
+                                invoice_number: invoice.invoice_number,
+                                allocated_amount: amountToAllocate
+                            });
+                        
+                        if (insertError) {
+                            console.error(`❌ [ERROR] Error creating allocation for invoice ${invoice.invoice_number}:`, insertError);
+                        } else {
+                            console.log(`✅ [DEBUG] Created allocation: Payment ${paymentId} → Invoice ${invoice.invoice_number}: Ksh.${amountToAllocate.toFixed(2)}`);
+                            remainingToAllocate -= amountToAllocate;
+                        }
+                    }
+                }
+                
+                if (remainingToAllocate > 0) {
+                    console.log(`💰 [DEBUG] Remaining unallocated amount for Payment ${paymentId}: Ksh.${remainingToAllocate.toFixed(2)} (will remain as overpayment)`);
+                }
+            }
+            
+            console.log(`✅ [DEBUG] Completed reallocation of freed-up amounts.`);
+        } else {
+            console.log(`ℹ️ [INFO] No other pending/overdue invoices found for student ${studentAdmissionNumber}. Freed-up amounts will remain as overpayments.`);
+        }
+    }
+    
+    // Step 6: Delete all line items associated with this invoice
     const { error: lineItemsError } = await supabase
         .from('invoice_line_items')
         .delete()
@@ -1530,7 +2140,7 @@ export async function deleteInvoice(invoiceNumber: string): Promise<boolean> {
     
     console.log(`✅ [DEBUG] Successfully deleted line items for invoice ${invoiceNumber}.`);
     
-    // Then, delete the invoice header
+    // Step 7: Delete the invoice header
     const { error: invoiceError } = await supabase
         .from('invoices')
         .delete()
@@ -1542,5 +2152,19 @@ export async function deleteInvoice(invoiceNumber: string): Promise<boolean> {
     }
     
     console.log(`✅ [DEBUG] Successfully deleted invoice ${invoiceNumber}.`);
+    
+    // Step 8: Cascade delete invoices that were brought forward by this invoice
+    if (invoicesToCascadeDelete.length > 0) {
+        console.log(`🔄 [DEBUG] Cascade deleting ${invoicesToCascadeDelete.length} forwarded invoice(s): ${invoicesToCascadeDelete.join(', ')}`);
+        for (const forwardedInvoiceNumber of invoicesToCascadeDelete) {
+            try {
+                await deleteInvoice(forwardedInvoiceNumber); // Recursive call
+            } catch (error: any) {
+                console.error(`❌ [ERROR] Failed to cascade delete forwarded invoice ${forwardedInvoiceNumber}:`, error);
+                // Continue with other deletions even if one fails
+            }
+        }
+    }
+    
     return true;
 }

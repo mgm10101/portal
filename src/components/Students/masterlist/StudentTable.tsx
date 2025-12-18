@@ -166,9 +166,6 @@ export const StudentTable: React.FC<StudentTableProps> = ({
                 Emergency Contact
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Address
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Status
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -236,25 +233,72 @@ export const StudentTable: React.FC<StudentTableProps> = ({
                 </td>
 
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">
+                  <div className="text-sm text-gray-900">
                     {student.gender || '-'}
                   </div>
                 </td>
 
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div>
-                    <div className="text-sm font-medium text-gray-900">
-                      {student.emergency_contact}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      {student.emergency_relationship}
-                    </div>
-                  </div>
-                </td>
-
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-900">
-                    {student.address || '-'}
+                    {student.emergency_contact ? (
+                      (() => {
+                        // Function to render emergency contact with name and phone separated by "-"
+                        const renderEmergencyContact = (text: string) => {
+                          if (!text) return null;
+                          
+                          const contact = text.trim();
+                          
+                          // Extract name part (text at the beginning)
+                          const nameMatch = contact.match(/^([A-Za-z\s]+?)(?=\s*[\d\+\-\(\)]|$)/);
+                          let name = '';
+                          let phone = '';
+                          
+                          if (nameMatch) {
+                            name = nameMatch[1].trim();
+                            // Extract phone part (everything after the name)
+                            const phoneMatch = contact.substring(nameMatch[0].length).trim();
+                            phone = phoneMatch;
+                          } else {
+                            // Fallback: try to extract everything before first number/symbol
+                            const fallbackMatch = contact.match(/^([^\d\+\-\(\)]+)/);
+                            if (fallbackMatch) {
+                              name = fallbackMatch[1].trim();
+                              phone = contact.substring(fallbackMatch[0].length).trim();
+                            } else {
+                              // If no clear separation, treat entire string as name
+                              name = contact;
+                            }
+                          }
+                          
+                          return (
+                            <span className="text-sm text-gray-900">
+                              {name && (
+                                <span className="font-medium">{name}</span>
+                              )}
+                              {name && phone && (
+                                <span className="font-medium"> - </span>
+                              )}
+                              {phone && (
+                                <span>{phone}</span>
+                              )}
+                            </span>
+                          );
+                        };
+                        
+                        return (
+                          <div>
+                            {renderEmergencyContact(student.emergency_contact)}
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <div className="text-sm font-medium text-gray-900">-</div>
+                    )}
+                    {student.emergency_relationship && (
+                      <div className="text-sm text-gray-500">
+                        {student.emergency_relationship}
+                      </div>
+                    )}
                   </div>
                 </td>
 

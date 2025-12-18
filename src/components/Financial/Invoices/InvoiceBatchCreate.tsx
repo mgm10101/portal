@@ -321,7 +321,6 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
     
     return (
         <div className="space-y-6">
-            <h3 className="text-2xl font-bold text-gray-800">Batch Invoice Creator</h3>
             <p className="text-gray-600">
                 Define the items and dates once, then select multiple students to generate invoices simultaneously.
             </p>

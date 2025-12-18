@@ -71,43 +71,31 @@ export const Homework: React.FC = () => {
   return (
     <div className="p-6 md:p-3 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Homework Management</h1>
-          <p className="text-gray-600">Upload homework assignments and grade student submissions</p>
-        </div>
-
         {/* Tabs */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
-          <div className="border-b border-gray-200">
-            <nav className="flex -mb-px">
-              <button
-                onClick={() => setActiveTab('uploaded')}
-                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'uploaded'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-center">
-                  <FileText className="w-4 h-4 mr-2" />
-                  Uploaded Homework
-                </div>
-              </button>
-              <button
-                onClick={() => setActiveTab('submissions')}
-                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'submissions'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-center">
-                  <CheckCircle className="w-4 h-4 mr-2" />
-                  Student Submissions
-                </div>
-              </button>
-            </nav>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-4">
+          <div className="flex border-b border-gray-200">
+            <button
+              onClick={() => setActiveTab('uploaded')}
+              className={`flex-1 px-6 py-3 text-sm font-medium transition-colors flex items-center justify-center ${
+                activeTab === 'uploaded'
+                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <FileText className="w-4 h-4 mr-2" />
+              Uploaded Homework
+            </button>
+            <button
+              onClick={() => setActiveTab('submissions')}
+              className={`flex-1 px-6 py-3 text-sm font-medium transition-colors flex items-center justify-center ${
+                activeTab === 'submissions'
+                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <CheckCircle className="w-4 h-4 mr-2" />
+              Student Submissions
+            </button>
           </div>
 
           {/* Uploaded Homework Tab */}

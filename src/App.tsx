@@ -58,11 +58,15 @@ interface UserInfo {
 function App() {
   // Check if this is a refresh (not a new session)
   // We use sessionStorage to track if the page was refreshed
-  const isRefresh = sessionStorage.getItem('isRefresh') === 'true';
+  // DO NOT set the flag here - let checkSession handle it after verifying the session
+  const [isRefresh, setIsRefresh] = useState(() => {
+    return sessionStorage.getItem('isRefresh') === 'true';
+  });
   
   // Only restore last active section from localStorage on refresh, not on fresh login
   const [activeSection, setActiveSection] = useState(() => {
-    if (isRefresh) {
+    const refreshFlag = sessionStorage.getItem('isRefresh') === 'true';
+    if (refreshFlag) {
       const saved = localStorage.getItem('activeSection');
       return saved || 'dashboard';
     }
@@ -73,15 +77,12 @@ function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const mainRef = useRef<HTMLDivElement>(null);
-  
-  // Mark this as a refresh for next time (if user refreshes, this will be true)
-  useEffect(() => {
-    sessionStorage.setItem('isRefresh', 'true');
-  }, []);
 
   const handleLogin = async (email: string, userType: 'admin' | 'parent') => {
-    // Mark as fresh login (not a refresh) - clear the refresh flag
-    sessionStorage.removeItem('isRefresh');
+    // After successful login, set the refresh flag so the session persists on refresh
+    // This ensures the session won't be cleared on subsequent checks
+    sessionStorage.setItem('isRefresh', 'true');
+    setIsRefresh(true);
     
     // Fetch user details from users table
     try {
@@ -247,8 +248,31 @@ function App() {
   useEffect(() => {
     const checkSession = async () => {
       try {
-        // Check for existing session
+        // Check if this is a new tab/browser session by checking if sessionStorage flag exists
+        // sessionStorage persists on refresh but is cleared on tab/browser close
+        const hasRefreshFlag = sessionStorage.getItem('isRefresh') === 'true';
+        
+        // Check for existing session first
         const { data: { session }, error } = await supabase.auth.getSession();
+        
+        // SECURITY: If this is a new tab/browser session (no refresh flag) AND there's an existing session,
+        // clear it for security. This means the user closed the tab/browser and opened a new one.
+        if (!hasRefreshFlag && session) {
+          console.log('New tab/browser session detected - clearing existing session for security');
+          await supabase.auth.signOut();
+          setIsLoading(false);
+          return;
+        }
+        
+        // If we have a refresh flag OR no session exists, set the flag to mark this as a valid session
+        // This ensures that:
+        // 1. On refresh (flag exists) - we keep the session
+        // 2. On new tab with no session - we set the flag for future refreshes
+        // 3. On new tab with session - we already cleared it above, so we won't reach here
+        if (hasRefreshFlag || !session) {
+          sessionStorage.setItem('isRefresh', 'true');
+          setIsRefresh(true);
+        }
         
         if (error) {
           console.error('Error checking session:', error);
@@ -375,6 +399,12 @@ function App() {
     // Listen for auth changes (when user logs in/out)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
+        // When a new session is created (e.g., after login), ensure the refresh flag is set
+        // This prevents the session from being cleared on subsequent checks
+        if (sessionStorage.getItem('isRefresh') !== 'true') {
+          sessionStorage.setItem('isRefresh', 'true');
+          setIsRefresh(true);
+        }
         // Don't set user immediately - let Login component handle password change check
         // Login component will call onLogin only after password change is complete (if needed)
         // This prevents Login from unmounting prematurely
@@ -384,7 +414,7 @@ function App() {
     });
 
     return () => subscription.unsubscribe();
-  }, [isRefresh]);
+  }, []); // Only run once on mount
   
   // Handle tab/browser close detection
   // The key insight: sessionStorage persists on refresh but is cleared on tab close

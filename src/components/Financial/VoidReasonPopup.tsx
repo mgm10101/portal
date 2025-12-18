@@ -5,16 +5,28 @@ interface VoidReasonPopupProps {
   onClose: () => void;
   onConfirm: (reason: string) => void;
   expenseCount?: number;
+  recordType?: 'expense' | 'invoice' | 'payment';
 }
 
-export const VoidReasonPopup: React.FC<VoidReasonPopupProps> = ({ onClose, onConfirm, expenseCount = 1 }) => {
+export const VoidReasonPopup: React.FC<VoidReasonPopupProps> = ({ onClose, onConfirm, expenseCount = 1, recordType = 'expense' }) => {
   const [reason, setReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const getRecordTypeLabel = () => {
+    switch (recordType) {
+      case 'invoice':
+        return expenseCount > 1 ? 'Invoices' : 'Invoice';
+      case 'payment':
+        return expenseCount > 1 ? 'Payments' : 'Payment';
+      default:
+        return expenseCount > 1 ? 'Expenses' : 'Expense';
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!reason.trim()) {
-      alert('Please provide a reason for voiding this expense.');
+      alert(`Please provide a reason for voiding this ${getRecordTypeLabel().toLowerCase()}.`);
       return;
     }
 
@@ -33,7 +45,7 @@ export const VoidReasonPopup: React.FC<VoidReasonPopupProps> = ({ onClose, onCon
         <div className="p-6">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-semibold text-gray-800">
-              Void {expenseCount > 1 ? `${expenseCount} Expenses` : 'Expense'}
+              Void {expenseCount > 1 ? `${expenseCount} ${getRecordTypeLabel()}` : getRecordTypeLabel()}
             </h2>
             <button
               onClick={onClose}
@@ -52,7 +64,7 @@ export const VoidReasonPopup: React.FC<VoidReasonPopupProps> = ({ onClose, onCon
               <textarea
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="Please provide a reason for voiding this expense..."
+                placeholder={`Please provide a reason for voiding this ${getRecordTypeLabel().toLowerCase()}...`}
                 rows={4}
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 required

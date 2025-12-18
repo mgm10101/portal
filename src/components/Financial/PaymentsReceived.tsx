@@ -11,10 +11,12 @@ import {
   fetchStudentInvoicesForPayment,
   createPayment,
   updatePayment,
-  deletePayment,
+  voidPayment,
+  voidPayments,
   fetchFullPayment
 } from '../../services/financialService';
-import { StudentInfo, Payment, PaymentMethod, Account, InvoiceHeader, PaymentSubmissionData } from '../../types/database';
+import { VoidReasonPopup } from './VoidReasonPopup';
+import { StudentInfo, Payment, PaymentMethod, Account, InvoiceHeader, PaymentSubmissionData, FullPayment, PaymentAllocation } from '../../types/database';
 import { OptionsModal } from '../Students/masterlist/OptionsModal';
 import { supabase } from '../../supabaseClient';
 
@@ -27,6 +29,9 @@ const formatDate = (dateString: string) => {
 // Receipt Preview Component
 const ReceiptPreview: React.FC<{ payment: Payment; onClose: () => void }> = ({ payment, onClose }) => {
   const [isHovering, setIsHovering] = useState(false);
+  const [fullPayment, setFullPayment] = useState<FullPayment | null>(null);
+  const [loadingAllocations, setLoadingAllocations] = useState(true);
+  const [invoiceDescriptions, setInvoiceDescriptions] = useState<Record<string, string>>({});
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
   // Keyboard navigation for scrolling
@@ -52,6 +57,46 @@ const ReceiptPreview: React.FC<{ payment: Payment; onClose: () => void }> = ({ p
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isHovering]);
+
+  // Fetch full payment data with allocations
+  React.useEffect(() => {
+    const loadFullPayment = async () => {
+      if (!payment.id) return;
+      
+      setLoadingAllocations(true);
+      try {
+        const fullPaymentData = await fetchFullPayment(payment.id);
+        if (fullPaymentData) {
+          setFullPayment(fullPaymentData);
+          
+          // Fetch invoice descriptions for allocations
+          if (fullPaymentData.allocations && fullPaymentData.allocations.length > 0) {
+            const invoiceNumbers = fullPaymentData.allocations.map(a => a.invoice_number);
+            const { data: invoices } = await supabase
+              .from('invoices')
+              .select('invoice_number, description')
+              .in('invoice_number', invoiceNumbers);
+            
+            if (invoices) {
+              const descriptions: Record<string, string> = {};
+              invoices.forEach(inv => {
+                descriptions[inv.invoice_number] = inv.description || 'No description';
+              });
+              setInvoiceDescriptions(descriptions);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading payment allocations:', error);
+      } finally {
+        setLoadingAllocations(false);
+      }
+    };
+    
+    loadFullPayment();
+  }, [payment.id]);
+
+  const overpayment = fullPayment ? (fullPayment.amount - (fullPayment.total_allocated || 0)) : 0;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -126,6 +171,76 @@ const ReceiptPreview: React.FC<{ payment: Payment; onClose: () => void }> = ({ p
             )}
           </div>
 
+          {/* Payment Allocations Section */}
+          <div className="border-t border-gray-200 pt-6 mt-8">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Payment Allocations</h3>
+            {loadingAllocations ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
+                <span className="ml-2 text-gray-600">Loading allocations...</span>
+              </div>
+            ) : fullPayment && fullPayment.allocations && fullPayment.allocations.length > 0 ? (
+              <div className="space-y-4">
+                <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                  {fullPayment.allocations.map((allocation) => (
+                    <div key={allocation.id} className="border-b border-gray-200 pb-3 last:border-b-0 last:pb-0">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-gray-900">
+                            Invoice: {allocation.invoice_number}
+                          </p>
+                          <p className="text-xs text-gray-600 mt-1">
+                            {invoiceDescriptions[allocation.invoice_number] || 'No description'}
+                          </p>
+                        </div>
+                        <div className="text-right ml-4">
+                          <p className="text-sm font-semibold text-gray-900">
+                            Ksh. {allocation.allocated_amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                
+                {overpayment > 0 && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <p className="text-sm font-medium text-gray-700">Overpayment</p>
+                      <p className="text-lg font-bold text-green-600">
+                        Ksh. {overpayment.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                    </div>
+                    <p className="text-xs text-blue-600 italic mt-2">
+                      This amount will be automatically allocated to future invoice(s) created for this student.
+                    </p>
+                  </div>
+                )}
+                
+                {overpayment === 0 && fullPayment.allocations.length > 0 && (
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <p className="text-sm text-gray-600 text-center">
+                      Payment fully allocated to invoices
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <p className="text-sm text-gray-600 text-center">
+                  No allocations yet. {overpayment > 0 && (
+                    <span className="block mt-2">
+                      <span className="font-medium text-green-600">
+                        Ksh. {overpayment.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                      {' '}will be automatically allocated to future invoice(s).
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
+          </div>
+
           {/* Footer with Payment Details */}
           <div className="border-t border-gray-200 pt-6 mt-8">
             <div className="bg-gray-50 p-6 rounded-lg">
@@ -182,6 +297,11 @@ export const PaymentsReceived: React.FC = () => {
   const [selectedPayments, setSelectedPayments] = useState<Set<number>>(new Set());
   const [paymentAmount, setPaymentAmount] = useState<number>(0);
   const [paymentAmountInput, setPaymentAmountInput] = useState<string>('');
+  const [isCalculatingAllocations, setIsCalculatingAllocations] = useState(false);
+  const [lastSavedAmount, setLastSavedAmount] = useState<string>('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showVoidReasonPopup, setShowVoidReasonPopup] = useState(false);
+  const [paymentToVoid, setPaymentToVoid] = useState<number | number[] | null>(null);
   const [invoiceAllocations, setInvoiceAllocations] = useState<Record<string, number>>({});
   const [invoiceAllocationInputs, setInvoiceAllocationInputs] = useState<Record<string, string>>({});
   const [originalAllocations, setOriginalAllocations] = useState<Record<string, number>>({});
@@ -267,26 +387,40 @@ export const PaymentsReceived: React.FC = () => {
     setPaymentAmountInput(value);
   }, []); // Empty deps - only setState, no external dependencies
 
+  // Calculate allocations from payment amount
+  const calculateAllocations = useCallback(() => {
+    const value = parseFloat(paymentAmountInput) || 0;
+    console.log('🟢 [DEBUG] Calculating allocations for value:', value);
+    
+    // Update calculated values
+    setPaymentAmount(value);
+    if (studentInvoices.length > 0) {
+      autoAllocatePayment(value, studentInvoices);
+    }
+    
+    // Sync input value and mark as saved
+    const syncedValue = value === 0 ? '' : value.toString();
+    setPaymentAmountInput(syncedValue);
+    setLastSavedAmount(syncedValue);
+  }, [paymentAmountInput, autoAllocatePayment, studentInvoices]);
+
   // Handle payment amount blur (recalculate on blur)
   const handlePaymentAmountBlur = useCallback(() => {
     console.log('🟢 [DEBUG] Payment amount onBlur triggered');
-    // Get current input value directly from state
-    setPaymentAmountInput(prev => {
-      const value = parseFloat(prev) || 0;
-      console.log('🟢 [DEBUG] Parsed value:', value);
-      console.log('🟢 [DEBUG] About to call setPaymentAmount and autoAllocatePayment');
-      
-      // Update calculated values
-      setPaymentAmount(value);
-      if (studentInvoices.length > 0) {
-        autoAllocatePayment(value, studentInvoices);
-      }
-      
-      // Return synced value
-      return value === 0 ? '' : value.toString();
-    });
-    console.log('🟢 [DEBUG] After setPaymentAmount and autoAllocatePayment');
-  }, [autoAllocatePayment, studentInvoices]); // Include dependencies
+    calculateAllocations();
+  }, [calculateAllocations]);
+
+  // Handle save button click
+  const handleSaveAmount = useCallback(async () => {
+    setIsCalculatingAllocations(true);
+    try {
+      // Small delay to show spinner
+      await new Promise(resolve => setTimeout(resolve, 100));
+      calculateAllocations();
+    } finally {
+      setIsCalculatingAllocations(false);
+    }
+  }, [calculateAllocations]);
 
   // Handle invoice allocation input (only update input value, no recalculation)
   const handleAllocationInputChange = useCallback((invoiceNumber: string, value: string) => {
@@ -412,6 +546,7 @@ export const PaymentsReceived: React.FC = () => {
       setStudentSearchQuery('');
       setPaymentAmount(0);
       setPaymentAmountInput('');
+      setLastSavedAmount('');
       setInvoiceAllocations({});
       setInvoiceAllocationInputs({});
       setOriginalAllocations({});
@@ -454,7 +589,9 @@ export const PaymentsReceived: React.FC = () => {
 
       setSelectedPayment(fullPayment);
       setPaymentAmount(fullPayment.amount);
-      setPaymentAmountInput(fullPayment.amount.toString());
+      const amountString = fullPayment.amount.toString();
+      setPaymentAmountInput(amountString);
+      setLastSavedAmount(amountString);
       setPaymentDate(fullPayment.payment_date);
       setSelectedPaymentMethod(fullPayment.payment_method_id);
       setSelectedAccount(fullPayment.account_id);
@@ -485,6 +622,7 @@ export const PaymentsReceived: React.FC = () => {
       return;
     }
 
+    setIsDeleting(true);
     try {
       await deletePayment(paymentId);
       alert('Payment deleted successfully!');
@@ -503,18 +641,48 @@ export const PaymentsReceived: React.FC = () => {
     } catch (error) {
       console.error('Error deleting payment:', error);
       alert('Failed to delete payment. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Get current user email for voided_by
+  const getCurrentUserEmail = async (): Promise<string | undefined> => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      return user?.email || undefined;
+    } catch (error) {
+      console.error('Error getting current user:', error);
+      return undefined;
     }
   };
 
   // Handle payment void
-  const handleVoidPayment = async (paymentId: number) => {
-    if (!confirm('Are you sure you want to void this payment? This action cannot be undone.')) {
-      return;
-    }
+  const handleVoidPayment = (paymentId: number) => {
+    setPaymentToVoid(paymentId);
+    setShowVoidReasonPopup(true);
+  };
+  
+  // Confirm void with reason
+  const handleConfirmVoid = async (reason: string) => {
+    if (!paymentToVoid) return;
 
+    setIsDeleting(true);
     try {
-      await deletePayment(paymentId);
-      alert('Payment voided successfully!');
+      const voidedBy = await getCurrentUserEmail();
+      const paymentIds = Array.isArray(paymentToVoid) ? paymentToVoid : [paymentToVoid];
+      
+      if (paymentIds.length === 1) {
+        await voidPayment(paymentIds[0], reason, voidedBy);
+        alert('Payment voided successfully!');
+      } else {
+        await voidPayments(paymentIds, reason, voidedBy);
+        alert(`Successfully voided ${paymentIds.length} payment(s).`);
+      }
+
+      setSelectedPayments(new Set());
+      setShowVoidReasonPopup(false);
+      setPaymentToVoid(null);
       
       // Refresh payments list
       const paymentsData = await fetchPayments();
@@ -527,41 +695,22 @@ export const PaymentsReceived: React.FC = () => {
         .filter(i => i.status === 'Pending')
         .reduce((sum, invoice) => sum + invoice.balanceDue, 0);
       setOutstandingFees(outstanding);
-    } catch (error) {
-      console.error('Error voiding payment:', error);
-      alert('Failed to void payment. Please try again.');
+    } catch (error: any) {
+      console.error('Error voiding payment(s):', error);
+      alert(error.message || 'Failed to void payment(s). Please try again.');
+      setShowVoidReasonPopup(false);
+      setPaymentToVoid(null);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   // Handle bulk void
-  const handleVoidSelected = async () => {
+  const handleVoidSelected = () => {
     if (selectedPayments.size === 0) return;
-    
-    if (!confirm(`Are you sure you want to void ${selectedPayments.size} payment(s)? This action cannot be undone.`)) {
-      return;
-    }
-
-    try {
-      await Promise.all(Array.from(selectedPayments).map(id => deletePayment(id)));
-      alert(`${selectedPayments.size} payment(s) voided successfully!`);
-      
-      setSelectedPayments(new Set());
-      
-      // Refresh payments list
-      const paymentsData = await fetchPayments();
-      setPayments(paymentsData);
-
-      // Refresh outstanding fees
-      const invoices = await fetchInvoices();
-      const nonForwardedInvoices = invoices.filter(i => i.status !== 'Forwarded');
-      const outstanding = nonForwardedInvoices
-        .filter(i => i.status === 'Pending')
-        .reduce((sum, invoice) => sum + invoice.balanceDue, 0);
-      setOutstandingFees(outstanding);
-    } catch (error) {
-      console.error('Error voiding payments:', error);
-      alert('Failed to void payments. Please try again.');
-    }
+    const selectedArray = Array.from(selectedPayments);
+    setPaymentToVoid(selectedArray);
+    setShowVoidReasonPopup(true);
   };
 
   // Close account dropdown when clicking outside
@@ -925,6 +1074,12 @@ export const PaymentsReceived: React.FC = () => {
   // Check if any filters are active
   const hasActiveFilters = filterStudent !== null || filterDateFrom || filterDateTo || filterAmountMin || filterAmountMax || filterAccount !== undefined;
 
+  // Select all filtered payments
+  const handleSelectAll = () => {
+    const allFilteredIds = new Set(filteredPayments.map(payment => payment.id));
+    setSelectedPayments(allFilteredIds);
+  };
+
   // Clear all filters
   const clearFilters = () => {
     setFilterStudent(null);
@@ -937,7 +1092,19 @@ export const PaymentsReceived: React.FC = () => {
   };
 
   return (
-    <div className="p-6 md:p-3 bg-gray-50 min-h-screen">
+    <div className="p-6 md:p-3 bg-gray-50 min-h-screen relative">
+      {/* Loading Overlay for Deletions */}
+      {isDeleting && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-8 flex flex-col items-center space-y-4 shadow-xl">
+            <Loader2 className="w-12 h-12 text-blue-600 animate-spin" />
+            <div className="text-center">
+              <p className="text-gray-900 text-lg font-medium">Deleting payment(s)...</p>
+              <p className="text-gray-600 text-sm mt-2">This may take a moment while we update all associated records.</p>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="max-w-7xl mx-auto">
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-3 mb-6 md:mb-3">
@@ -1041,6 +1208,12 @@ export const PaymentsReceived: React.FC = () => {
               <span className="text-sm font-medium text-blue-900">
                 {selectedPayments.size} payment(s) selected
               </span>
+              <button
+                onClick={handleSelectAll}
+                className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-100 rounded transition-colors"
+              >
+                Select All
+              </button>
             </div>
             <div className="flex items-center space-x-2">
               <button
@@ -1208,7 +1381,7 @@ export const PaymentsReceived: React.FC = () => {
               className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto scrollbar-hide"
             >
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold text-gray-800">
+                <h2 className="text-xl text-gray-800">
                   {selectedPayment ? 'Edit Payment' : 'Record New Payment'}
                 </h2>
                 <button
@@ -1217,6 +1390,7 @@ export const PaymentsReceived: React.FC = () => {
                     setSelectedPayment(null);
                     setPaymentAmount(0);
                     setPaymentAmountInput('');
+                    setLastSavedAmount('');
                     setInvoiceAllocations({});
                     setInvoiceAllocationInputs({});
                     setOriginalAllocations({});
@@ -1288,14 +1462,35 @@ export const PaymentsReceived: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={paymentAmountInput}
-                      onChange={(e) => handlePaymentAmountInputChange(e.target.value)}
-                      onBlur={handlePaymentAmountBlur}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={paymentAmountInput}
+                        onChange={(e) => handlePaymentAmountInputChange(e.target.value)}
+                        onBlur={handlePaymentAmountBlur}
+                        className="w-full p-3 pr-24 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSaveAmount}
+                        disabled={isCalculatingAllocations || !selectedStudent || paymentAmountInput === lastSavedAmount}
+                        className={`absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 text-white text-sm font-medium rounded-md transition-colors flex items-center ${
+                          paymentAmountInput === lastSavedAmount || isCalculatingAllocations || !selectedStudent
+                            ? 'bg-gray-400 cursor-not-allowed'
+                            : 'bg-blue-600 hover:bg-blue-700'
+                        }`}
+                      >
+                        {isCalculatingAllocations ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                            <span>Run</span>
+                          </>
+                        ) : (
+                          <span>Run</span>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -1584,6 +1779,11 @@ export const PaymentsReceived: React.FC = () => {
                             : 'Payment exactly matches allocated amounts'
                           }
                         </p>
+                        {overpayment > 0 && (
+                          <p className="text-xs text-blue-600 mt-1 italic">
+                            This amount will be automatically allocated to future invoice(s) created for this student.
+                          </p>
+                        )}
                       </div>
                       <div className="text-right">
                         <p className={`text-2xl font-bold ${
@@ -1952,6 +2152,17 @@ export const PaymentsReceived: React.FC = () => {
           </div>
         )}
       </div>
+      {showVoidReasonPopup && paymentToVoid && (
+        <VoidReasonPopup
+          onClose={() => {
+            setShowVoidReasonPopup(false);
+            setPaymentToVoid(null);
+          }}
+          onConfirm={handleConfirmVoid}
+          expenseCount={Array.isArray(paymentToVoid) ? paymentToVoid.length : 1}
+          recordType="payment"
+        />
+      )}
     </div>
   );
 };

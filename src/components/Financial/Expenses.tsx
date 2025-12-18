@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { Plus, Search, Filter, Eye, Edit, Trash2, X, ChevronDown } from 'lucide-react';
+import { Plus, Search, Filter, Eye, Edit, Trash2, X, ChevronDown, Loader2 } from 'lucide-react';
 import { DropdownField } from '../Students/masterlist/DropdownField';
 import { OptionsModal } from '../Students/masterlist/OptionsModal';
 import { VoidReasonPopup } from './VoidReasonPopup';
@@ -471,6 +471,7 @@ export const Expenses: React.FC = () => {
   const [paymentReferenceNo, setPaymentReferenceNo] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Hover and selection state
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
@@ -865,6 +866,7 @@ export const Expenses: React.FC = () => {
   const handleConfirmVoid = async (reason: string) => {
     if (!expenseToVoid) return;
 
+    setIsDeleting(true);
     try {
       const voidedBy = await getCurrentUserEmail();
       const expenseIds = Array.isArray(expenseToVoid) ? expenseToVoid : [expenseToVoid];
@@ -889,6 +891,8 @@ export const Expenses: React.FC = () => {
       alert(error.message || 'Failed to void expense(s). Please try again.');
       setShowVoidReasonPopup(false);
       setExpenseToVoid(null);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -960,7 +964,19 @@ export const Expenses: React.FC = () => {
   }, [isFilterHovering]);
 
   return (
-    <div className="p-6 md:p-3 bg-gray-50 min-h-screen">
+    <div className="p-6 md:p-3 bg-gray-50 min-h-screen relative">
+      {/* Loading Overlay for Deletions */}
+      {isDeleting && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-8 flex flex-col items-center space-y-4 shadow-xl">
+            <Loader2 className="w-12 h-12 text-blue-600 animate-spin" />
+            <div className="text-center">
+              <p className="text-gray-900 text-lg font-medium">Deleting expense(s)...</p>
+              <p className="text-gray-600 text-sm mt-2">This may take a moment while we remove all associated records.</p>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="max-w-7xl mx-auto">
         {showForm && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">

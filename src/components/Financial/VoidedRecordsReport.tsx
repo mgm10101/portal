@@ -3,6 +3,7 @@ import { X, Download, Eye, Calendar, Loader2 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { fetchVoidedExpenses } from '../../services/expenseService';
+import { fetchVoidedInvoices, fetchVoidedPayments } from '../../services/financialService';
 import { supabase } from '../../supabaseClient';
 import logo from '../../assets/logo.png';
 
@@ -32,7 +33,7 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
   const [recordType, setRecordType] = useState<RecordType>('expenses');
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
-  const [voidedExpenses, setVoidedExpenses] = useState<any[]>([]);
+  const [voidedRecords, setVoidedRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -238,7 +239,7 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
 
   // Measure actual heights after rendering from the first rendered page
   useEffect(() => {
-    if (!showPreview || voidedExpenses.length === 0 || pages.length === 0) return;
+    if (!showPreview || voidedRecords.length === 0 || pages.length === 0) return;
 
     const measureHeights = () => {
       // Find the first rendered page element to measure from
@@ -307,26 +308,26 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
     const timeoutId = setTimeout(measureHeights, 300);
     
     return () => clearTimeout(timeoutId);
-  }, [showPreview, voidedExpenses, pages.length]);
+  }, [showPreview, voidedRecords, pages.length]);
 
-  // Update pages when voidedExpenses or measuredHeights changes
+  // Update pages when voidedRecords or measuredHeights changes
   useEffect(() => {
-    if (voidedExpenses.length > 0) {
+    if (voidedRecords.length > 0) {
       // Only split if we have measurements (or use fallbacks on first render)
-      const splitPages = splitIntoPages(voidedExpenses);
+      const splitPages = splitIntoPages(voidedRecords);
       setPages(splitPages);
       // Initialize refs array
       pageRefs.current = new Array(splitPages.length).fill(null);
     } else {
       setPages([]);
     }
-  }, [voidedExpenses, splitIntoPages, measuredHeights]);
+  }, [voidedRecords, splitIntoPages, measuredHeights]);
 
   // Reset state when component closes
   const handleClose = () => {
     setShowPreview(false);
     setShowConfigPopup(false);
-    setVoidedExpenses([]);
+    setVoidedRecords([]);
     onClose();
   };
 
@@ -338,14 +339,21 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
 
     setLoading(true);
     try {
+      let data: any[] = [];
       if (recordType === 'expenses') {
-        const data = await fetchVoidedExpenses(dateFrom, dateTo);
-        setVoidedExpenses(data);
-        setShowPreview(true);
-        setShowConfigPopup(false);
+        data = await fetchVoidedExpenses(dateFrom, dateTo);
+      } else if (recordType === 'invoices') {
+        data = await fetchVoidedInvoices(dateFrom, dateTo);
+      } else if (recordType === 'payments_received') {
+        data = await fetchVoidedPayments(dateFrom, dateTo);
       } else {
-        alert(`${recordType} voided records are not yet implemented. Only expenses are currently supported.`);
+        alert(`${recordType} voided records are not yet implemented.`);
+        setLoading(false);
+        return;
       }
+      setVoidedRecords(data);
+      setShowPreview(true);
+      setShowConfigPopup(false);
     } catch (error) {
       console.error('Error fetching voided records:', error);
       alert('Failed to fetch voided records. Please try again.');
@@ -405,7 +413,7 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
     }
   }, [pages, recordType, dateFrom, dateTo, exportingPdf]);
 
-  const totalAmount = voidedExpenses.reduce((sum, exp) => sum + exp.amount, 0);
+  const totalAmount = voidedRecords.reduce((sum, record) => sum + (record.amount || record.total_amount || 0), 0);
 
   // Format date to DD/MM/YY with slashes
   const formatDate = (dateString: string): string => {
@@ -569,7 +577,7 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
 
             {/* Render multiple pages */}
             <div className="space-y-4">
-              {voidedExpenses.length === 0 ? (
+              {voidedRecords.length === 0 ? (
                 <div className="bg-white mx-auto p-8" style={{ width: `${A4_WIDTH}px`, minHeight: `${A4_HEIGHT}px`, padding: `${PAGE_MARGIN}px` }}>
                   <div className="text-center py-12 text-gray-500">
                     <p className="text-lg">No voided records found for the selected date range.</p>
@@ -648,37 +656,111 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
                           <table className="w-full border-collapse">
                             <thead>
                               <tr className="bg-gray-50 border-b-2 border-gray-200">
-                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '12%' }}>Date</th>
-                                <th className="text-left p-3 text-sm font-semibold text-gray-700">Category</th>
-                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '14%', whiteSpace: 'nowrap' }}>Amount (Ksh)</th>
-                                <th className="text-left text-sm font-semibold text-gray-700" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '12px', paddingRight: '4px' }}>Voided By</th>
-                                <th className="text-left text-sm font-semibold text-gray-700" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '4px', paddingRight: '12px' }}>Reason</th>
+                                {recordType === 'expenses' ? (
+                                  <>
+                                    <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '12%' }}>Date</th>
+                                    <th className="text-left p-3 text-sm font-semibold text-gray-700">Category</th>
+                                    <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '14%', whiteSpace: 'nowrap' }}>Amount (Ksh)</th>
+                                    <th className="text-left text-sm font-semibold text-gray-700" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '12px', paddingRight: '4px' }}>Voided By</th>
+                                    <th className="text-left text-sm font-semibold text-gray-700" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '4px', paddingRight: '12px' }}>Reason</th>
+                                  </>
+                                ) : recordType === 'invoices' ? (
+                                  <>
+                                    <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '12%' }}>Date</th>
+                                    <th className="text-left p-3 text-sm font-semibold text-gray-700">Invoice</th>
+                                    <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '14%', whiteSpace: 'nowrap' }}>Amount (Ksh)</th>
+                                    <th className="text-left text-sm font-semibold text-gray-700" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '12px', paddingRight: '4px' }}>Voided By</th>
+                                    <th className="text-left text-sm font-semibold text-gray-700" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '4px', paddingRight: '12px' }}>Reason</th>
+                                  </>
+                                ) : (
+                                  <>
+                                    <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '12%' }}>Date</th>
+                                    <th className="text-left p-3 text-sm font-semibold text-gray-700">Payment</th>
+                                    <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '14%', whiteSpace: 'nowrap' }}>Amount (Ksh)</th>
+                                    <th className="text-left text-sm font-semibold text-gray-700" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '12px', paddingRight: '4px' }}>Voided By</th>
+                                    <th className="text-left text-sm font-semibold text-gray-700" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '4px', paddingRight: '12px' }}>Reason</th>
+                                  </>
+                                )}
                               </tr>
                             </thead>
                             <tbody>
-                              {pageData.records.map((expense, index) => (
-                                <tr key={expense.id} className={`border-b border-gray-100 ${index % 2 === 0 ? 'bg-white' : ''}`} style={index % 2 === 1 ? { backgroundColor: '#fcfcfd' } : {}}>
-                                  <td className="p-3 text-sm text-gray-900" style={{ width: '12%' }}>
-                                    <div>{formatDate(expense.expense_date)}</div>
-                                    <div className="text-xs text-gray-500 mt-1">{expense.internal_reference}</div>
-                                  </td>
-                                  <td className="p-3 text-sm text-gray-900">
-                                    <div>{expense.category_name || 'N/A'}</div>
-                                    {expense.description_name && (
-                                      <div className="text-xs text-gray-500 mt-1">{expense.description_name}</div>
-                                    )}
-                                  </td>
-                                  <td className="p-3 text-sm text-right font-medium text-red-600" style={{ width: '14%' }}>
-                                    <div>{expense.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                                    <div className="text-xs text-gray-500 mt-1">{expense.vendor_name || 'N/A'}</div>
-                                  </td>
-                                  <td className="text-sm text-gray-900" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '12px', paddingRight: '4px' }}>
-                                    <div>{expense.voided_by || 'N/A'}</div>
-                                    {expense.voided_by && (
-                                      <div className="text-xs text-gray-500 mt-1">{formatDateTime(expense.voided_at)}</div>
-                                    )}
-                                  </td>
-                                  <td className="text-sm text-gray-900" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '4px', paddingRight: '12px' }}>{expense.void_reason}</td>
+                              {pageData.records.map((record, index) => (
+                                <tr key={record.id} className={`border-b border-gray-100 ${index % 2 === 0 ? 'bg-white' : ''}`} style={index % 2 === 1 ? { backgroundColor: '#fcfcfd' } : {}}>
+                                  {recordType === 'expenses' ? (
+                                    <>
+                                      <td className="p-3 text-sm text-gray-900" style={{ width: '12%' }}>
+                                        <div>{formatDate(record.expense_date)}</div>
+                                        <div className="text-xs text-gray-500 mt-1">{record.internal_reference}</div>
+                                      </td>
+                                      <td className="p-3 text-sm text-gray-900">
+                                        <div>{record.category_name || 'N/A'}</div>
+                                        {record.description_name && (
+                                          <div className="text-xs text-gray-500 mt-1">{record.description_name}</div>
+                                        )}
+                                      </td>
+                                      <td className="p-3 text-sm text-right font-medium text-red-600" style={{ width: '14%' }}>
+                                        <div>{record.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                        <div className="text-xs text-gray-500 mt-1">{record.vendor_name || 'N/A'}</div>
+                                      </td>
+                                      <td className="text-sm text-gray-900" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '12px', paddingRight: '4px' }}>
+                                        <div>{record.voided_by || 'N/A'}</div>
+                                        {record.voided_by && (
+                                          <div className="text-xs text-gray-500 mt-1">{formatDateTime(record.voided_at)}</div>
+                                        )}
+                                      </td>
+                                      <td className="text-sm text-gray-900" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '4px', paddingRight: '12px' }}>{record.void_reason}</td>
+                                    </>
+                                  ) : recordType === 'invoices' ? (
+                                    <>
+                                      <td className="p-3 text-sm text-gray-900" style={{ width: '12%' }}>
+                                        <div>{formatDate(record.invoice_date)}</div>
+                                        <div className="text-xs text-gray-500 mt-1">{record.original_invoice_number}</div>
+                                      </td>
+                                      <td className="p-3 text-sm text-gray-900">
+                                        <div>{record.student_name || 'N/A'}</div>
+                                        {record.description && (
+                                          <div className="text-xs text-gray-500 mt-1">{record.description}</div>
+                                        )}
+                                      </td>
+                                      <td className="p-3 text-sm text-right font-medium text-red-600" style={{ width: '14%' }}>
+                                        <div>{record.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                        <div className="text-xs text-gray-500 mt-1">{record.status || 'N/A'}</div>
+                                      </td>
+                                      <td className="text-sm text-gray-900" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '12px', paddingRight: '4px' }}>
+                                        <div>{record.voided_by || 'N/A'}</div>
+                                        {record.voided_by && (
+                                          <div className="text-xs text-gray-500 mt-1">{formatDateTime(record.voided_at)}</div>
+                                        )}
+                                      </td>
+                                      <td className="text-sm text-gray-900" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '4px', paddingRight: '12px' }}>{record.void_reason}</td>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <td className="p-3 text-sm text-gray-900" style={{ width: '12%' }}>
+                                        <div>{formatDate(record.payment_date)}</div>
+                                        <div className="text-xs text-gray-500 mt-1">{record.receipt_number}</div>
+                                      </td>
+                                      <td className="p-3 text-sm text-gray-900">
+                                        <div>{record.student_name || 'N/A'}</div>
+                                        {record.payment_method_name && (
+                                          <div className="text-xs text-gray-500 mt-1">{record.payment_method_name}</div>
+                                        )}
+                                      </td>
+                                      <td className="p-3 text-sm text-right font-medium text-red-600" style={{ width: '14%' }}>
+                                        <div>{record.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                                        {record.account_name && (
+                                          <div className="text-xs text-gray-500 mt-1">{record.account_name}</div>
+                                        )}
+                                      </td>
+                                      <td className="text-sm text-gray-900" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '12px', paddingRight: '4px' }}>
+                                        <div>{record.voided_by || 'N/A'}</div>
+                                        {record.voided_by && (
+                                          <div className="text-xs text-gray-500 mt-1">{formatDateTime(record.voided_at)}</div>
+                                        )}
+                                      </td>
+                                      <td className="text-sm text-gray-900" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '4px', paddingRight: '12px' }}>{record.void_reason}</td>
+                                    </>
+                                  )}
                                 </tr>
                               ))}
                             </tbody>
@@ -692,7 +774,7 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
                       <div className="mt-8 grid grid-cols-3 gap-4 flex-shrink-0">
                         <div className="bg-gray-50 p-4 rounded-lg">
                           <p className="text-sm text-gray-600 mb-1">Total Records</p>
-                          <p className="text-2xl font-semibold text-gray-900">{voidedExpenses.length}</p>
+                          <p className="text-2xl font-semibold text-gray-900">{voidedRecords.length}</p>
                         </div>
                         <div className="bg-gray-50 p-4 rounded-lg">
                           <p className="text-sm text-gray-600 mb-1">Total Amount</p>
@@ -703,8 +785,8 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
                         <div className="bg-gray-50 p-4 rounded-lg">
                           <p className="text-sm text-gray-600 mb-1">Average Amount</p>
                           <p className="text-2xl font-semibold text-gray-900">
-                            {voidedExpenses.length > 0
-                              ? `Ksh. ${(totalAmount / voidedExpenses.length).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                            {voidedRecords.length > 0
+                              ? `Ksh. ${(totalAmount / voidedRecords.length).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                               : 'Ksh. 0.00'}
                           </p>
                         </div>

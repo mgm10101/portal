@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query'; // 👈 Caching logic
 import { supabase } from '../../../supabaseClient'; // 👈 Supabase client for writes
 
@@ -9,7 +9,10 @@ import {
   fetchClasses, fetchStreams, fetchTeamColours, 
   addClass, updateClass, deleteClass, 
   addStream, updateStream, deleteStream, 
-  addColour, updateColour, deleteColour
+  addColour, updateColour, deleteColour,
+  fetchAllergies, addAllergy, updateAllergy, deleteAllergy,
+  fetchMedicalConditions, addMedicalCondition, updateMedicalCondition, deleteMedicalCondition,
+  fetchEmergencyMedications, addEmergencyMedication, updateEmergencyMedication, deleteEmergencyMedication
 } from '../../../api/tables';
 
 import { SearchFilterBar } from './SearchFilterBar';
@@ -30,7 +33,7 @@ const fetchStudents = async () => {
       stream:streams!stream_id(name),
       team_colour:team_colours!team_colour_id(name)
     `)
-    .order('updated_at', { ascending: false, nullsLast: true });
+    .order('updated_at', { ascending: false, nullsFirst: false });
     
   if (error) throw new Error(error.message);
   return data;
@@ -47,9 +50,13 @@ export const MasterlistContainer: React.FC = () => {
   const [showClassesModal, setShowClassesModal] = useState(false);
   const [showStreamsModal, setShowStreamsModal] = useState(false);
   const [showColoursModal, setShowColoursModal] = useState(false);
+  const [showAllergiesModal, setShowAllergiesModal] = useState(false);
+  const [showMedicalConditionsModal, setShowMedicalConditionsModal] = useState(false);
+  const [showEmergencyMedicationsModal, setShowEmergencyMedicationsModal] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deletingStudentId, setDeletingStudentId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Filter state - default status to "Active" to show only active students by default
   const [filters, setFilters] = useState<FilterState>({
@@ -143,10 +150,13 @@ export const MasterlistContainer: React.FC = () => {
     setCurrentPage(0);
   }, [searchTerm, appliedFilters]);
 
-  // Fetch dropdown lists using TanStack Query
-  const { data: classesList = [] } = useQuery({ queryKey: ['classes'], queryFn: fetchClasses });
-  const { data: streamsList = [] } = useQuery({ queryKey: ['streams'], queryFn: fetchStreams });
-  const { data: teamColoursList = [] } = useQuery({ queryKey: ['team_colours'], queryFn: fetchTeamColours });
+  // Fetch dropdown lists using TanStack Query
+  const { data: classesList = [] } = useQuery({ queryKey: ['classes'], queryFn: fetchClasses });
+  const { data: streamsList = [] } = useQuery({ queryKey: ['streams'], queryFn: fetchStreams });
+  const { data: teamColoursList = [] } = useQuery({ queryKey: ['team_colours'], queryFn: fetchTeamColours });
+  const { data: allergiesList = [] } = useQuery({ queryKey: ['allergies'], queryFn: fetchAllergies });
+  const { data: medicalConditionsList = [] } = useQuery({ queryKey: ['medical_conditions'], queryFn: fetchMedicalConditions });
+  const { data: emergencyMedicationsList = [] } = useQuery({ queryKey: ['emergency_medications'], queryFn: fetchEmergencyMedications });
   
   // --- STUDENT SUBMISSION HANDLER (Original Working Write Logic + Cache Invalidation) ---
 
@@ -162,6 +172,51 @@ export const MasterlistContainer: React.FC = () => {
         // Otherwise return the field value (or null if empty)
         return fieldValue || null;
       };
+
+      // Check if admission_number is being changed (cascade update scenario)
+      const isAdmissionNumberChanging = selectedStudent && 
+        selectedStudent.admission_number !== values.admissionNumber;
+      
+      if (isAdmissionNumberChanging) {
+        // Check for related records to inform user
+        const [invoicesResult, paymentsResult] = await Promise.all([
+          supabase.from('invoices').select('invoice_number', { count: 'exact' }).eq('admission_number', selectedStudent.admission_number),
+          supabase.from('payments').select('id', { count: 'exact' }).eq('admission_number', selectedStudent.admission_number)
+        ]);
+
+        // Check balance_brought_forward separately (table might not exist)
+        let bbfCount = 0;
+        try {
+          const bbfResult = await supabase
+            .from('balance_brought_forward')
+            .select('id', { count: 'exact' })
+            .eq('admission_number', selectedStudent.admission_number);
+          bbfCount = bbfResult.count || 0;
+        } catch (err) {
+          // Table might not exist, ignore error
+          bbfCount = 0;
+        }
+
+        const invoiceCount = invoicesResult.count || 0;
+        const paymentCount = paymentsResult.count || 0;
+        const totalRelatedRecords = invoiceCount + paymentCount + bbfCount;
+
+        if (totalRelatedRecords > 0) {
+          const relatedRecords = [];
+          if (invoiceCount > 0) relatedRecords.push(`${invoiceCount} invoice(s)`);
+          if (paymentCount > 0) relatedRecords.push(`${paymentCount} payment(s)`);
+          if (bbfCount > 0) relatedRecords.push(`${bbfCount} balance brought forward record(s)`);
+          
+          const message = `You are changing the admission number from "${selectedStudent.admission_number}" to "${values.admissionNumber}".\n\n` +
+            `This student has ${totalRelatedRecords} related record(s): ${relatedRecords.join(', ')}.\n\n` +
+            `All related records will be automatically updated to use the new admission number. Continue?`;
+          
+          if (!confirm(message)) {
+            setIsSubmitting(false);
+            return;
+          }
+        }
+      }
 
       const payload = {
       admission_number: values.admissionNumber,
@@ -212,21 +267,115 @@ export const MasterlistContainer: React.FC = () => {
     // Add documents as JSONB field
     dbPayload.documents = documents;
 
+    // Get admission number (for new students, it's in values; for updates, use selectedStudent)
+    const admissionNumber = selectedStudent?.admission_number || values.admissionNumber;
+
     // Attempt to write normalized columns; if schema error occurs, fallback to JSON column
-    try {
-      if (selectedStudent) {
-        const { data, error } = await supabase
-          .from('students')
-          .update(dbPayload)
-          .eq('admission_number', selectedStudent.admission_number);
-        if (error) throw error;
-        else if (data) console.log('Updated student', data);
-      } else {
-        const { data, error } = await supabase.from('students').insert([dbPayload]);
-        if (error) throw error;
-        else if (data) console.log('Inserted student', data);
-      }
-    } catch (err: any) {
+    try {
+      if (selectedStudent) {
+        const { data, error } = await supabase
+          .from('students')
+          .update(dbPayload)
+          .eq('admission_number', selectedStudent.admission_number);
+        if (error) throw error;
+        else if (data) console.log('Updated student', data);
+      } else {
+        const { data, error } = await supabase.from('students').insert([dbPayload]);
+        if (error) throw error;
+        else if (data) console.log('Inserted student', data);
+      }
+
+      // Handle medical data (allergies, medical conditions, emergency medications)
+      // Parse medical data from form values
+      let allergiesData: any[] = [];
+      let medicalConditionsData: any[] = [];
+      let emergencyMedicationsData: any[] = [];
+
+      try {
+        if (values.allergies_data) {
+          allergiesData = typeof values.allergies_data === 'string' 
+            ? JSON.parse(values.allergies_data) 
+            : values.allergies_data;
+        }
+      } catch (e) {
+        console.error('Error parsing allergies data:', e);
+      }
+
+      try {
+        if (values.medical_conditions_data) {
+          medicalConditionsData = typeof values.medical_conditions_data === 'string'
+            ? JSON.parse(values.medical_conditions_data)
+            : values.medical_conditions_data;
+        }
+      } catch (e) {
+        console.error('Error parsing medical conditions data:', e);
+      }
+
+      try {
+        if (values.emergency_medications_data) {
+          emergencyMedicationsData = typeof values.emergency_medications_data === 'string'
+            ? JSON.parse(values.emergency_medications_data)
+            : values.emergency_medications_data;
+        }
+      } catch (e) {
+        console.error('Error parsing emergency medications data:', e);
+      }
+
+      // Save medical data to junction tables
+      // 1. Delete existing records for this student
+      await Promise.all([
+        supabase.from('student_allergies').delete().eq('admission_number', admissionNumber),
+        supabase.from('student_medical_conditions').delete().eq('admission_number', admissionNumber),
+        supabase.from('student_emergency_medications').delete().eq('admission_number', admissionNumber),
+      ]);
+
+      // 2. Insert new records
+      const allergiesToInsert = allergiesData
+        .filter((entry: any) => entry.itemId) // Only entries with selected item
+        .map((entry: any) => ({
+          admission_number: admissionNumber,
+          allergy_id: entry.itemId,
+          notes: entry.notes || null,
+        }));
+
+      const conditionsToInsert = medicalConditionsData
+        .filter((entry: any) => entry.itemId)
+        .map((entry: any) => ({
+          admission_number: admissionNumber,
+          medical_condition_id: entry.itemId,
+          notes: entry.notes || null,
+        }));
+
+      const medicationsToInsert = emergencyMedicationsData
+        .filter((entry: any) => entry.itemId)
+        .map((entry: any) => ({
+          admission_number: admissionNumber,
+          emergency_medication_id: entry.itemId,
+          notes: entry.notes || null,
+        }));
+
+      // Insert in parallel
+      const insertPromises = [];
+      if (allergiesToInsert.length > 0) {
+        insertPromises.push(supabase.from('student_allergies').insert(allergiesToInsert));
+      }
+      if (conditionsToInsert.length > 0) {
+        insertPromises.push(supabase.from('student_medical_conditions').insert(conditionsToInsert));
+      }
+      if (medicationsToInsert.length > 0) {
+        insertPromises.push(supabase.from('student_emergency_medications').insert(medicationsToInsert));
+      }
+
+      if (insertPromises.length > 0) {
+        const insertResults = await Promise.all(insertPromises);
+        const errors = insertResults.filter(result => result.error).map(result => result.error);
+        if (errors.length > 0) {
+          console.error('Error inserting medical data:', errors);
+          // Don't throw - student was saved, medical data is secondary
+        }
+      }
+
+    } catch (err: any) {
       // Fallback on missing column or schema cache issues: write core payload and custom_fields JSON
       if (err?.code === 'PGRST204' || /Could not find the 'custom_/.test(err?.message || '')) {
         const safePayload = { ...payload, custom_fields: customFields };
@@ -263,14 +412,104 @@ export const MasterlistContainer: React.FC = () => {
     }
   };
 
-  // Handle student deletion
+  // Handle student deletion with cascade delete warning
   const handleDeleteStudent = async (student: any) => {
-    if (!confirm(`Are you sure you want to delete ${student.name}? This action cannot be undone.`)) {
+    // First, check for related records
+    const [invoicesResult, paymentsResult] = await Promise.all([
+      supabase.from('invoices').select('invoice_number', { count: 'exact' }).eq('admission_number', student.admission_number),
+      supabase.from('payments').select('id', { count: 'exact' }).eq('admission_number', student.admission_number)
+    ]);
+
+    // Check balance_brought_forward separately (table might not exist)
+    let bbfCount = 0;
+    try {
+      const bbfResult = await supabase
+        .from('balance_brought_forward')
+        .select('id', { count: 'exact' })
+        .eq('admission_number', student.admission_number);
+      bbfCount = bbfResult.count || 0;
+    } catch (err) {
+      // Table might not exist, ignore error
+      bbfCount = 0;
+    }
+
+    const invoiceCount = invoicesResult.count || 0;
+    const paymentCount = paymentsResult.count || 0;
+    const totalRelatedRecords = invoiceCount + paymentCount + bbfCount;
+
+    // Build warning message
+    let warningMessage = `Are you sure you want to delete ${student.name} (${student.admission_number})?\n\n`;
+    
+    if (totalRelatedRecords > 0) {
+      const relatedRecords = [];
+      if (invoiceCount > 0) relatedRecords.push(`${invoiceCount} invoice(s)`);
+      if (paymentCount > 0) relatedRecords.push(`${paymentCount} payment(s)`);
+      if (bbfCount > 0) relatedRecords.push(`${bbfCount} balance brought forward record(s)`);
+      
+      warningMessage += `⚠️ WARNING: This student has ${totalRelatedRecords} related record(s) that will also be deleted:\n`;
+      warningMessage += `   - ${relatedRecords.join('\n   - ')}\n\n`;
+      warningMessage += `This action cannot be undone. All associated records will be permanently deleted.`;
+    } else {
+      warningMessage += `This action cannot be undone.`;
+    }
+
+    if (!confirm(warningMessage)) {
       return;
     }
 
     setDeletingStudentId(student.admission_number);
+    setIsDeleting(true);
     try {
+      // Delete related records first (for tables without CASCADE FK)
+      // Invoices don't have FK constraint, so delete manually
+      if (invoiceCount > 0) {
+        // Get all invoice numbers for this student
+        const { data: invoices } = await supabase
+          .from('invoices')
+          .select('invoice_number')
+          .eq('admission_number', student.admission_number);
+        
+        if (invoices && invoices.length > 0) {
+          const invoiceNumbers = invoices.map(inv => inv.invoice_number);
+          
+          // Delete payment_allocations first (they reference invoices)
+          for (const invoiceNumber of invoiceNumbers) {
+            await supabase
+              .from('payment_allocations')
+              .delete()
+              .eq('invoice_number', invoiceNumber);
+          }
+          
+          // Delete invoice line items
+          for (const invoiceNumber of invoiceNumbers) {
+            await supabase
+              .from('invoice_line_items')
+              .delete()
+              .eq('invoice_number', invoiceNumber);
+          }
+          
+          // Then delete invoices
+          await supabase
+            .from('invoices')
+            .delete()
+            .eq('admission_number', student.admission_number);
+        }
+      }
+
+      // Delete balance_brought_forward records (if no FK CASCADE)
+      if (bbfCount > 0) {
+        try {
+          await supabase
+            .from('balance_brought_forward')
+            .delete()
+            .eq('admission_number', student.admission_number);
+        } catch (err) {
+          // Table might not exist, ignore error
+          console.log('Could not delete balance_brought_forward records (table may not exist)');
+        }
+      }
+
+      // Delete student (payments will be deleted automatically via CASCADE FK)
       const { error } = await supabase
         .from('students')
         .delete()
@@ -288,12 +527,107 @@ export const MasterlistContainer: React.FC = () => {
       alert('Failed to delete student. Please try again.');
     } finally {
       setDeletingStudentId(null);
+      setIsDeleting(false);
     }
   };
 
-  // Handle bulk deletion
+  // Handle bulk deletion with cascade delete warning
   const handleBulkDelete = async (admissionNumbers: string[]) => {
+    // Check for related records across all selected students
+    const [invoicesResult, paymentsResult] = await Promise.all([
+      supabase.from('invoices').select('admission_number', { count: 'exact' }).in('admission_number', admissionNumbers),
+      supabase.from('payments').select('admission_number', { count: 'exact' }).in('admission_number', admissionNumbers)
+    ]);
+
+    // Check balance_brought_forward separately (table might not exist)
+    let bbfCount = 0;
     try {
+      const bbfResult = await supabase
+        .from('balance_brought_forward')
+        .select('admission_number', { count: 'exact' })
+        .in('admission_number', admissionNumbers);
+      bbfCount = bbfResult.count || 0;
+    } catch (err) {
+      // Table might not exist, ignore error
+      bbfCount = 0;
+    }
+
+    const invoiceCount = invoicesResult.count || 0;
+    const paymentCount = paymentsResult.count || 0;
+    const totalRelatedRecords = invoiceCount + paymentCount + bbfCount;
+
+    // Build warning message
+    let warningMessage = `Are you sure you want to delete ${admissionNumbers.length} student(s)?\n\n`;
+    
+    if (totalRelatedRecords > 0) {
+      const relatedRecords = [];
+      if (invoiceCount > 0) relatedRecords.push(`${invoiceCount} invoice(s)`);
+      if (paymentCount > 0) relatedRecords.push(`${paymentCount} payment(s)`);
+      if (bbfCount > 0) relatedRecords.push(`${bbfCount} balance brought forward record(s)`);
+      
+      warningMessage += `⚠️ WARNING: These students have ${totalRelatedRecords} related record(s) that will also be deleted:\n`;
+      warningMessage += `   - ${relatedRecords.join('\n   - ')}\n\n`;
+      warningMessage += `This action cannot be undone. All associated records will be permanently deleted.`;
+    } else {
+      warningMessage += `This action cannot be undone.`;
+    }
+
+    if (!confirm(warningMessage)) {
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      // Delete related records first (for tables without CASCADE FK)
+      // Invoices don't have FK constraint, so delete manually
+      if (invoiceCount > 0) {
+        // Get all invoice numbers for these students
+        const { data: invoices } = await supabase
+          .from('invoices')
+          .select('invoice_number')
+          .in('admission_number', admissionNumbers);
+        
+        if (invoices && invoices.length > 0) {
+          const invoiceNumbers = invoices.map(inv => inv.invoice_number);
+          
+          // Delete payment_allocations first (they reference invoices)
+          for (const invoiceNumber of invoiceNumbers) {
+            await supabase
+              .from('payment_allocations')
+              .delete()
+              .eq('invoice_number', invoiceNumber);
+          }
+          
+          // Delete invoice line items
+          for (const invoiceNumber of invoiceNumbers) {
+            await supabase
+              .from('invoice_line_items')
+              .delete()
+              .eq('invoice_number', invoiceNumber);
+          }
+          
+          // Then delete invoices
+          await supabase
+            .from('invoices')
+            .delete()
+            .in('admission_number', admissionNumbers);
+        }
+      }
+
+      // Delete balance_brought_forward records (if no FK CASCADE)
+      if (bbfCount > 0) {
+        try {
+          await supabase
+            .from('balance_brought_forward')
+            .delete()
+            .in('admission_number', admissionNumbers);
+        } catch (err) {
+          // Table might not exist, ignore error
+          console.log('Could not delete balance_brought_forward records (table may not exist)');
+        }
+      }
+
+      // Delete students (payments will be deleted automatically via CASCADE FK)
       const { error } = await supabase
         .from('students')
         .delete()
@@ -309,6 +643,8 @@ export const MasterlistContainer: React.FC = () => {
     } catch (err) {
       console.error('Bulk delete failed:', err);
       alert('Failed to delete students. Please try again.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -386,6 +722,69 @@ export const MasterlistContainer: React.FC = () => {
     }
   };
 
+  // --- Medical Dropdowns: Allergies ---
+  const addAllergyHandler = (name: string) => handleMutationWrapper(addAllergy, 'allergies', name);
+  const editAllergyHandler = async (id: number, newName: string) => {
+    try {
+      await updateAllergy(id, newName);
+      queryClient.invalidateQueries({ queryKey: ['allergies'] });
+    } catch (error: any) {
+      console.error('Error updating allergy:', error);
+      alert(error.message || 'Failed to update allergy');
+    }
+  };
+  const deleteAllergyHandler = async (id: number) => {
+    try {
+      await deleteAllergy(id);
+      queryClient.invalidateQueries({ queryKey: ['allergies'] });
+    } catch (error: any) {
+      console.error('Error deleting allergy:', error);
+      alert(error.message || 'Failed to delete allergy. This allergy may be in use by existing students.');
+    }
+  };
+
+  // --- Medical Dropdowns: Medical Conditions ---
+  const addMedicalConditionHandler = (name: string) => handleMutationWrapper(addMedicalCondition, 'medical_conditions', name);
+  const editMedicalConditionHandler = async (id: number, newName: string) => {
+    try {
+      await updateMedicalCondition(id, newName);
+      queryClient.invalidateQueries({ queryKey: ['medical_conditions'] });
+    } catch (error: any) {
+      console.error('Error updating medical condition:', error);
+      alert(error.message || 'Failed to update medical condition');
+    }
+  };
+  const deleteMedicalConditionHandler = async (id: number) => {
+    try {
+      await deleteMedicalCondition(id);
+      queryClient.invalidateQueries({ queryKey: ['medical_conditions'] });
+    } catch (error: any) {
+      console.error('Error deleting medical condition:', error);
+      alert(error.message || 'Failed to delete medical condition. This condition may be in use by existing students.');
+    }
+  };
+
+  // --- Medical Dropdowns: Emergency Medications ---
+  const addEmergencyMedicationHandler = (name: string) => handleMutationWrapper(addEmergencyMedication, 'emergency_medications', name);
+  const editEmergencyMedicationHandler = async (id: number, newName: string) => {
+    try {
+      await updateEmergencyMedication(id, newName);
+      queryClient.invalidateQueries({ queryKey: ['emergency_medications'] });
+    } catch (error: any) {
+      console.error('Error updating emergency medication:', error);
+      alert(error.message || 'Failed to update emergency medication');
+    }
+  };
+  const deleteEmergencyMedicationHandler = async (id: number) => {
+    try {
+      await deleteEmergencyMedication(id);
+      queryClient.invalidateQueries({ queryKey: ['emergency_medications'] });
+    } catch (error: any) {
+      console.error('Error deleting emergency medication:', error);
+      alert(error.message || 'Failed to delete emergency medication. This medication may be in use by existing students.');
+    }
+  };
+
   // --- FILTER HANDLERS ---
   const handleApplyFilters = () => {
     setAppliedFilters(filters);
@@ -428,10 +827,22 @@ export const MasterlistContainer: React.FC = () => {
     );
   }
 
-  // --- RENDER (Using React Query's data variables) ---
-  return (
-    <div className="p-6 md:p-3 bg-gray-50 min-h-screen">
-      <div className="max-w-7xl mx-auto">
+  // --- RENDER (Using React Query's data variables) ---
+  return (
+    <div className="p-6 md:p-3 bg-gray-50 min-h-screen relative">
+      {/* Loading Overlay for Deletions */}
+      {isDeleting && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-8 flex flex-col items-center space-y-4 shadow-xl">
+            <Loader2 className="w-12 h-12 text-blue-600 animate-spin" />
+            <div className="text-center">
+              <p className="text-gray-900 text-lg font-medium">Deleting student(s)...</p>
+              <p className="text-gray-600 text-sm mt-2">This may take a moment while we remove all associated records.</p>
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="max-w-7xl mx-auto">
         
         {/* Search & Filters */}
         <SearchFilterBar
@@ -482,6 +893,9 @@ export const MasterlistContainer: React.FC = () => {
             onOpenClassesModal={() => setShowClassesModal(true)}
             onOpenStreamsModal={() => setShowStreamsModal(true)}
             onOpenColoursModal={() => setShowColoursModal(true)}
+            onOpenAllergiesModal={() => setShowAllergiesModal(true)}
+            onOpenMedicalConditionsModal={() => setShowMedicalConditionsModal(true)}
+            onOpenEmergencyMedicationsModal={() => setShowEmergencyMedicationsModal(true)}
             onShowAddField={() => setShowAddField(true)}
             onRefreshStudents={() => queryClient.invalidateQueries({ queryKey: ['students'] })}
             isSubmitting={isSubmitting}
@@ -533,6 +947,42 @@ export const MasterlistContainer: React.FC = () => {
             onClose={() => setShowColoursModal(false)}
             tableName="team_colours"
             onRefresh={() => queryClient.invalidateQueries({ queryKey: ['team_colours'] })}
+          />
+        )}
+        {showAllergiesModal && (
+          <OptionsModal
+            title="Allergies"
+            items={allergiesList}
+            onAdd={addAllergyHandler}
+            onEdit={editAllergyHandler}
+            onDelete={deleteAllergyHandler}
+            onClose={() => setShowAllergiesModal(false)}
+            tableName="allergies"
+            onRefresh={() => queryClient.invalidateQueries({ queryKey: ['allergies'] })}
+          />
+        )}
+        {showMedicalConditionsModal && (
+          <OptionsModal
+            title="Medical Conditions"
+            items={medicalConditionsList}
+            onAdd={addMedicalConditionHandler}
+            onEdit={editMedicalConditionHandler}
+            onDelete={deleteMedicalConditionHandler}
+            onClose={() => setShowMedicalConditionsModal(false)}
+            tableName="medical_conditions"
+            onRefresh={() => queryClient.invalidateQueries({ queryKey: ['medical_conditions'] })}
+          />
+        )}
+        {showEmergencyMedicationsModal && (
+          <OptionsModal
+            title="Emergency Medications"
+            items={emergencyMedicationsList}
+            onAdd={addEmergencyMedicationHandler}
+            onEdit={editEmergencyMedicationHandler}
+            onDelete={deleteEmergencyMedicationHandler}
+            onClose={() => setShowEmergencyMedicationsModal(false)}
+            tableName="emergency_medications"
+            onRefresh={() => queryClient.invalidateQueries({ queryKey: ['emergency_medications'] })}
           />
         )}
 

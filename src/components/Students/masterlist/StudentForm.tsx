@@ -18,6 +18,9 @@ interface StudentFormProps {
   onOpenClassesModal: () => void;
   onOpenStreamsModal: () => void;
   onOpenColoursModal: () => void;
+  onOpenAllergiesModal?: () => void;
+  onOpenMedicalConditionsModal?: () => void;
+  onOpenEmergencyMedicationsModal?: () => void;
   onShowAddField: () => void;
   onRefreshStudents?: () => void;
   isSubmitting?: boolean;
@@ -33,6 +36,9 @@ export const StudentForm: React.FC<StudentFormProps> = ({
   onOpenClassesModal,
   onOpenStreamsModal,
   onOpenColoursModal,
+  onOpenAllergiesModal = () => {},
+  onOpenMedicalConditionsModal = () => {},
+  onOpenEmergencyMedicationsModal = () => {},
   onShowAddField,
   onRefreshStudents,
   isSubmitting = false,
@@ -167,9 +173,49 @@ export const StudentForm: React.FC<StudentFormProps> = ({
       return;
     }
 
+    // Parse medical data from hidden inputs
+    let allergiesData: any[] = [];
+    let medicalConditionsData: any[] = [];
+    let emergencyMedicationsData: any[] = [];
+
+    try {
+      const allergiesJson = formValues.allergies_data as string;
+      if (allergiesJson) {
+        allergiesData = JSON.parse(allergiesJson);
+      }
+    } catch (e) {
+      console.error('Error parsing allergies data:', e);
+    }
+
+    try {
+      const conditionsJson = formValues.medical_conditions_data as string;
+      if (conditionsJson) {
+        medicalConditionsData = JSON.parse(conditionsJson);
+      }
+    } catch (e) {
+      console.error('Error parsing medical conditions data:', e);
+    }
+
+    try {
+      const medicationsJson = formValues.emergency_medications_data as string;
+      if (medicationsJson) {
+        emergencyMedicationsData = JSON.parse(medicationsJson);
+      }
+    } catch (e) {
+      console.error('Error parsing emergency medications data:', e);
+    }
+
+    // Combine emergency contact name and phone into single field
+    const emergencyContactName = (formValues.emergencyContactName || '').trim();
+    const emergencyContactPhone = (formValues.emergencyContactPhone || '').trim();
+    const emergencyContact = emergencyContactName && emergencyContactPhone
+      ? `${emergencyContactName} ${emergencyContactPhone}`
+      : emergencyContactName || emergencyContactPhone || '';
+
     // …then merge in the dropdown state before you fire onSubmit
     const payload = {
       ...formValues,
+      emergencyContact, // Combined name and phone
       status: statusValue,
       class_admitted_to_id: classAdmittedToId,
       current_class_id: currentClassId,
@@ -182,6 +228,9 @@ export const StudentForm: React.FC<StudentFormProps> = ({
       accommodation_type_id: accommodationTypeId,
       custom_fields: customFieldValues,
       documents: documentValues,
+      allergies_data: allergiesData,
+      medical_conditions_data: medicalConditionsData,
+      emergency_medications_data: emergencyMedicationsData,
     };
     onSubmit(payload);
   };
@@ -262,6 +311,16 @@ export const StudentForm: React.FC<StudentFormProps> = ({
               accommodationTypeId={accommodationTypeId}
               setAccommodationTypeId={setAccommodationTypeId}
               isDisabled={selectedStudent?.status === 'Inactive'}
+              onOpenAllergiesModal={onOpenAllergiesModal}
+              onOpenMedicalConditionsModal={onOpenMedicalConditionsModal}
+              onOpenEmergencyMedicationsModal={onOpenEmergencyMedicationsModal}
+              clearIfInvalid={(e, validList) => {
+                // Placeholder - same as class field
+                const value = e.target.value;
+                if (value && !validList.includes(value)) {
+                  e.target.value = '';
+                }
+              }}
             />
 
             <div className="flex justify-end space-x-3 pt-4">

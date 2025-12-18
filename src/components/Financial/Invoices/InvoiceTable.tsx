@@ -1,8 +1,11 @@
 // src/components/Financial/Invoices/InvoiceTable.tsx (READY TO PASTE)
 
 import React, { useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import { InvoiceHeader } from '../../../types/database'; 
-import { deleteInvoice } from '../../../services/financialService';
+import { voidInvoice, voidInvoices } from '../../../services/financialService';
+import { VoidReasonPopup } from '../VoidReasonPopup';
+import { supabase } from '../../../supabaseClient';
 
 interface InvoiceTableProps {
     invoices: InvoiceHeader[]; 
@@ -38,6 +41,22 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onView, on
     // Selection state (borrowed from students masterlist)
     const [selectedInvoices, setSelectedInvoices] = useState<Set<string>>(new Set());
     
+    // Loading state for deletions
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [showVoidReasonPopup, setShowVoidReasonPopup] = useState(false);
+    const [invoiceToVoid, setInvoiceToVoid] = useState<string | string[] | null>(null);
+    
+    // Get current user email for voided_by
+    const getCurrentUserEmail = async (): Promise<string | undefined> => {
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            return user?.email || undefined;
+        } catch (error) {
+            console.error('Error getting current user:', error);
+            return undefined;
+        }
+    };
+    
     // Toggle selection function (borrowed from students masterlist)
     const toggleSelection = (invoiceNumber: string) => {
         setSelectedInvoices(prev => {
@@ -54,68 +73,65 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onView, on
     const hasSelections = selectedInvoices.size > 0;
     
     // --- Void Handler ---
-    const handleVoid = async (invoice: InvoiceHeader) => {
-        if (!window.confirm(`Are you sure you want to void invoice ${invoice.invoice_number}? This action cannot be undone.`)) {
-            return;
-        }
+    const handleVoid = (invoice: InvoiceHeader) => {
+        setInvoiceToVoid(invoice.invoice_number);
+        setShowVoidReasonPopup(true);
+    };
+    
+    // --- Confirm Void Handler ---
+    const handleConfirmVoid = async (reason: string) => {
+        if (!invoiceToVoid) return;
         
+        setIsDeleting(true);
         try {
-            await deleteInvoice(invoice.invoice_number);
-            alert(`Invoice ${invoice.invoice_number} voided successfully.`);
+            const voidedBy = await getCurrentUserEmail();
+            const invoiceNumbers = Array.isArray(invoiceToVoid) ? invoiceToVoid : [invoiceToVoid];
+            
+            if (invoiceNumbers.length === 1) {
+                await voidInvoice(invoiceNumbers[0], reason, voidedBy);
+                alert(`Invoice ${invoiceNumbers[0]} voided successfully.`);
+            } else {
+                await voidInvoices(invoiceNumbers, reason, voidedBy);
+                alert(`Successfully voided ${invoiceNumbers.length} invoice(s).`);
+            }
+            
+            setSelectedInvoices(new Set());
+            setShowVoidReasonPopup(false);
+            setInvoiceToVoid(null);
             onDataMutation(); // Refresh the invoice list
-        } catch (error) {
-            console.error('Error voiding invoice:', error);
-            alert(`Failed to void invoice: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } catch (error: any) {
+            console.error('Error voiding invoice(s):', error);
+            alert(error.message || 'Failed to void invoice(s). Please try again.');
+            setShowVoidReasonPopup(false);
+            setInvoiceToVoid(null);
+        } finally {
+            setIsDeleting(false);
         }
     };
     
-    // --- Void Selected Handler (Optimized with parallel deletion) ---
-    const handleVoidSelected = async () => {
+    // --- Void Selected Handler ---
+    const handleVoidSelected = () => {
         const selectedArray = Array.from(selectedInvoices);
         if (selectedArray.length === 0) return;
-        
-        const confirmMessage = `Are you sure you want to void ${selectedArray.length} invoice(s)? This action cannot be undone.`;
-        if (!window.confirm(confirmMessage)) {
-            return;
-        }
-        
-        // Use Promise.allSettled to void all invoices in parallel for better performance
-        const voidPromises = selectedArray.map(invoiceNumber => 
-            deleteInvoice(invoiceNumber)
-                .then(() => ({ invoiceNumber, success: true as const }))
-                .catch((error) => {
-                    console.error(`Error voiding invoice ${invoiceNumber}:`, error);
-                    return { invoiceNumber, success: false as const, error };
-                })
-        );
-        
-        const results = await Promise.all(voidPromises);
-        
-        let successCount = 0;
-        let failCount = 0;
-        const failedInvoices: string[] = [];
-        
-        results.forEach((result) => {
-            if (result.success) {
-                successCount++;
-            } else {
-                failCount++;
-                failedInvoices.push(result.invoiceNumber);
-            }
-        });
-        
-        if (failCount > 0) {
-            alert(`Voided ${successCount} invoice(s) successfully. Failed to void ${failCount} invoice(s): ${failedInvoices.join(', ')}`);
-        } else {
-            alert(`Successfully voided ${successCount} invoice(s).`);
-        }
-        
-        setSelectedInvoices(new Set());
-        onDataMutation(); // Refresh the invoice list
+        setInvoiceToVoid(selectedArray);
+        setShowVoidReasonPopup(true);
     };
     
     return (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="relative">
+            {/* Loading Overlay for Deletions */}
+            {isDeleting && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg p-8 flex flex-col items-center space-y-4 shadow-xl">
+                        <Loader2 className="w-12 h-12 text-blue-600 animate-spin" />
+                        <div className="text-center">
+                            <p className="text-gray-900 text-lg font-medium">Deleting invoice(s)...</p>
+                            <p className="text-gray-600 text-sm mt-2">This may take a moment while we remove all associated records.</p>
+                        </div>
+                    </div>
+                </div>
+            )}
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
             {/* Bulk Actions Bar (borrowed from students masterlist) */}
             {hasSelections && (
                 <div className="bg-blue-50 border-b border-blue-200 px-4 py-2 flex items-center justify-between">
@@ -274,6 +290,18 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onView, on
                 </table>
             </div>
         </div>
+        {showVoidReasonPopup && invoiceToVoid && (
+            <VoidReasonPopup
+                onClose={() => {
+                    setShowVoidReasonPopup(false);
+                    setInvoiceToVoid(null);
+                }}
+                onConfirm={handleConfirmVoid}
+                expenseCount={Array.isArray(invoiceToVoid) ? invoiceToVoid.length : 1}
+                recordType="invoice"
+            />
+        )}
+    </div>
     );
 };
 

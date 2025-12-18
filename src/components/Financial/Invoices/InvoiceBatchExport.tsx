@@ -713,8 +713,7 @@ export const InvoiceBatchExport: React.FC<InvoiceBatchExportProps> = ({ onClose 
             <div className="space-y-6">
             <div className="flex justify-between items-start">
                 <div>
-                    <h3 className="text-2xl font-bold text-gray-800">Batch Invoice Export</h3>
-                    <p className="text-gray-600 mt-1">
+                    <p className="text-gray-600">
                         Filter and export invoices as PDF files in a single zip archive
                     </p>
                 </div>

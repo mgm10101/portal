@@ -1,10 +1,12 @@
 // src/components/Students/masterlist/SupplementaryDetailsForm.tsx
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Plus, Trash2 } from 'lucide-react';
 import { supabase } from '../../../supabaseClient';
 import { CustomFields } from './CustomFields';
 import { DynamicDocuments } from './DynamicDocuments';
+import { DropdownField, DropdownItem } from './DropdownField';
 
 interface SupplementaryDetailsFormProps {
   selectedStudent: any;
@@ -24,6 +26,10 @@ interface SupplementaryDetailsFormProps {
   accommodationTypeId?: number;
   setAccommodationTypeId?: (id: number) => void;
   isDisabled?: boolean; // Disable all fields when student is inactive
+  onOpenAllergiesModal?: () => void;
+  onOpenMedicalConditionsModal?: () => void;
+  onOpenEmergencyMedicationsModal?: () => void;
+  clearIfInvalid?: (e: React.FocusEvent<HTMLSelectElement>, validList: string[]) => void;
 }
 
 export const SupplementaryDetailsForm: React.FC<SupplementaryDetailsFormProps> = ({
@@ -44,7 +50,245 @@ export const SupplementaryDetailsForm: React.FC<SupplementaryDetailsFormProps> =
   accommodationTypeId,
   setAccommodationTypeId,
   isDisabled = false,
+  onOpenAllergiesModal = () => {},
+  onOpenMedicalConditionsModal = () => {},
+  onOpenEmergencyMedicationsModal = () => {},
+  clearIfInvalid = () => {},
 }) => {
+  // Medical section state - using arrays to support multiple entries
+  interface MedicalEntry {
+    id: string; // Unique ID for this entry
+    itemId?: number; // Selected dropdown item ID
+    notes: string; // Notes for this entry
+  }
+
+  const [hasAllergies, setHasAllergies] = useState<boolean>(false);
+  const [hasMedicalCondition, setHasMedicalCondition] = useState<boolean>(false);
+  const [hasEmergencyMedication, setHasEmergencyMedication] = useState<boolean>(false);
+  
+  const [allergies, setAllergies] = useState<MedicalEntry[]>([]);
+  const [medicalConditions, setMedicalConditions] = useState<MedicalEntry[]>([]);
+  const [emergencyMedications, setEmergencyMedications] = useState<MedicalEntry[]>([]);
+  
+  // Fetch medical dropdown options from database
+  const fetchAllergies = async (): Promise<DropdownItem[]> => {
+    try {
+      const { data, error } = await supabase
+        .from('allergies')
+        .select('id, name')
+        .order('sort_order', { ascending: true, nullsLast: true })
+        .order('id', { ascending: true });
+      
+      if (error) {
+        if (error.code === 'PGRST116' || error.message?.includes('relation') || error.message?.includes('does not exist')) {
+          return [];
+        }
+        throw error;
+      }
+      
+      return (data || []).map((item: any) => ({ id: item.id, name: item.name }));
+    } catch (err) {
+      console.error('Error fetching allergies:', err);
+      return [];
+    }
+  };
+
+  const fetchMedicalConditions = async (): Promise<DropdownItem[]> => {
+    try {
+      const { data, error } = await supabase
+        .from('medical_conditions')
+        .select('id, name')
+        .order('sort_order', { ascending: true, nullsLast: true })
+        .order('id', { ascending: true });
+      
+      if (error) {
+        if (error.code === 'PGRST116' || error.message?.includes('relation') || error.message?.includes('does not exist')) {
+          return [];
+        }
+        throw error;
+      }
+      
+      return (data || []).map((item: any) => ({ id: item.id, name: item.name }));
+    } catch (err) {
+      console.error('Error fetching medical conditions:', err);
+      return [];
+    }
+  };
+
+  const fetchEmergencyMedications = async (): Promise<DropdownItem[]> => {
+    try {
+      const { data, error } = await supabase
+        .from('emergency_medications')
+        .select('id, name')
+        .order('sort_order', { ascending: true, nullsLast: true })
+        .order('id', { ascending: true });
+      
+      if (error) {
+        if (error.code === 'PGRST116' || error.message?.includes('relation') || error.message?.includes('does not exist')) {
+          return [];
+        }
+        throw error;
+      }
+      
+      return (data || []).map((item: any) => ({ id: item.id, name: item.name }));
+    } catch (err) {
+      console.error('Error fetching emergency medications:', err);
+      return [];
+    }
+  };
+
+  // Use React Query to fetch medical dropdown options
+  const { data: allergiesList = [] } = useQuery({
+    queryKey: ['allergies'],
+    queryFn: fetchAllergies,
+  });
+
+  const { data: medicalConditionsList = [] } = useQuery({
+    queryKey: ['medical_conditions'],
+    queryFn: fetchMedicalConditions,
+  });
+
+  const { data: emergencyMedicationsList = [] } = useQuery({
+    queryKey: ['emergency_medications'],
+    queryFn: fetchEmergencyMedications,
+  });
+
+  // Helper function to generate unique ID
+  const generateId = () => `entry_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+  // Add new entry functions
+  const addAllergy = () => {
+    setAllergies([...allergies, { id: generateId(), itemId: undefined, notes: '' }]);
+  };
+
+  const addMedicalCondition = () => {
+    setMedicalConditions([...medicalConditions, { id: generateId(), itemId: undefined, notes: '' }]);
+  };
+
+  const addEmergencyMedication = () => {
+    setEmergencyMedications([...emergencyMedications, { id: generateId(), itemId: undefined, notes: '' }]);
+  };
+
+  // Remove entry functions
+  const removeAllergy = (id: string) => {
+    setAllergies(allergies.filter(entry => entry.id !== id));
+  };
+
+  const removeMedicalCondition = (id: string) => {
+    setMedicalConditions(medicalConditions.filter(entry => entry.id !== id));
+  };
+
+  const removeEmergencyMedication = (id: string) => {
+    setEmergencyMedications(emergencyMedications.filter(entry => entry.id !== id));
+  };
+
+  // Update entry functions
+  const updateAllergy = (id: string, updates: Partial<MedicalEntry>) => {
+    setAllergies(allergies.map(entry => 
+      entry.id === id ? { ...entry, ...updates } : entry
+    ));
+  };
+
+  const updateMedicalCondition = (id: string, updates: Partial<MedicalEntry>) => {
+    setMedicalConditions(medicalConditions.map(entry => 
+      entry.id === id ? { ...entry, ...updates } : entry
+    ));
+  };
+
+  const updateEmergencyMedication = (id: string, updates: Partial<MedicalEntry>) => {
+    setEmergencyMedications(emergencyMedications.map(entry => 
+      entry.id === id ? { ...entry, ...updates } : entry
+    ));
+  };
+
+  // Fetch and initialize medical data from database
+  useEffect(() => {
+    const loadMedicalData = async () => {
+      if (!selectedStudent?.admission_number) {
+        // Reset if no student selected
+        setHasAllergies(false);
+        setHasMedicalCondition(false);
+        setHasEmergencyMedication(false);
+        setAllergies([]);
+        setMedicalConditions([]);
+        setEmergencyMedications([]);
+        return;
+      }
+
+      try {
+        // Fetch allergies
+        const { data: allergiesData, error: allergiesError } = await supabase
+          .from('student_allergies')
+          .select('id, allergy_id, notes')
+          .eq('admission_number', selectedStudent.admission_number);
+
+        if (!allergiesError && allergiesData && allergiesData.length > 0) {
+          setHasAllergies(true);
+          setAllergies(
+            allergiesData.map((item: any) => ({
+              id: `db_${item.id}`,
+              itemId: item.allergy_id,
+              notes: item.notes || '',
+            }))
+          );
+        } else {
+          setHasAllergies(false);
+          setAllergies([]);
+        }
+
+        // Fetch medical conditions
+        const { data: conditionsData, error: conditionsError } = await supabase
+          .from('student_medical_conditions')
+          .select('id, medical_condition_id, notes')
+          .eq('admission_number', selectedStudent.admission_number);
+
+        if (!conditionsError && conditionsData && conditionsData.length > 0) {
+          setHasMedicalCondition(true);
+          setMedicalConditions(
+            conditionsData.map((item: any) => ({
+              id: `db_${item.id}`,
+              itemId: item.medical_condition_id,
+              notes: item.notes || '',
+            }))
+          );
+        } else {
+          setHasMedicalCondition(false);
+          setMedicalConditions([]);
+        }
+
+        // Fetch emergency medications
+        const { data: medicationsData, error: medicationsError } = await supabase
+          .from('student_emergency_medications')
+          .select('id, emergency_medication_id, notes')
+          .eq('admission_number', selectedStudent.admission_number);
+
+        if (!medicationsError && medicationsData && medicationsData.length > 0) {
+          setHasEmergencyMedication(true);
+          setEmergencyMedications(
+            medicationsData.map((item: any) => ({
+              id: `db_${item.id}`,
+              itemId: item.emergency_medication_id,
+              notes: item.notes || '',
+            }))
+          );
+        } else {
+          setHasEmergencyMedication(false);
+          setEmergencyMedications([]);
+        }
+      } catch (err) {
+        console.error('Error loading medical data:', err);
+        // Reset on error
+        setHasAllergies(false);
+        setHasMedicalCondition(false);
+        setHasEmergencyMedication(false);
+        setAllergies([]);
+        setMedicalConditions([]);
+        setEmergencyMedications([]);
+      }
+    };
+
+    loadMedicalData();
+  }, [selectedStudent?.admission_number]);
   // Fetch transport zones
   const fetchTransportZones = async (): Promise<DropdownItem[]> => {
     try {
@@ -223,6 +467,23 @@ export const SupplementaryDetailsForm: React.FC<SupplementaryDetailsFormProps> =
   }, [boardingHouseId, boardingRoomId, boardingRooms, setBoardingRoomId]);
   return (
     <>
+      {/* Hidden inputs for medical data */}
+      <input
+        type="hidden"
+        name="allergies_data"
+        value={JSON.stringify(allergies)}
+      />
+      <input
+        type="hidden"
+        name="medical_conditions_data"
+        value={JSON.stringify(medicalConditions)}
+      />
+      <input
+        type="hidden"
+        name="emergency_medications_data"
+        value={JSON.stringify(emergencyMedications)}
+      />
+      
       {/* Parent/Guardian Details */}
       <div>
         <h3 className="text-lg font-semibold text-gray-800 mb-4">
@@ -307,20 +568,61 @@ export const SupplementaryDetailsForm: React.FC<SupplementaryDetailsFormProps> =
         <h3 className="text-lg font-semibold text-gray-800 mb-4">
           Emergency Contact
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Contact Person & Phone
+              Name
             </label>
             <input
-              name="emergencyContact"
+              name="emergencyContactName"
               type="text"
-              placeholder="Name - Phone Number"
+              placeholder="Contact Name"
               disabled={isDisabled}
               className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
                 isDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
               }`}
-              defaultValue={selectedStudent?.emergency_contact}
+              defaultValue={(() => {
+                // Parse existing emergency_contact to extract name (text part)
+                if (!selectedStudent?.emergency_contact) return '';
+                const contact = selectedStudent.emergency_contact.trim();
+                // Extract text part (letters, spaces, but not numbers or phone symbols)
+                // Match from start: letters and spaces, stop when we hit a digit or phone symbol
+                const nameMatch = contact.match(/^([A-Za-z\s]+?)(?=\s*[\d\+\-\(\)]|$)/);
+                if (nameMatch) {
+                  return nameMatch[1].trim();
+                }
+                // Fallback: if no clear text match, try to extract everything before first number/symbol
+                const fallbackMatch = contact.match(/^([^\d\+\-\(\)]+)/);
+                return fallbackMatch ? fallbackMatch[1].trim() : '';
+              })()}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Phone
+            </label>
+            <input
+              name="emergencyContactPhone"
+              type="text"
+              placeholder="Phone Number"
+              disabled={isDisabled}
+              className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                isDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
+              }`}
+              defaultValue={(() => {
+                // Parse existing emergency_contact to extract phone (numbers and symbols)
+                if (!selectedStudent?.emergency_contact) return '';
+                const contact = selectedStudent.emergency_contact.trim();
+                // Extract phone part: numbers, +, -, (, ), and spaces between them
+                // Match from the end or after text part
+                const phoneMatch = contact.match(/([\d\+\-\(\)\s]+)$/);
+                if (phoneMatch) {
+                  return phoneMatch[1].trim();
+                }
+                // Fallback: if no clear phone match, try to extract everything after text
+                const textMatch = contact.match(/^[A-Za-z\s]+?\s*(.+)$/);
+                return textMatch ? textMatch[1].trim() : '';
+              })()}
             />
           </div>
           <div>
@@ -363,6 +665,284 @@ export const SupplementaryDetailsForm: React.FC<SupplementaryDetailsFormProps> =
           }`}
           defaultValue={selectedStudent?.address}
         />
+      </div>
+
+      {/* Medical Section */}
+      <div className="border-t pt-4">
+        <h3 className="text-lg font-semibold text-gray-800 mb-4">
+          Medical
+        </h3>
+        <div className="space-y-4">
+          {/* Checkbox (a) Has Allergies */}
+          <div className="flex items-start">
+            <input
+              type="checkbox"
+              id="hasAllergies"
+              checked={hasAllergies}
+              onChange={(e) => {
+                setHasAllergies(e.target.checked);
+                if (e.target.checked && allergies.length === 0) {
+                  addAllergy();
+                } else if (!e.target.checked) {
+                  setAllergies([]);
+                }
+              }}
+              disabled={isDisabled}
+              className={`mt-1 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 ${
+                isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
+              }`}
+            />
+            <label htmlFor="hasAllergies" className={`ml-2 text-sm font-medium text-gray-700 ${
+              isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
+            }`}>
+              (a) Has Allergies
+            </label>
+          </div>
+          {hasAllergies && (
+            <div className="ml-6 space-y-4 mb-4">
+              {allergies.map((allergy, index) => (
+                <div key={allergy.id} className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                  <div>
+                    <DropdownField
+                      name={`allergy_${allergy.id}`}
+                      label={index === 0 ? "Allergy" : ""}
+                      items={allergiesList}
+                      selectedId={allergy.itemId}
+                      clearIfInvalid={clearIfInvalid}
+                      onOpenModal={onOpenAllergiesModal}
+                      onSelect={(id) => updateAllergy(allergy.id, { itemId: id })}
+                      tableName="allergies"
+                      placeholder="Select allergy..."
+                      disabled={isDisabled}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        {index === 0 ? "Notes" : ""}
+                      </label>
+                      <input
+                        type="text"
+                        name={`allergy_notes_${allergy.id}`}
+                        value={allergy.notes}
+                        onChange={(e) => updateAllergy(allergy.id, { notes: e.target.value })}
+                        placeholder="Enter details about the allergy..."
+                        disabled={isDisabled}
+                        className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                          isDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                        }`}
+                      />
+                    </div>
+                    {allergies.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeAllergy(allergy.id)}
+                        disabled={isDisabled}
+                        className={`mt-6 p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors ${
+                          isDisabled ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
+                        title="Remove this allergy"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={addAllergy}
+                disabled={isDisabled}
+                className={`flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium ${
+                  isDisabled ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                <Plus className="w-4 h-4" />
+                Add Another Allergy
+              </button>
+            </div>
+          )}
+
+          {/* Checkbox (b) Has Medical Condition */}
+          <div className="flex items-start">
+            <input
+              type="checkbox"
+              id="hasMedicalCondition"
+              checked={hasMedicalCondition}
+              onChange={(e) => {
+                setHasMedicalCondition(e.target.checked);
+                if (e.target.checked && medicalConditions.length === 0) {
+                  addMedicalCondition();
+                } else if (!e.target.checked) {
+                  setMedicalConditions([]);
+                }
+              }}
+              disabled={isDisabled}
+              className={`mt-1 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 ${
+                isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
+              }`}
+            />
+            <label htmlFor="hasMedicalCondition" className={`ml-2 text-sm font-medium text-gray-700 ${
+              isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
+            }`}>
+              (b) Currently managing a chronic medical condition e.g. diabetes, sickle cell
+            </label>
+          </div>
+          {hasMedicalCondition && (
+            <div className="ml-6 space-y-4 mb-4">
+              {medicalConditions.map((condition, index) => (
+                <div key={condition.id} className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                  <div>
+                    <DropdownField
+                      name={`medical_condition_${condition.id}`}
+                      label={index === 0 ? "Medical Condition" : ""}
+                      items={medicalConditionsList}
+                      selectedId={condition.itemId}
+                      clearIfInvalid={clearIfInvalid}
+                      onOpenModal={onOpenMedicalConditionsModal}
+                      onSelect={(id) => updateMedicalCondition(condition.id, { itemId: id })}
+                      tableName="medical_conditions"
+                      placeholder="Select medical condition..."
+                      disabled={isDisabled}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        {index === 0 ? "Notes" : ""}
+                      </label>
+                      <input
+                        type="text"
+                        name={`medical_condition_notes_${condition.id}`}
+                        value={condition.notes}
+                        onChange={(e) => updateMedicalCondition(condition.id, { notes: e.target.value })}
+                        placeholder="Enter details about the medical condition..."
+                        disabled={isDisabled}
+                        className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                          isDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                        }`}
+                      />
+                    </div>
+                    {medicalConditions.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeMedicalCondition(condition.id)}
+                        disabled={isDisabled}
+                        className={`mt-6 p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors ${
+                          isDisabled ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
+                        title="Remove this medical condition"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={addMedicalCondition}
+                disabled={isDisabled}
+                className={`flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium ${
+                  isDisabled ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                <Plus className="w-4 h-4" />
+                Add Another Medical Condition
+              </button>
+            </div>
+          )}
+
+          {/* Checkbox (c) Has Emergency Medication */}
+          <div className="flex items-start">
+            <input
+              type="checkbox"
+              id="hasEmergencyMedication"
+              checked={hasEmergencyMedication}
+              onChange={(e) => {
+                setHasEmergencyMedication(e.target.checked);
+                if (e.target.checked && emergencyMedications.length === 0) {
+                  addEmergencyMedication();
+                } else if (!e.target.checked) {
+                  setEmergencyMedications([]);
+                }
+              }}
+              disabled={isDisabled}
+              className={`mt-1 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 ${
+                isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
+              }`}
+            />
+            <label htmlFor="hasEmergencyMedication" className={`ml-2 text-sm font-medium text-gray-700 ${
+              isDisabled ? 'cursor-not-allowed' : 'cursor-pointer'
+            }`}>
+              (c) Emergency Medication prescribed e.g. Epipen, Asthma Inhaler
+            </label>
+          </div>
+          {hasEmergencyMedication && (
+            <div className="ml-6 space-y-4">
+              {emergencyMedications.map((medication, index) => (
+                <div key={medication.id} className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                  <div>
+                    <DropdownField
+                      name={`emergency_medication_${medication.id}`}
+                      label={index === 0 ? "Emergency Medication" : ""}
+                      items={emergencyMedicationsList}
+                      selectedId={medication.itemId}
+                      clearIfInvalid={clearIfInvalid}
+                      onOpenModal={onOpenEmergencyMedicationsModal}
+                      onSelect={(id) => updateEmergencyMedication(medication.id, { itemId: id })}
+                      tableName="emergency_medications"
+                      placeholder="Select emergency medication..."
+                      disabled={isDisabled}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        {index === 0 ? "Notes" : ""}
+                      </label>
+                      <input
+                        type="text"
+                        name={`emergency_medication_notes_${medication.id}`}
+                        value={medication.notes}
+                        onChange={(e) => updateEmergencyMedication(medication.id, { notes: e.target.value })}
+                        placeholder="Enter details about the emergency medication..."
+                        disabled={isDisabled}
+                        className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                          isDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                        }`}
+                      />
+                    </div>
+                    {emergencyMedications.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeEmergencyMedication(medication.id)}
+                        disabled={isDisabled}
+                        className={`mt-6 p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors ${
+                          isDisabled ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
+                        title="Remove this emergency medication"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={addEmergencyMedication}
+                disabled={isDisabled}
+                className={`flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium ${
+                  isDisabled ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                <Plus className="w-4 h-4" />
+                Add Another Emergency Medication
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Transport Section */}
