@@ -1,8 +1,8 @@
 // src/components/Students/masterlist/SupplementaryDetailsForm.tsx
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Copy } from 'lucide-react';
 import { supabase } from '../../../supabaseClient';
 import { CustomFields } from './CustomFields';
 import { DynamicDocuments } from './DynamicDocuments';
@@ -465,6 +465,11 @@ export const SupplementaryDetailsForm: React.FC<SupplementaryDetailsFormProps> =
       setBoardingRoomId(undefined);
     }
   }, [boardingHouseId, boardingRoomId, boardingRooms, setBoardingRoomId]);
+
+  // Refs for emergency contact fields to enable programmatic updates
+  const emergencyContactNameRef = useRef<HTMLInputElement>(null);
+  const emergencyContactPhoneRef = useRef<HTMLInputElement>(null);
+  const emergencyRelationshipRef = useRef<HTMLInputElement>(null);
   return (
     <>
       {/* Hidden inputs for medical data */}
@@ -565,18 +570,101 @@ export const SupplementaryDetailsForm: React.FC<SupplementaryDetailsFormProps> =
 
       {/* Emergency Contact */}
       <div>
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-800">
           Emergency Contact
         </h3>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Quick fill:</span>
+            <button
+              type="button"
+              onClick={() => {
+                const form = document.querySelector('form') as HTMLFormElement;
+                if (form && emergencyContactNameRef.current && emergencyContactPhoneRef.current) {
+                  const motherNameInput = form.querySelector('[name="motherName"]') as HTMLInputElement;
+                  const motherPhoneInput = form.querySelector('[name="motherPhone"]') as HTMLInputElement;
+                  
+                  if (motherNameInput && motherPhoneInput) {
+                    const motherName = motherNameInput.value.trim();
+                    const motherPhone = motherPhoneInput.value.trim();
+                    
+                    if (motherName || motherPhone) {
+                      if (emergencyContactNameRef.current) {
+                        emergencyContactNameRef.current.value = motherName;
+                        emergencyContactNameRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+                      }
+                      if (emergencyContactPhoneRef.current) {
+                        emergencyContactPhoneRef.current.value = motherPhone;
+                        emergencyContactPhoneRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+                      }
+                      if (emergencyRelationshipRef.current) {
+                        emergencyRelationshipRef.current.value = 'Mother';
+                        emergencyRelationshipRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+                      }
+                    }
+                  }
+                }
+              }}
+              disabled={isDisabled}
+              className={`flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-lg hover:bg-blue-50 transition-colors ${
+                isDisabled ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+              title="Fill from Mother/Guardian details"
+            >
+              <Copy className="w-3 h-3" />
+              Mother
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const form = document.querySelector('form') as HTMLFormElement;
+                if (form && emergencyContactNameRef.current && emergencyContactPhoneRef.current) {
+                  const fatherNameInput = form.querySelector('[name="fatherName"]') as HTMLInputElement;
+                  const fatherPhoneInput = form.querySelector('[name="fatherPhone"]') as HTMLInputElement;
+                  
+                  if (fatherNameInput && fatherPhoneInput) {
+                    const fatherName = fatherNameInput.value.trim();
+                    const fatherPhone = fatherPhoneInput.value.trim();
+                    
+                    if (fatherName || fatherPhone) {
+                      if (emergencyContactNameRef.current) {
+                        emergencyContactNameRef.current.value = fatherName;
+                        emergencyContactNameRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+                      }
+                      if (emergencyContactPhoneRef.current) {
+                        emergencyContactPhoneRef.current.value = fatherPhone;
+                        emergencyContactPhoneRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+                      }
+                      if (emergencyRelationshipRef.current) {
+                        emergencyRelationshipRef.current.value = 'Father';
+                        emergencyRelationshipRef.current.dispatchEvent(new Event('input', { bubbles: true }));
+                      }
+                    }
+                  }
+                }
+              }}
+              disabled={isDisabled}
+              className={`flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-lg hover:bg-blue-50 transition-colors ${
+                isDisabled ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+              title="Fill from Father/Guardian details"
+            >
+              <Copy className="w-3 h-3" />
+              Father
+            </button>
+          </div>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Name
             </label>
             <input
+              ref={emergencyContactNameRef}
               name="emergencyContactName"
               type="text"
               placeholder="Contact Name"
+              autoComplete="off"
               disabled={isDisabled}
               className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
                 isDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
@@ -585,15 +673,24 @@ export const SupplementaryDetailsForm: React.FC<SupplementaryDetailsFormProps> =
                 // Parse existing emergency_contact to extract name (text part)
                 if (!selectedStudent?.emergency_contact) return '';
                 const contact = selectedStudent.emergency_contact.trim();
-                // Extract text part (letters, spaces, but not numbers or phone symbols)
-                // Match from start: letters and spaces, stop when we hit a digit or phone symbol
-                const nameMatch = contact.match(/^([A-Za-z\s]+?)(?=\s*[\d\+\-\(\)]|$)/);
-                if (nameMatch) {
-                  return nameMatch[1].trim();
+                
+                // First, try to find where phone part starts (first occurrence of digit or phone symbol)
+                const phoneStartMatch = contact.match(/[\d\+\-\(\)]/);
+                if (phoneStartMatch && phoneStartMatch.index !== undefined) {
+                  // Phone part exists, extract name before it
+                  const name = contact.substring(0, phoneStartMatch.index).trim();
+                  return name;
                 }
-                // Fallback: if no clear text match, try to extract everything before first number/symbol
-                const fallbackMatch = contact.match(/^([^\d\+\-\(\)]+)/);
-                return fallbackMatch ? fallbackMatch[1].trim() : '';
+                
+                // No phone part found - check if entire string is text (name only)
+                const isAllText = /^[A-Za-z\s]+$/.test(contact);
+                if (isAllText) {
+                  return contact;
+                }
+                
+                // Fallback: if string contains mixed content, try to extract text at start
+                const textMatch = contact.match(/^([A-Za-z\s]+)/);
+                return textMatch ? textMatch[1].trim() : '';
               })()}
             />
           </div>
@@ -602,9 +699,11 @@ export const SupplementaryDetailsForm: React.FC<SupplementaryDetailsFormProps> =
               Phone
             </label>
             <input
+              ref={emergencyContactPhoneRef}
               name="emergencyContactPhone"
-              type="text"
+              type="tel"
               placeholder="Phone Number"
+              autoComplete="off"
               disabled={isDisabled}
               className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
                 isDisabled ? 'bg-gray-100 cursor-not-allowed' : ''
@@ -613,15 +712,23 @@ export const SupplementaryDetailsForm: React.FC<SupplementaryDetailsFormProps> =
                 // Parse existing emergency_contact to extract phone (numbers and symbols)
                 if (!selectedStudent?.emergency_contact) return '';
                 const contact = selectedStudent.emergency_contact.trim();
-                // Extract phone part: numbers, +, -, (, ), and spaces between them
-                // Match from the end or after text part
-                const phoneMatch = contact.match(/([\d\+\-\(\)\s]+)$/);
-                if (phoneMatch) {
-                  return phoneMatch[1].trim();
+                
+                // Find where phone part starts (first occurrence of digit or phone symbol)
+                const phoneStartMatch = contact.match(/[\d\+\-\(\)]/);
+                if (phoneStartMatch && phoneStartMatch.index !== undefined) {
+                  // Extract phone part from that position to the end
+                  const phone = contact.substring(phoneStartMatch.index).trim();
+                  return phone;
                 }
-                // Fallback: if no clear phone match, try to extract everything after text
-                const textMatch = contact.match(/^[A-Za-z\s]+?\s*(.+)$/);
-                return textMatch ? textMatch[1].trim() : '';
+                
+                // No phone part found - check if entire string is numbers/symbols (phone only)
+                const isAllPhone = /^[\d\+\-\(\)\s]+$/.test(contact);
+                if (isAllPhone) {
+                  return contact;
+                }
+                
+                // No phone part found
+                return '';
               })()}
             />
           </div>
@@ -630,6 +737,7 @@ export const SupplementaryDetailsForm: React.FC<SupplementaryDetailsFormProps> =
               Relationship to Student
             </label>
             <input
+              ref={emergencyRelationshipRef}
               name="emergencyRelationship"
               type="text"
               placeholder="Relationship"

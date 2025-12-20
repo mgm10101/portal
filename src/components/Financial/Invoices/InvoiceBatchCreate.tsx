@@ -85,6 +85,7 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
     // --- New State for Class Filtering ---
     // Changed default to empty string - no class selected initially
     const [selectedClass, setSelectedClass] = useState('');
+    const [studentSearchTerm, setStudentSearchTerm] = useState('');
     
     // Generate unique class list for the filter dropdown
     const uniqueClasses = useMemo(() => getUniqueClasses(allStudents), [allStudents]);
@@ -190,7 +191,7 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
     };
     
     /**
-     * Filtered Student List based on selected class.
+     * Filtered Student List based on selected class and search term.
      * Returns empty array if no class is selected (prevents loading all students).
      */
     const filteredStudents = useMemo(() => {
@@ -199,8 +200,19 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
             return [];
         }
         
-        return allStudents.filter(student => student.class_name === selectedClass);
-    }, [allStudents, selectedClass]);
+        let students = allStudents.filter(student => student.class_name === selectedClass);
+        
+        // Apply search filter if search term exists
+        if (studentSearchTerm.trim()) {
+            const searchLower = studentSearchTerm.toLowerCase().trim();
+            students = students.filter(student => 
+                student.name?.toLowerCase().includes(searchLower) ||
+                student.admission_number?.toLowerCase().includes(searchLower)
+            );
+        }
+        
+        return students;
+    }, [allStudents, selectedClass, studentSearchTerm]);
     
     // Student Selection Logic (Simple toggle for now)
     const handleStudentToggle = (admissionNumber: string) => {
@@ -585,17 +597,30 @@ export const InvoiceBatchCreate: React.FC<InvoiceBatchCreateProps> = ({
                         </div>
                     </div>
                     
-                    {/* Select All / Drop All buttons - only show when a class is selected */}
-                    {selectedClass && filteredStudents.length > 0 && (
-                        <div className="flex justify-end gap-2 mb-3">
-                            <button
-                                type="button"
-                                onClick={handleSelectAll}
-                                className="px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-300 rounded-lg hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                                disabled={isSubmitting || filteredStudents.length === 0}
-                            >
-                                Select All ({filteredStudents.length})
-                            </button>
+                    {/* Search bar and Select All / Drop All buttons - only show when a class is selected */}
+                    {selectedClass && (
+                        <div className="flex gap-2 mb-3 items-center">
+                            <div className="flex-1 relative">
+                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                <input
+                                    type="text"
+                                    value={studentSearchTerm}
+                                    onChange={(e) => setStudentSearchTerm(e.target.value)}
+                                    placeholder="Search students by name or admission number..."
+                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                                    disabled={isSubmitting}
+                                />
+                            </div>
+                            {filteredStudents.length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={handleSelectAll}
+                                    className="px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-300 rounded-lg hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                                    disabled={isSubmitting || filteredStudents.length === 0}
+                                >
+                                    Select All ({filteredStudents.length})
+                                </button>
+                            )}
                             {selectedStudentIds.length > 0 && (
                                 <button
                                     type="button"

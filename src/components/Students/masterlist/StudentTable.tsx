@@ -159,13 +159,13 @@ export const StudentTable: React.FC<StudentTableProps> = ({
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Class
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
                 Gender
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Emergency Contact
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
                 Status
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -232,7 +232,7 @@ export const StudentTable: React.FC<StudentTableProps> = ({
                   </div>
                 </td>
 
-                <td className="px-6 py-4 whitespace-nowrap">
+                <td className="px-3 py-4 whitespace-nowrap w-24">
                   <div className="text-sm text-gray-900">
                     {student.gender || '-'}
                   </div>
@@ -302,7 +302,7 @@ export const StudentTable: React.FC<StudentTableProps> = ({
                   </div>
                 </td>
 
-                <td className="px-6 py-4 whitespace-nowrap">
+                <td className="px-3 py-4 whitespace-nowrap w-24">
                   <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                     student.status === 'Active' 
                       ? 'bg-green-100 text-green-800' 

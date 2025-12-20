@@ -366,7 +366,7 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
           </tbody>
         </table>
 
-        <div className="flex justify-between mt-12">
+        <div className="flex justify-between mt-8">
           <div className="w-1/2 pr-8">
             <div className="text-xs text-gray-600">
               {invoiceSettings?.payment_details ? (
@@ -393,7 +393,7 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
           </div>
 
           <div className="w-1/2 pl-8 flex justify-end">
-            <div className="w-full max-w-xs text-right mt-4">
+            <div className="w-full max-w-xs text-right mt-2">
               <div className="flex justify-between text-base border-b pb-1 mb-1">
                 <span className="font-medium">Total</span>
                 <span className="font-semibold">

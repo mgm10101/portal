@@ -206,11 +206,29 @@ export const StudentForm: React.FC<StudentFormProps> = ({
     }
 
     // Combine emergency contact name and phone into single field
+    // Filter out placeholder-like values and ensure we only use actual user input
     const emergencyContactName = (formValues.emergencyContactName || '').trim();
     const emergencyContactPhone = (formValues.emergencyContactPhone || '').trim();
-    const emergencyContact = emergencyContactName && emergencyContactPhone
-      ? `${emergencyContactName} ${emergencyContactPhone}`
-      : emergencyContactName || emergencyContactPhone || '';
+    
+    // Filter out common placeholder/autocomplete values that shouldn't be saved
+    const isPlaceholderValue = (value: string) => {
+      const lower = value.toLowerCase();
+      return lower === 'other' || lower === 'contact name' || lower === 'phone number' || 
+             lower === 'name' || lower === 'phone' || lower === '';
+    };
+    
+    const cleanName = isPlaceholderValue(emergencyContactName) ? '' : emergencyContactName;
+    const cleanPhone = isPlaceholderValue(emergencyContactPhone) ? '' : emergencyContactPhone;
+    
+    // Only combine if both have values, otherwise use whichever has a value
+    let emergencyContact = '';
+    if (cleanName && cleanPhone) {
+      emergencyContact = `${cleanName} ${cleanPhone}`;
+    } else if (cleanName) {
+      emergencyContact = cleanName;
+    } else if (cleanPhone) {
+      emergencyContact = cleanPhone;
+    }
 
     // …then merge in the dropdown state before you fire onSubmit
     const payload = {

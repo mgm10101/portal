@@ -155,7 +155,27 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
     const [isSubmitting, setIsSubmitting] = useState(false);
     
     // 🎯 FIX: If in edit mode, default to 'Single Invoice' and disable switching
-    const [activeTab, setActiveTab] = useState<InvoiceFormTab>('Single Invoice'); 
+    const [activeTab, setActiveTab] = useState<InvoiceFormTab>('Single Invoice');
+    const previousTabRef = useRef<InvoiceFormTab>('Single Invoice');
+    
+    // Refetch masterItems when returning to Invoice Items tab (in case order was changed)
+    useEffect(() => {
+        // If we're switching TO Invoice Items tab FROM another tab, refetch to get latest order
+        if (activeTab === 'Invoice Items' && previousTabRef.current !== 'Invoice Items') {
+            // Refetch master items to get updated sort_order
+            setLoadingItems(true);
+            fetchMasterItems()
+                .then(items => {
+                    setMasterItems(items);
+                    setLoadingItems(false);
+                })
+                .catch(err => {
+                    console.error('Error refetching master items:', err);
+                    setLoadingItems(false);
+                });
+        }
+        previousTabRef.current = activeTab;
+    }, [activeTab]);
 
     // --- CALCULATION LOGIC ---
     const calculateLineTotal = useCallback((item: InvoiceLineItem): number => {
@@ -882,6 +902,7 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
                         masterItems={masterItems}
                         setMasterItems={setMasterItems}
                         loadingItems={loadingItems}
+                        onClose={onClose}
                     />
                 )}
 

@@ -1,6 +1,6 @@
 // src/components/Financial/Invoices/InvoiceItems.tsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ItemMaster } from '../../../types/database'; 
 import { supabase } from '../../../supabaseClient';
 import { updateMasterItem, deleteMasterItem } from '../../../services/financialService';
@@ -9,13 +9,17 @@ import { GripVertical, Edit, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
 interface InvoiceItemsProps {
     masterItems: ItemMaster[];
     setMasterItems: React.Dispatch<React.SetStateAction<ItemMaster[]>>; 
-    loadingItems?: boolean; 
+    loadingItems?: boolean;
+    onTabChange?: () => void; // Callback when tab is about to change
+    onClose?: () => void; // Callback to close the popup
 }
 
 export const InvoiceItems: React.FC<InvoiceItemsProps> = ({ 
     masterItems, 
     setMasterItems,
-    loadingItems = false 
+    loadingItems = false,
+    onTabChange,
+    onClose
 }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
@@ -23,6 +27,9 @@ export const InvoiceItems: React.FC<InvoiceItemsProps> = ({
     const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
     const [hasReordered, setHasReordered] = useState(false);
     const [localItems, setLocalItems] = useState<ItemMaster[]>([]);
+    // Use refs to track state for cleanup/unmount
+    const hasReorderedRef = useRef(false);
+    const localItemsRef = useRef<ItemMaster[]>([]);
     const [newItemForm, setNewItemForm] = useState({
         item_name: '',
         description: '',
@@ -40,7 +47,9 @@ export const InvoiceItems: React.FC<InvoiceItemsProps> = ({
             return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
         });
         setLocalItems(sorted);
+        localItemsRef.current = sorted;
         setHasReordered(false);
+        hasReorderedRef.current = false;
     }, [masterItems]);
 
     // Modal Handlers
@@ -158,8 +167,10 @@ export const InvoiceItems: React.FC<InvoiceItemsProps> = ({
         newItems.splice(index, 0, draggedItem);
         
         setLocalItems(newItems);
+        localItemsRef.current = newItems;
         setDraggedIndex(index);
         setHasReordered(true);
+        hasReorderedRef.current = true;
     };
 
     const handleDragEnd = () => {
@@ -176,47 +187,109 @@ export const InvoiceItems: React.FC<InvoiceItemsProps> = ({
         [newItems[index], newItems[newIndex]] = [newItems[newIndex], newItems[index]];
         
         setLocalItems(newItems);
+        localItemsRef.current = newItems;
         setHasReordered(true);
+        hasReorderedRef.current = true;
     };
 
-    // Save reordered items
-    const handleSaveOrder = async () => {
-        if (!hasReordered) return;
+    // Save reordered items (internal function, can be called manually or automatically)
+    const saveOrder = useCallback(async (showAlert = false) => {
+        // Use refs to get current values (important for cleanup)
+        const currentHasReordered = hasReorderedRef.current;
+        const currentLocalItems = localItemsRef.current;
+        
+        if (!currentHasReordered || currentLocalItems.length === 0) return;
 
         setIsSaving(true);
         try {
-            const updates = localItems.map((item, idx) => 
+            // Update sort_order for each item based on its new position
+            const updates = currentLocalItems.map((item, idx) => 
                 supabase
                     .from('item_master')
                     .update({ sort_order: idx })
                     .eq('id', item.id)
             );
             
-            await Promise.all(updates);
-            setMasterItems(localItems);
+            const results = await Promise.all(updates);
+            
+            // Check for errors
+            const errors = results.filter(result => result.error);
+            if (errors.length > 0) {
+                const errorMessages = errors.map(e => e.error?.message).join(', ');
+                throw new Error(`Some items failed to update: ${errorMessages}`);
+            }
+            
+            // Update masterItems with new sort_order values
+            const updatedItems = currentLocalItems.map((item, idx) => ({
+                ...item,
+                sort_order: idx
+            }));
+            
+            setMasterItems(updatedItems);
             setHasReordered(false);
-            alert('Item order saved successfully!');
+            hasReorderedRef.current = false;
+            
+            if (showAlert) {
+                alert('Item order saved successfully!');
+            }
         } catch (error) {
             console.error('Error updating order:', error);
-            alert('Failed to save item order.');
+            if (showAlert) {
+                alert('Failed to save item order.');
+            }
+            throw error; // Re-throw so caller knows it failed
         } finally {
             setIsSaving(false);
         }
+    }, [setMasterItems]);
+
+    // Manual save order (with alert)
+    const handleSaveOrder = async () => {
+        await saveOrder(true);
     };
+
+    // Auto-save on component unmount (when user leaves tab)
+    useEffect(() => {
+        return () => {
+            // Cleanup: save order when component unmounts (user leaves tab)
+            // Use refs to get current values (refs are always current)
+            if (hasReorderedRef.current && localItemsRef.current.length > 0) {
+                // Fire and forget - we can't await in cleanup, but we can trigger the save
+                // Create a new promise that doesn't depend on component state
+                const itemsToSave = [...localItemsRef.current];
+                const savePromise = Promise.all(
+                    itemsToSave.map((item, idx) => 
+                        supabase
+                            .from('item_master')
+                            .update({ sort_order: idx })
+                            .eq('id', item.id)
+                    )
+                ).then(results => {
+                    const errors = results.filter(result => result.error);
+                    if (errors.length > 0) {
+                        console.error('Auto-save errors:', errors);
+                    } else {
+                        console.log('Auto-saved item order on tab change');
+                    }
+                }).catch(err => {
+                    console.error('Auto-save failed on unmount:', err);
+                });
+                
+                // Note: We can't update state here since component is unmounting
+                // The parent will refetch masterItems when needed
+            }
+        };
+    }, []); // Empty deps - only run on mount/unmount
 
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center border-b pb-2">
                 <h3 className="text-2xl font-semibold text-gray-800">Manage Invoice Items</h3>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
                     {hasReordered && (
-                        <button
-                            onClick={handleSaveOrder}
-                            disabled={isSaving}
-                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50"
-                        >
-                            {isSaving ? 'Saving...' : 'Save Order'}
-                        </button>
+                        <span className="text-xs text-gray-500 italic">
+                            Changes will be saved automatically when you leave this tab
+                        </span>
                     )}
                     <button 
                         className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
@@ -328,10 +401,25 @@ export const InvoiceItems: React.FC<InvoiceItemsProps> = ({
             
             <div className="flex justify-end pt-4">
                 <button 
-                    onClick={() => console.log('Close Invoice Items view')} 
-                    className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                    onClick={async () => {
+                        // Save order if there are unsaved changes
+                        if (hasReorderedRef.current && localItemsRef.current.length > 0) {
+                            try {
+                                await saveOrder(false);
+                            } catch (error) {
+                                console.error('Error saving order before close:', error);
+                                // Still close even if save fails
+                            }
+                        }
+                        // Close the popup
+                        if (onClose) {
+                            onClose();
+                        }
+                    }}
+                    disabled={isSaving}
+                    className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                    Done
+                    {isSaving ? 'Saving...' : 'Done'}
                 </button>
             </div>
 

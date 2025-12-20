@@ -509,8 +509,11 @@ export const Invoices: React.FC = () => {
       <div className="p-6 md:p-3 bg-gray-50 min-h-screen">
         <div className="max-w-7xl mx-auto">
           <div className="flex justify-between items-center mb-6 md:mb-3 print:hidden">
-            <button onClick={handleCloseDisplay} className="text-blue-600 hover:text-blue-800 font-semibold">
-              &larr; Back to Invoices List
+            <button 
+              onClick={handleCloseDisplay} 
+              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 hover:border-gray-400 hover:text-gray-900 transition-all duration-200 font-medium"
+            >
+              Close
             </button>
 
             <div className="flex gap-3">
