@@ -54,13 +54,11 @@ export interface InvoiceData {
 const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
   const [fetchedPayments, setFetchedPayments] = useState<{ paymentMade: number; balanceDue: number; finalBalance: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings | null>(null);
 
   useEffect(() => {
     async function fetchUpdatedFinancials() {
       setIsLoading(true);
-      setError(null);
 
       // We use the invoiceNumber from the existing data prop to query the table
       const invoiceNumber = data.invoiceNumber;
@@ -89,7 +87,6 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
 
       } catch (e) {
         console.error("Error fetching financial updates:", e);
-        setError(`Failed to load up-to-date payment/balance details.`);
         // Fallback: If fetch fails, we still use the old data values (data.paymentMade, etc.)
         setFetchedPayments({
             paymentMade: data.paymentMade,
@@ -306,7 +303,7 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
               {/* BALANCE DUE DISPLAY: Uses updated 'balanceDue' variable */}
               <div className="text-right mt-8">
                 <p className="text-base font-semibold uppercase text-gray-700 mb-1">Balance Due</p>
-                <p className="text-2xl font-normal text-black">
+                <p className="text-lg font-semibold text-black">
                   KES {Number(balanceDue).toLocaleString('en-KE', { minimumFractionDigits: 2 })}
                 </p>
               </div>
@@ -324,8 +321,8 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
                   <span>{dueDate}</span>
                 </div>
                 <div className="flex justify-end gap-4">
-                  <span className="font-medium">Status:</span>
-                  <span className={`font-bold ${statusColor}`}>{status}</span>
+                  <span className="font-medium text-right" style={{ display: 'inline-block', width: '100px' }}>Status:</span>
+                  <span className={`font-bold ${statusColor} text-left`}>{status}</span>
                 </div>
               </div>
             </div>
@@ -359,9 +356,11 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
               </tr>
             ))}
             <tr className="border-b border-gray-300 bg-gray-50 font-bold">
-              <td colSpan={3}></td>
-              <td className="p-2 text-left" style={{ paddingLeft: '16px' }}>Sub Total</td>
-              <td className="p-2 text-right">{Number(subTotal).toLocaleString()}</td>
+              <td colSpan={3} className="bg-gray-50"></td>
+              <td className="py-2 text-left bg-gray-50" style={{ paddingLeft: '0px', paddingRight: '0px' }}>
+                <span style={{ display: 'inline-block', transform: 'translateX(-80px)' }}>Sub Total</span>
+              </td>
+              <td className="py-2 px-4 text-right bg-gray-50">{Number(subTotal).toLocaleString()}</td>
             </tr>
           </tbody>
         </table>
@@ -402,7 +401,7 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
               </div>
 
               {/* PAYMENT MADE DISPLAY: Uses updated 'paymentMade' variable */}
-              <div className="flex justify-between text-base border-b pb-1 mb-1">
+              <div className="flex justify-between text-base pb-1 mb-1">
                 <span className="font-medium">Payment Made</span>
                 <span className="font-semibold text-red-600">
                   (-) {Number(paymentMade).toLocaleString()}
@@ -410,9 +409,9 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
               </div>
 
               {/* FINAL BALANCE DISPLAY: Uses updated 'finalBalance' variable */}
-              <div className="flex justify-between text-xl pt-2 border-t-2 border-black">
-                <span className="font-normal">Balance Due</span>
-                <span className="font-normal text-black">
+              <div className="flex justify-between text-base pt-0 border-t-2 border-black">
+                <span className="font-medium">Balance Due</span>
+                <span className="font-semibold text-black">
                   Ksh.{Number(finalBalance).toLocaleString()}
                 </span>
               </div>

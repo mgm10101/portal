@@ -374,11 +374,23 @@ export async function createInvoice(data: InvoiceSubmissionData): Promise<Invoic
 
 export async function fetchInvoices(): Promise<InvoiceHeader[]> {
     console.log("🐛 [DEBUG] Starting fetch of all invoices with student join...");
-    const { data, error } = await supabase
+    const baseQuery = supabase
         .from('invoices')
         // 💡 FIX: Including the student join using the `select` syntax
-        .select(`*, students(class_name)`) 
-        .order('created_at', { ascending: false });
+        .select(`*, students(class_name)`);
+
+    // Prefer ordering by last modified time, but be resilient if updated_at is missing.
+    let data: any[] | null = null;
+    let error: any = null;
+
+    ({ data, error } = await baseQuery
+        .order('updated_at', { ascending: false })
+        .order('created_at', { ascending: false }));
+
+    if (error && typeof error.message === 'string' && error.message.toLowerCase().includes('updated_at')) {
+        // Fallback for environments where updated_at does not exist.
+        ({ data, error } = await baseQuery.order('created_at', { ascending: false }));
+    }
         
     if (error) {
         // Log the actual error properties for better debugging
@@ -402,9 +414,30 @@ export async function fetchInvoices(): Promise<InvoiceHeader[]> {
         paymentMade: parseFloat(item.payment_made), // ✅ FIX: Using item.payment_made
         balanceDue: parseFloat(item.balance_due), // ✅ FIX: Using item.balance_due
     }));
+
+    // Ensure most recently modified invoices appear first.
+    // Some environments may not honor DB-side ordering perfectly after mapping,
+    // so we sort again client-side using updated_at (fallback to created_at).
+    const toTime = (value: unknown): number => {
+        if (!value) return 0;
+        const t = new Date(value as any).getTime();
+        return Number.isFinite(t) ? t : 0;
+    };
+
+    const sortedData = [...typedData].sort((a: any, b: any) => {
+        const aUpdated = toTime(a.updated_at);
+        const bUpdated = toTime(b.updated_at);
+        const aCreated = toTime(a.created_at);
+        const bCreated = toTime(b.created_at);
+
+        // Prefer updated_at if present/valid, otherwise fall back to created_at.
+        const aTime = aUpdated || aCreated;
+        const bTime = bUpdated || bCreated;
+        return bTime - aTime;
+    });
     
-    console.log(`✅ [DEBUG] Successfully fetched and coerced ${typedData.length} invoices.`);
-    return typedData;
+    console.log(`✅ [DEBUG] Successfully fetched and coerced ${sortedData.length} invoices.`);
+    return sortedData;
 }
 
 export async function fetchFullInvoice(invoiceNumber: string): Promise<FullInvoice | null> {

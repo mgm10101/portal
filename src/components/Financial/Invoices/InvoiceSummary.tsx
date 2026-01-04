@@ -1,6 +1,6 @@
 // src/components/Financial/Invoices/InvoiceSummary.tsx
 import React from 'react';
-import { AlertCircle, CheckCircle, Clock, Wallet } from 'lucide-react';
+import { AlertCircle, CheckCircle, Clock, HandCoins } from 'lucide-react';
 // FIX: Import the correct InvoiceHeader type from the database types file
 import { InvoiceHeader } from '../../../types/database'; 
 // REMOVED: import { InvoiceData } from './index';
@@ -70,7 +70,7 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({ invoices }) => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-3 mb-6 md:mb-3">
             <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
                 <div className="flex items-center">
-                    <Wallet className="w-8 h-8 text-blue-600 mr-3" />
+                    <HandCoins className="w-8 h-8 text-blue-600 mr-3" />
                     <div>
                         <div className="text-sm text-gray-600">Total Receivables</div>
                         <div className="text-2xl font-bold text-blue-600">Ksh {formatCurrency(totalReceivables)}</div>
