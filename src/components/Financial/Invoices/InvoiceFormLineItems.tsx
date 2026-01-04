@@ -12,6 +12,7 @@ interface InvoiceFormLineItemsProps {
     lineItemsSubtotal: number;
     // 🎯 ADDED NEW PROP
     isEditMode: boolean;
+    allowRemoveInEditMode?: boolean;
     // 🎯 ADDED: Flag to disable editing for Forwarded invoices
     isForwarded?: boolean;
     
@@ -29,6 +30,7 @@ export const InvoiceFormLineItems: React.FC<InvoiceFormLineItemsProps> = ({
     lineItemsSubtotal,
     // 🎯 DESTRUCTURE NEW PROP
     isEditMode,
+    allowRemoveInEditMode = false,
     isForwarded = false,
     handleAddItem,
     handleRemoveItem,
@@ -217,11 +219,10 @@ export const InvoiceFormLineItems: React.FC<InvoiceFormLineItemsProps> = ({
                     <button 
                         type="button" 
                         onClick={() => handleRemoveItem(index)} 
-                        // 🎯 LOGIC CHANGE: Disabled if submitting OR in edit mode OR if Forwarded
-                        disabled={isSubmitting || isEditMode || isForwarded}
-                        title={isForwarded ? "Forwarded invoices cannot be edited" : isEditMode ? "Cannot delete existing line items in Edit Mode" : "Remove Line Item"}
+                        disabled={isSubmitting || isForwarded || (isEditMode && !allowRemoveInEditMode)}
+                        title={isForwarded ? "Forwarded invoices cannot be edited" : (isEditMode && !allowRemoveInEditMode) ? "Cannot delete existing line items in Edit Mode" : "Remove Line Item"}
                         className={`p-1 ${
-                            isEditMode || isSubmitting || isForwarded
+                            (isEditMode && !allowRemoveInEditMode) || isSubmitting || isForwarded
                                 ? 'text-red-300 cursor-not-allowed' // Dimmed/disabled style
                                 : 'text-red-500 hover:text-red-700' // Active style
                         }`}

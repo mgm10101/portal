@@ -1,11 +1,12 @@
 // src/components/Financial/Invoices/InvoiceTable.tsx (READY TO PASTE)
 
 import React, { useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Edit, Loader2, Trash2 } from 'lucide-react';
 import { InvoiceHeader } from '../../../types/database'; 
 import { voidInvoice, voidInvoices } from '../../../services/financialService';
 import { VoidReasonPopup } from '../VoidReasonPopup';
 import { supabase } from '../../../supabaseClient';
+import { InvoiceEditModal } from './InvoiceEditModal';
 
 interface InvoiceTableProps {
     invoices: InvoiceHeader[]; 
@@ -45,6 +46,8 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onView, on
     const [isDeleting, setIsDeleting] = useState(false);
     const [showVoidReasonPopup, setShowVoidReasonPopup] = useState(false);
     const [invoiceToVoid, setInvoiceToVoid] = useState<string | string[] | null>(null);
+
+    const [invoiceToEdit, setInvoiceToEdit] = useState<InvoiceHeader | null>(null);
     
     // Get current user email for voided_by
     const getCurrentUserEmail = async (): Promise<string | undefined> => {
@@ -246,6 +249,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onView, on
                                 </td>
                                 <td className="px-2 py-4 whitespace-nowrap">
                                     <div className="text-sm font-medium text-gray-900">{invoice.invoice_number}</div>
+                                    <div className="text-sm text-gray-500">{invoice.description || '-'}</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                     <div className="text-sm font-medium text-gray-900">{invoice.name}</div>
@@ -258,11 +262,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onView, on
                                     Ksh.{invoice.totalAmount.toFixed(2)}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                    {invoice.balanceDue > 0 ? (
-                                        <span className="text-red-600">Ksh.{invoice.balanceDue.toFixed(2)}</span>
-                                    ) : (
-                                        <span className="text-gray-600">Ksh. 0.00</span>
-                                    )}
+                                    Ksh.{invoice.balanceDue.toFixed(2)}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusClasses(invoice.status)}`}>
@@ -276,13 +276,39 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onView, on
                                     className="px-6 py-4 whitespace-nowrap text-sm font-medium"
                                     onClick={(e) => e.stopPropagation()}
                                 >
-                                        <button 
-                                        onClick={() => handleVoid(invoice)}
-                                        className="px-3 py-1 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-300 rounded-lg transition-colors"
-                                        title="Void Invoice"
-                                    >
-                                        Void
+                                    <div className="flex space-x-3 items-center">
+                                        <button
+                                            onClick={() => {
+                                                if (invoice.status === 'Forwarded') return;
+                                                setInvoiceToEdit(invoice);
+                                            }}
+                                            disabled={isDeleting || invoice.status === 'Forwarded'}
+                                            className={`transition-colors ${
+                                                isDeleting || invoice.status === 'Forwarded'
+                                                    ? 'text-green-300 cursor-not-allowed'
+                                                    : 'text-green-600 hover:text-green-700'
+                                            }`}
+                                            title={invoice.status === 'Forwarded' ? 'Forwarded invoices cannot be edited' : 'Edit Invoice'}
+                                        >
+                                            <Edit className="w-4 h-4" />
                                         </button>
+                                        <button
+                                            onClick={() => handleVoid(invoice)}
+                                            disabled={isDeleting}
+                                            className={`transition-colors ${
+                                                isDeleting
+                                                    ? 'text-red-400 cursor-not-allowed'
+                                                    : 'text-red-600 hover:text-red-700'
+                                            }`}
+                                            title="Void Invoice"
+                                        >
+                                            {isDeleting && invoiceToVoid === invoice.invoice_number ? (
+                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                            ) : (
+                                                <Trash2 className="w-4 h-4" />
+                                            )}
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         ))}
@@ -299,6 +325,14 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onView, on
                 onConfirm={handleConfirmVoid}
                 expenseCount={Array.isArray(invoiceToVoid) ? invoiceToVoid.length : 1}
                 recordType="invoice"
+            />
+        )}
+
+        {invoiceToEdit && (
+            <InvoiceEditModal
+                invoice={invoiceToEdit}
+                onClose={() => setInvoiceToEdit(null)}
+                onSaved={onDataMutation}
             />
         )}
     </div>

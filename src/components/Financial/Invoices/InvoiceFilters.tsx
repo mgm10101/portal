@@ -1,7 +1,7 @@
 // src/components/Financial/Invoices/InvoiceFilters.tsx
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Filter, Plus, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, Filter, Plus, X } from 'lucide-react';
 import { InvoiceHeader } from '../../../types/database';
 
 interface InvoiceFiltersProps {
@@ -215,18 +215,13 @@ export const InvoiceFilters: React.FC<InvoiceFiltersProps> = ({
             />
           </div>
           <button 
-            onClick={() => setShowFilters(!showFilters)}
+            onClick={() => setShowFilters(true)}
             className={`flex-shrink-0 flex items-center justify-center p-2 md:px-4 md:py-2 border border-gray-300 rounded-lg hover:bg-gray-50 ${
               hasActiveFilters ? 'bg-blue-50 border-blue-300' : ''
             }`}
           >
             <Filter className="w-4 h-4 md:mr-2" />
             <span className="hidden md:inline">Filters</span>
-            {showFilters ? (
-              <ChevronUp className="w-4 h-4 ml-1" />
-            ) : (
-              <ChevronDown className="w-4 h-4 ml-1" />
-            )}
           </button>
           <button
             onClick={onCreateInvoice}
@@ -239,7 +234,19 @@ export const InvoiceFilters: React.FC<InvoiceFiltersProps> = ({
 
         {/* Filter Panel */}
         {showFilters && (
-          <div className="mt-4 pt-4 border-t border-gray-200">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between p-6 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-800">Filter Invoices</h3>
+                <button
+                  onClick={() => setShowFilters(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {/* Student Filter - Searchable Dropdown */}
               <div className="relative">
@@ -429,6 +436,8 @@ export const InvoiceFilters: React.FC<InvoiceFiltersProps> = ({
                 </button>
               </div>
             )}
+              </div>
+            </div>
           </div>
         )}
       </div>

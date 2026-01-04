@@ -66,6 +66,7 @@ const BASE_FIELDS: FieldDefinition[] = [
     { id: 'current_class_id', name: 'Current Class', table: 'classes', type: 'system' },
     { id: 'stream_id', name: 'Stream', table: 'streams', type: 'system' },
     { id: 'team_colour_id', name: 'Team', table: 'team_colours', type: 'system' },
+    { id: 'gender', name: 'Gender', type: 'system' },
 ];
 
 // Transport fields
@@ -151,6 +152,13 @@ export const CustomLineItems: React.FC<CustomLineItemsProps> = ({
                     .select('id, name')
                     .order('sort_order', { ascending: true, nullsFirst: true });
                 options['team_colour_id'] = teams || [];
+
+                // Gender is a system field with fixed options (not a DB table lookup)
+                options['gender'] = [
+                    { id: 'Male', name: 'Male' },
+                    { id: 'Female', name: 'Female' },
+                    { id: 'Custom', name: 'Custom' },
+                ];
                 
                 // Fetch transport field options
                 try {

@@ -742,8 +742,7 @@ export async function updateInvoice(invoiceNumber: string, data: InvoiceSubmissi
     // --- 1. UPDATE INVOICE HEADER ---
     console.log(`🐛 [DEBUG] Step 1: Updating Invoice Header for ${invoiceNumber}...`);
 
-    // Only update the editable fields: dueDate, description, and the calculated totals.
-    // NOTE: admission_number, name, and invoice_date are NOT updated as per requirements.
+    // Only update the editable fields: due_date, description, and the calculated totals.
     const headerToUpdate = {
         due_date: data.header.due_date,
         description: data.header.description || null,
@@ -774,6 +773,28 @@ export async function updateInvoice(invoiceNumber: string, data: InvoiceSubmissi
     // --- 2. FETCH EXISTING LINE ITEMS TO GET CURRENT SORT_ORDER ---
     const existingInvoice = await fetchFullInvoice(invoiceNumber);
     const existingItems = existingInvoice?.line_items || [];
+
+    // --- 3.5 HANDLE DELETIONS (if any) ---
+    // If the UI removed a previously existing line item, delete it from the DB.
+    // We consider only items that have an id (persisted line items).
+    const incomingIds = new Set(data.line_items.filter(i => i.id).map(i => i.id as string));
+    const idsToDelete = existingItems
+        .map(i => i.id)
+        .filter((id): id is string => !!id && !incomingIds.has(id));
+
+    if (idsToDelete.length > 0) {
+        console.log(`🐛 [DEBUG] Deleting ${idsToDelete.length} removed line item(s)...`);
+        const { error: deleteError } = await supabase
+            .from('invoice_line_items')
+            .delete()
+            .in('id', idsToDelete);
+
+        if (deleteError) {
+            console.error('❌ [ERROR] Error deleting removed line items:', deleteError);
+            throw new Error(`Failed to delete removed line items: ${deleteError.message}`);
+        }
+        console.log('✅ [DEBUG] Successfully deleted removed line items.');
+    }
 
     // --- 3. SEPARATE LINE ITEMS INTO UPDATE/INSERT GROUPS ---
     const itemsToUpdate = data.line_items.filter(item => item.id);
