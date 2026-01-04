@@ -62,24 +62,12 @@ export const InvoiceFormLineItems: React.FC<InvoiceFormLineItemsProps> = ({
     }, []);
     
     const renderLineItem = (item: InvoiceLineItem, index: number) => {
-        // Determine the selected item ID for the dropdown
-        // If selectedItemId exists, use it; otherwise try to find by itemName
-        let selectedItemId = item.selectedItemId;
-        if (!selectedItemId && item.itemName) {
-            // For existing items, find the first matching item by name
-            // (This handles items loaded from DB that don't have selectedItemId)
-            const foundItem = availableItems.find(i => i.item_name === item.itemName);
-            selectedItemId = foundItem?.id || '';
-        }
-        
-        // Look up the master item details based on selectedItemId or itemName
-        const itemMaster = selectedItemId 
-            ? availableItems.find(i => i.id === selectedItemId)
-            : availableItems.find(i => i.item_name === item.itemName);
-        
-        // Use the master item's current price, but fall back to the invoice line item's stored price 
-        // if the master item isn't found (e.g., if it was deleted or changed after invoice creation).
-        const unitPrice = itemMaster ? itemMaster.current_unit_price : item.unitPrice;
+        // IMPORTANT:
+        // Do NOT infer a master item by itemName for existing invoice line items.
+        // Many master items share the same name but differ by description/price.
+        // The invoice line item values (unitPrice/description) are authoritative.
+        const selectedItemId = item.selectedItemId;
+        const unitPrice = item.unitPrice;
         
         // Pass the item with its correct unitPrice for calculation
         const lineTotal = calculateLineTotal({ ...item, unitPrice }); 
