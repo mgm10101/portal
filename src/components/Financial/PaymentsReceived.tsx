@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Search, Filter, Edit, Trash2, Download, Check, X, ChevronDown, RotateCcw, Loader2 } from 'lucide-react';
+import { Plus, Search, Filter, Edit, Trash2, Download, Check, X, ChevronDown, RotateCcw, Loader2, Calendar, TrendingUp, TrendingDown, AlertCircle, CalendarDays, BarChart3 } from 'lucide-react';
 import { 
   fetchInvoices, 
   fetchStudents,
@@ -11,6 +11,7 @@ import {
   fetchStudentInvoicesForPayment,
   createPayment,
   updatePayment,
+  deletePayment,
   voidPayment,
   voidPayments,
   fetchFullPayment
@@ -1109,55 +1110,75 @@ export const PaymentsReceived: React.FC = () => {
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-3 mb-6 md:mb-3">
           <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
-            <div className="text-sm text-gray-600 mb-1">Today's Payments</div>
-            <div className="text-2xl font-normal text-gray-800">
-              Ksh. {(() => {
-                const today = new Date().toISOString().split('T')[0];
-                return payments
-                  .filter(p => p.payment_date === today)
-                  .reduce((sum, p) => sum + p.amount, 0)
-                  .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-              })()}
+            <div className="flex items-center">
+              <TrendingUp className="w-8 h-8 text-green-600 mr-3" />
+              <div>
+                <div className="text-sm text-gray-600">Today's Payments</div>
+                <div className="text-2xl font-bold text-green-600">
+                  Ksh. {(() => {
+                    const today = new Date().toISOString().split('T')[0];
+                    return payments
+                      .filter(p => p.payment_date === today)
+                      .reduce((sum, p) => sum + p.amount, 0)
+                      .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  })()}
+                </div>
+              </div>
             </div>
           </div>
           <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
-            <div className="text-sm text-gray-600 mb-1">This Week</div>
-            <div className="text-2xl font-normal text-green-600">
-              Ksh. {(() => {
-                const today = new Date();
-                const weekStart = new Date(today);
-                weekStart.setDate(today.getDate() - today.getDay());
-                weekStart.setHours(0, 0, 0, 0);
-                return payments
-                  .filter(p => {
-                    const paymentDate = new Date(p.payment_date);
-                    return paymentDate >= weekStart;
-                  })
-                  .reduce((sum, p) => sum + p.amount, 0)
-                  .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-              })()}
+            <div className="flex items-center">
+              <BarChart3 className="w-8 h-8 text-blue-600 mr-3" />
+              <div>
+                <div className="text-sm text-gray-600">This Week</div>
+                <div className="text-2xl font-bold text-blue-600">
+                  Ksh. {(() => {
+                    const today = new Date();
+                    const weekStart = new Date(today);
+                    weekStart.setDate(today.getDate() - today.getDay());
+                    weekStart.setHours(0, 0, 0, 0);
+                    return payments
+                      .filter(p => {
+                        const paymentDate = new Date(p.payment_date);
+                        return paymentDate >= weekStart;
+                      })
+                      .reduce((sum, p) => sum + p.amount, 0)
+                      .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  })()}
+                </div>
+              </div>
             </div>
           </div>
           <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
-            <div className="text-sm text-gray-600 mb-1">This Month</div>
-            <div className="text-2xl font-normal text-blue-600">
-              Ksh. {(() => {
-                const today = new Date();
-                const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-                return payments
-                  .filter(p => {
-                    const paymentDate = new Date(p.payment_date);
-                    return paymentDate >= monthStart;
-                  })
-                  .reduce((sum, p) => sum + p.amount, 0)
-                  .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-              })()}
+            <div className="flex items-center">
+              <CalendarDays className="w-8 h-8 text-yellow-600 mr-3" />
+              <div>
+                <div className="text-sm text-gray-600">This Month</div>
+                <div className="text-2xl font-bold text-yellow-600">
+                  Ksh. {(() => {
+                    const today = new Date();
+                    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+                    return payments
+                      .filter(p => {
+                        const paymentDate = new Date(p.payment_date);
+                        return paymentDate >= monthStart;
+                      })
+                      .reduce((sum, p) => sum + p.amount, 0)
+                      .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  })()}
+                </div>
+              </div>
             </div>
           </div>
           <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
-            <div className="text-sm text-gray-600 mb-1">Outstanding</div>
-            <div className="text-2xl font-normal text-red-600">
-              Ksh. {outstandingFees.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            <div className="flex items-center">
+              <AlertCircle className="w-8 h-8 text-red-600 mr-3" />
+              <div>
+                <div className="text-sm text-gray-600">Outstanding</div>
+                <div className="text-2xl font-bold text-red-600">
+                  Ksh. {outstandingFees.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1364,7 +1385,7 @@ export const PaymentsReceived: React.FC = () => {
             </style>
             <div 
               ref={(node) => {
-                formContainerRef.current = node;
+                (formContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
                 if (node && formScrollRef.current > 0) {
                   requestAnimationFrame(() => {
                     if (formContainerRef.current) {

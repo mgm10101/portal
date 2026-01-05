@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { Plus, Search, Filter, Eye, Edit, Trash2, X, ChevronDown, Loader2 } from 'lucide-react';
+import { Plus, Search, Filter, Eye, Edit, Trash2, X, ChevronDown, Loader2, Calendar, TrendingDown, PieChart, DollarSign, CalendarDays, BarChart3 } from 'lucide-react';
 import { DropdownField } from '../Students/masterlist/DropdownField';
 import { OptionsModal } from '../Students/masterlist/OptionsModal';
 import { VoidReasonPopup } from './VoidReasonPopup';
@@ -993,7 +993,7 @@ export const Expenses: React.FC = () => {
             </style>
             <div 
               ref={(node) => {
-                formContainerRef.current = node;
+                (formContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
                 if (node && formScrollRef.current > 0) {
                   requestAnimationFrame(() => {
                     if (formContainerRef.current) {
@@ -1450,64 +1450,84 @@ export const Expenses: React.FC = () => {
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-3 mb-6 md:mb-3">
           <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
-            <div className="text-sm text-gray-600 mb-1">Today's Expenses</div>
-            <div className="text-2xl font-normal text-gray-800">
-              Ksh. {(() => {
-                const today = new Date().toISOString().split('T')[0];
-                const todayTotal = expenses
-                  .filter(e => e.expense_date === today)
-                  .reduce((sum, e) => sum + e.amount, 0);
-                return todayTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-              })()}
+            <div className="flex items-center">
+              <TrendingDown className="w-8 h-8 text-slate-600 mr-3" />
+              <div>
+                <div className="text-sm text-gray-600">Today's Expenses</div>
+                <div className="text-2xl font-bold text-slate-600">
+                  Ksh. {(() => {
+                    const today = new Date().toISOString().split('T')[0];
+                    const todayTotal = expenses
+                      .filter(e => e.expense_date === today)
+                      .reduce((sum, e) => sum + e.amount, 0);
+                    return todayTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  })()}
+                </div>
+              </div>
             </div>
           </div>
           <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
-            <div className="text-sm text-gray-600 mb-1">This Week</div>
-            <div className="text-2xl font-normal text-red-600">
-              Ksh. {(() => {
-                const today = new Date();
-                const weekStart = new Date(today);
-                weekStart.setDate(today.getDate() - today.getDay());
-                weekStart.setHours(0, 0, 0, 0);
-                const weekTotal = expenses
-                  .filter(e => {
-                    const expenseDate = new Date(e.expense_date);
-                    return expenseDate >= weekStart;
-                  })
-                  .reduce((sum, e) => sum + e.amount, 0);
-                return weekTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-              })()}
+            <div className="flex items-center">
+              <BarChart3 className="w-8 h-8 text-emerald-600 mr-3" />
+              <div>
+                <div className="text-sm text-gray-600">This Week</div>
+                <div className="text-2xl font-bold text-emerald-600">
+                  Ksh. {(() => {
+                    const today = new Date();
+                    const weekStart = new Date(today);
+                    weekStart.setDate(today.getDate() - today.getDay());
+                    weekStart.setHours(0, 0, 0, 0);
+                    const weekTotal = expenses
+                      .filter(e => {
+                        const expenseDate = new Date(e.expense_date);
+                        return expenseDate >= weekStart;
+                      })
+                      .reduce((sum, e) => sum + e.amount, 0);
+                    return weekTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  })()}
+                </div>
+              </div>
             </div>
           </div>
           <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
-            <div className="text-sm text-gray-600 mb-1">This Month</div>
-            <div className="text-2xl font-normal text-red-600">
-              Ksh. {(() => {
-                const today = new Date();
-                const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-                const monthTotal = expenses
-                  .filter(e => {
-                    const expenseDate = new Date(e.expense_date);
-                    return expenseDate >= monthStart;
-                  })
-                  .reduce((sum, e) => sum + e.amount, 0);
-                return monthTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-              })()}
+            <div className="flex items-center">
+              <CalendarDays className="w-8 h-8 text-indigo-600 mr-3" />
+              <div>
+                <div className="text-sm text-gray-600">This Month</div>
+                <div className="text-2xl font-bold text-indigo-600">
+                  Ksh. {(() => {
+                    const today = new Date();
+                    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+                    const monthTotal = expenses
+                      .filter(e => {
+                        const expenseDate = new Date(e.expense_date);
+                        return expenseDate >= monthStart;
+                      })
+                      .reduce((sum, e) => sum + e.amount, 0);
+                    return monthTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  })()}
+                </div>
+              </div>
             </div>
           </div>
           <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
-            <div className="text-sm text-gray-600 mb-1">Top Category</div>
-            <div className="text-lg font-normal text-blue-600">
-              {(() => {
-                const categoryTotals: Record<string, number> = {};
-                expenses.forEach(e => {
-                  const catName = e.category_name || 'Unknown';
-                  categoryTotals[catName] = (categoryTotals[catName] || 0) + e.amount;
-                });
-                const topCategory = Object.entries(categoryTotals)
-                  .sort(([, a], [, b]) => b - a)[0];
-                return topCategory ? topCategory[0] : 'N/A';
-              })()}
+            <div className="flex items-center">
+              <PieChart className="w-8 h-8 text-blue-600 mr-3" />
+              <div>
+                <div className="text-sm text-gray-600">Top Category</div>
+                <div className="text-lg font-bold text-blue-600">
+                  {(() => {
+                    const categoryTotals: Record<string, number> = {};
+                    expenses.forEach(e => {
+                      const catName = e.category_name || 'Unknown';
+                      categoryTotals[catName] = (categoryTotals[catName] || 0) + e.amount;
+                    });
+                    const topCategory = Object.entries(categoryTotals)
+                      .sort(([, a], [, b]) => b - a)[0];
+                    return topCategory ? topCategory[0] : 'N/A';
+                  })()}
+                </div>
+              </div>
             </div>
           </div>
         </div>

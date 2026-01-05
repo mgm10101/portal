@@ -100,7 +100,7 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({ invoices }) => {
                     <AlertCircle className="w-8 h-8 text-red-600 mr-3" />
                     <div>
                         <div className="text-sm text-gray-600">Overdue</div>
-                        <div className="text-2xl font-bold text-[#1f2937]">Ksh {formatCurrency(overdueTotal)}</div>
+                        <div className="text-2xl font-bold text-red-600">Ksh {formatCurrency(overdueTotal)}</div>
                     </div>
                 </div>
             </div>
