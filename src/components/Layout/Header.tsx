@@ -35,8 +35,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuClick, username = 'Admin',
         const [studentsRes, staffRes] = await Promise.all([
           supabase
             .from('students')
-            .select('*', { count: 'exact', head: true })
-            .eq('status', 'Active'),
+            .select('status'),
           supabase
             .from('staff')
             .select('*', { count: 'exact', head: true })
@@ -45,7 +44,10 @@ export const Header: React.FC<HeaderProps> = ({ onMenuClick, username = 'Admin',
 
         if (cancelled) return;
 
-        if (!studentsRes.error) setStudentCount(studentsRes.count ?? 0);
+        if (!studentsRes.error) {
+          const activeStudentsCount = (studentsRes.data || []).filter((s: any) => s.status === 'Active').length;
+          setStudentCount(activeStudentsCount);
+        }
         if (!staffRes.error) setStaffCount(staffRes.count ?? 0);
       } catch {
         // Silently fail; badges will remain in loading state.

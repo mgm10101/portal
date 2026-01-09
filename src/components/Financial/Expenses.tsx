@@ -29,7 +29,7 @@ import {
   updateExpensePaidThrough,
   deleteExpensePaidThrough
 } from '../../services/expenseService';
-import { Expense, ExpenseCategory, ExpenseDescription, ExpenseVendor, ExpensePaidThrough } from '../../types/database';
+import { Expense, ExpenseCategory, ExpenseDescription, ExpenseVendor, ExpensePaidThrough, ExpenseSubmissionData } from '../../types/database';
 
 // Mark as Paid Popup Component
 const MarkAsPaidPopup: React.FC<{ 
@@ -512,7 +512,14 @@ export const Expenses: React.FC = () => {
   const [selectedPaidThroughId, setSelectedPaidThroughId] = useState<number | undefined>(undefined);
   const [selectedVendorId, setSelectedVendorId] = useState<number | undefined>(undefined);
   const [selectedDescriptionId, setSelectedDescriptionId] = useState<number | undefined>(undefined);
-  
+
+  const isMountedRef = useRef(true);
+  const saveQueueRef = useRef<(ExpenseSubmissionData & { notes?: string | null; balance_due?: number })[]>([]);
+  const isProcessingSaveQueueRef = useRef(false);
+  const [queuedExpenseSavesCount, setQueuedExpenseSavesCount] = useState(0);
+  const [isBackgroundSavingExpenses, setIsBackgroundSavingExpenses] = useState(false);
+  const [backgroundSaveError, setBackgroundSaveError] = useState<string | null>(null);
+
   // Clear description when category changes
   const handleCategoryChange = (categoryId: number | undefined) => {
     setSelectedCategoryId(categoryId);
@@ -703,6 +710,17 @@ export const Expenses: React.FC = () => {
       }
     }
 
+    const getLastModifiedTime = (expense: Expense) => {
+      const timestamp = expense.updated_at || expense.created_at;
+      const parsed = timestamp ? Date.parse(timestamp) : NaN;
+      if (!Number.isNaN(parsed)) return parsed;
+
+      const fallbackParsed = Date.parse(expense.expense_date);
+      return Number.isNaN(fallbackParsed) ? 0 : fallbackParsed;
+    };
+
+    filtered.sort((a, b) => getLastModifiedTime(b) - getLastModifiedTime(a));
+
     return filtered;
   }, [expenses, searchQuery, filterDateFrom, filterDateTo, filterCategoryId, filterDescriptionId, filterVendorId, filterPaidThroughId, filterStatus, filterAmountMin, filterAmountMax, getExpenseStatus]);
 
@@ -726,6 +744,117 @@ export const Expenses: React.FC = () => {
     // Placeholder function for dropdown validation
   };
 
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const resetFormForNextExpense = useCallback(() => {
+    setAmount(0);
+    setAmountInput('');
+    setPaymentReferenceNo('');
+    setNotes('');
+    setSelectedDescriptionId(undefined);
+    setSelectedVendorId(undefined);
+  }, []);
+
+  const buildQueuedExpensePayload = useCallback((): (ExpenseSubmissionData & { notes?: string | null; balance_due?: number }) | null => {
+    if (!selectedCategoryId) {
+      alert('Please select a category');
+      return null;
+    }
+
+    const parsedAmount = parseFloat(amountInput);
+    const resolvedAmount = !Number.isNaN(parsedAmount) ? parsedAmount : amount;
+
+    if (!resolvedAmount || resolvedAmount <= 0) {
+      alert('Please enter a valid amount');
+      return null;
+    }
+
+    if (paymentStatus === 'Unpaid' && !dueDate) {
+      alert('Please enter a due date for unpaid expenses');
+      return null;
+    }
+
+    if (paymentStatus === 'Paid' && !datePaid) {
+      alert('Please enter a date paid for paid expenses');
+      return null;
+    }
+
+    return {
+      expense_date: expenseDate,
+      category_id: selectedCategoryId,
+      description_id: selectedDescriptionId || null,
+      amount: resolvedAmount,
+      vendor_id: selectedVendorId || null,
+      paid_through_id: paymentStatus === 'Unpaid' ? null : (selectedPaidThroughId || null),
+      payment_status: paymentStatus as 'Paid' | 'Unpaid',
+      due_date: paymentStatus === 'Unpaid' ? dueDate : null,
+      date_paid: paymentStatus === 'Paid' ? datePaid : null,
+      payment_reference_no: paymentReferenceNo || null,
+      notes: notes || null,
+      balance_due: paymentStatus === 'Unpaid' ? resolvedAmount : 0,
+    };
+  }, [amount, amountInput, datePaid, dueDate, expenseDate, notes, paymentReferenceNo, paymentStatus, selectedCategoryId, selectedDescriptionId, selectedPaidThroughId, selectedVendorId]);
+
+  const processExpenseSaveQueue = useCallback(async () => {
+    if (isProcessingSaveQueueRef.current) return;
+    isProcessingSaveQueueRef.current = true;
+
+    if (isMountedRef.current) {
+      setIsBackgroundSavingExpenses(true);
+      setBackgroundSaveError(null);
+    }
+
+    while (saveQueueRef.current.length > 0) {
+      const nextPayload = saveQueueRef.current[0];
+
+      try {
+        await createExpense(nextPayload);
+      } catch (error) {
+        console.error('Error saving queued expense:', error);
+        if (isMountedRef.current) {
+          setBackgroundSaveError('Failed to save one of the queued expenses. Please try again.');
+          setIsBackgroundSavingExpenses(false);
+        }
+        isProcessingSaveQueueRef.current = false;
+        return;
+      }
+
+      saveQueueRef.current.shift();
+      if (isMountedRef.current) setQueuedExpenseSavesCount(saveQueueRef.current.length);
+
+      if (!isMountedRef.current) {
+        continue;
+      }
+
+      try {
+        const expensesData = await fetchExpenses();
+        if (isMountedRef.current) setExpenses(expensesData);
+      } catch (error) {
+        console.error('Error refreshing expenses after queued save:', error);
+      }
+    }
+
+    if (isMountedRef.current) setIsBackgroundSavingExpenses(false);
+    isProcessingSaveQueueRef.current = false;
+  }, []);
+
+  const handleRecordNextExpense = useCallback(() => {
+    if (selectedExpense) return;
+
+    const payload = buildQueuedExpensePayload();
+    if (!payload) return;
+
+    saveQueueRef.current.push(payload);
+    setQueuedExpenseSavesCount(saveQueueRef.current.length);
+    processExpenseSaveQueue();
+    resetFormForNextExpense();
+  }, [buildQueuedExpensePayload, processExpenseSaveQueue, resetFormForNextExpense, selectedExpense]);
+
   // Handle form submission
   const handleSubmitExpense = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -735,7 +864,10 @@ export const Expenses: React.FC = () => {
       return;
     }
 
-    if (!amount || amount <= 0) {
+    const parsedAmount = parseFloat(amountInput);
+    const resolvedAmount = !Number.isNaN(parsedAmount) ? parsedAmount : amount;
+
+    if (!resolvedAmount || resolvedAmount <= 0) {
       alert('Please enter a valid amount');
       return;
     }
@@ -756,7 +888,7 @@ export const Expenses: React.FC = () => {
         expense_date: expenseDate,
         category_id: selectedCategoryId,
         description_id: selectedDescriptionId || null,
-        amount: amount,
+        amount: resolvedAmount,
         vendor_id: selectedVendorId || null,
         paid_through_id: paymentStatus === 'Unpaid' ? null : (selectedPaidThroughId || null),
         payment_status: paymentStatus as 'Paid' | 'Unpaid',
@@ -764,7 +896,7 @@ export const Expenses: React.FC = () => {
         date_paid: paymentStatus === 'Paid' ? datePaid : null,
         payment_reference_no: paymentReferenceNo || null,
         notes: notes || null,
-        balance_due: paymentStatus === 'Unpaid' ? amount : 0
+        balance_due: paymentStatus === 'Unpaid' ? resolvedAmount : 0
       };
 
       if (selectedExpense) {
@@ -1010,7 +1142,7 @@ export const Expenses: React.FC = () => {
               className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto scrollbar-hide"
             >
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-gray-800">
+          <h2 className="text-xl font-semibold text-gray-800">
             {selectedExpense ? 'Edit Expense' : 'Record New Expense'}
           </h2>
           <button
@@ -1209,7 +1341,16 @@ export const Expenses: React.FC = () => {
             ></textarea>
           </div>
 
-          <div className="flex justify-end space-x-3 pt-4">
+          <div className="flex items-center justify-end space-x-3 pt-4">
+            {!selectedExpense && (queuedExpenseSavesCount > 0 || isBackgroundSavingExpenses || backgroundSaveError) && (
+              <div className="mr-auto text-xs text-gray-600">
+                {backgroundSaveError
+                  ? backgroundSaveError
+                  : isBackgroundSavingExpenses
+                  ? `Saving... (${queuedExpenseSavesCount} queued)`
+                  : `${queuedExpenseSavesCount} queued`}
+              </div>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -1232,6 +1373,19 @@ export const Expenses: React.FC = () => {
             >
               Cancel
             </button>
+
+            {!selectedExpense && (
+              <button
+                type="button"
+                onClick={handleRecordNextExpense}
+                disabled={isSubmitting}
+                className={`px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 ${
+                  isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                Record Next
+              </button>
+            )}
             <button
               type="submit"
               disabled={isSubmitting}
@@ -1248,7 +1402,7 @@ export const Expenses: React.FC = () => {
                   {selectedExpense ? 'Updating...' : 'Recording...'}
                 </>
               ) : (
-                `${selectedExpense ? 'Update' : 'Record'} Expense`
+                `${selectedExpense ? 'Update' : 'Save'}`
               )}
             </button>
           </div>
@@ -1264,7 +1418,7 @@ export const Expenses: React.FC = () => {
           items={categories.map(c => ({ id: c.id, name: c.name, sort_order: c.sort_order }))}
           onAdd={async (name: string) => {
             try {
-              const newCategory = await addExpenseCategory(name);
+              await addExpenseCategory(name);
               const updatedCategories = await fetchExpenseCategories();
               setCategories(updatedCategories);
             } catch (error) {
@@ -1308,7 +1462,7 @@ export const Expenses: React.FC = () => {
           items={paidThroughOptions.map(p => ({ id: p.id, name: p.name, sort_order: p.sort_order }))}
           onAdd={async (name: string) => {
             try {
-              const newOption = await addExpensePaidThrough(name);
+              await addExpensePaidThrough(name);
               const updatedOptions = await fetchExpensePaidThrough();
               setPaidThroughOptions(updatedOptions);
             } catch (error) {
@@ -1352,7 +1506,7 @@ export const Expenses: React.FC = () => {
           items={vendors.map(v => ({ id: v.id, name: v.name, sort_order: v.sort_order }))}
           onAdd={async (name: string) => {
             try {
-              const newVendor = await addExpenseVendor(name);
+              await addExpenseVendor(name);
               const updatedVendors = await fetchExpenseVendors();
               setVendors(updatedVendors);
             } catch (error) {
@@ -1396,7 +1550,7 @@ export const Expenses: React.FC = () => {
           items={descriptions.map(d => ({ id: d.id, name: d.name, sort_order: d.sort_order }))}
           onAdd={async (name: string) => {
             try {
-              const newDescription = await addExpenseDescription(name, selectedCategoryId);
+              await addExpenseDescription(name, selectedCategoryId);
               // Refresh all descriptions
               const allCats = await fetchExpenseCategories();
               const descPromises = allCats.map(cat => fetchExpenseDescriptions(cat.id));

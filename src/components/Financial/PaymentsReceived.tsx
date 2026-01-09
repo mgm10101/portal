@@ -321,6 +321,11 @@ export const PaymentsReceived: React.FC = () => {
   const [selectedStudent, setSelectedStudent] = useState<StudentInfo | null>(null);
   const [loadingStudents, setLoadingStudents] = useState(true);
   const studentDropdownRef = useRef<HTMLDivElement>(null);
+
+  const [searchByParentName, setSearchByParentName] = useState(false);
+  const [parentSearchQuery, setParentSearchQuery] = useState('');
+  const [isParentSearching, setIsParentSearching] = useState(false);
+  const parentDropdownRef = useRef<HTMLDivElement>(null);
   
   // Payment method state (similar to account)
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<number | undefined>(undefined);
@@ -962,11 +967,65 @@ export const PaymentsReceived: React.FC = () => {
     );
   }, [allStudents, studentSearchQuery, loadingStudents]);
 
+  type ParentStudentOption = {
+    key: string;
+    parentName: string;
+    student: StudentInfo;
+  };
+
+  const filteredParentStudentOptions = useMemo<ParentStudentOption[]>(() => {
+    if (!parentSearchQuery || loadingStudents) return [];
+    const query = parentSearchQuery.toLowerCase();
+    const options: ParentStudentOption[] = [];
+
+    const extractEmergencyContactName = (value: any): string => {
+      if (typeof value !== 'string') return '';
+      const contact = value.trim();
+      if (!contact) return '';
+      const phoneStartMatch = contact.match(/[\d\+\-\(\)]/);
+      if (phoneStartMatch && phoneStartMatch.index !== undefined) {
+        return contact.substring(0, phoneStartMatch.index).trim();
+      }
+      const isAllText = /^[A-Za-z\s]+$/.test(contact);
+      if (isAllText) return contact;
+      const textMatch = contact.match(/^([A-Za-z\s]+)/);
+      return textMatch ? textMatch[1].trim() : '';
+    };
+
+    for (const student of allStudents) {
+      const emergencyContactName = extractEmergencyContactName(student.emergency_contact);
+      const parentNamesRaw = [student.father_name, student.mother_name, emergencyContactName]
+        .filter((v: any) => typeof v === 'string')
+        .map((v: any) => (v as string).trim())
+        .filter((v: string) => v.length > 0);
+
+      const parentNames = Array.from(new Set(parentNamesRaw));
+
+      for (const parentName of parentNames) {
+        if (!parentName.toLowerCase().includes(query)) continue;
+        options.push({
+          key: `${parentName}__${student.admission_number}`,
+          parentName,
+          student,
+        });
+      }
+    }
+
+    return options.slice(0, 50);
+  }, [allStudents, parentSearchQuery, loadingStudents]);
+
   // Handle student selection
   const handleSelectStudent = (student: StudentInfo) => {
     setSelectedStudent(student);
     setStudentSearchQuery(`${student.name} (${student.admission_number})`);
     setIsStudentSearching(false);
+  };
+
+  const handleSelectParentStudentOption = (option: ParentStudentOption) => {
+    setSelectedStudent(option.student);
+    setStudentSearchQuery(`${option.student.name} (${option.student.admission_number})`);
+    setParentSearchQuery(`${option.parentName} - ${option.student.name}`);
+    setIsParentSearching(false);
   };
 
   // Close student dropdown when clicking outside
@@ -980,6 +1039,18 @@ export const PaymentsReceived: React.FC = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isStudentSearching]);
+
+  // Close parent dropdown when clicking outside
+  useEffect(() => {
+    if (!isParentSearching) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (parentDropdownRef.current && !parentDropdownRef.current.contains(event.target as Node)) {
+        setIsParentSearching(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isParentSearching]);
 
   // Close payment method dropdown when clicking outside
   useEffect(() => {
@@ -1402,7 +1473,7 @@ export const PaymentsReceived: React.FC = () => {
               className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto scrollbar-hide"
             >
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl text-gray-800">
+                <h2 className="text-xl font-semibold text-gray-800">
                   {selectedPayment ? 'Edit Payment' : 'Record New Payment'}
                 </h2>
                 <button
@@ -1430,55 +1501,132 @@ export const PaymentsReceived: React.FC = () => {
                 onSubmit={handleSubmitPayment}
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="relative" ref={studentDropdownRef}>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Student</label>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                      <input
-                        type="text"
-                        placeholder={loadingStudents ? "Loading students..." : "Search by Name or Adm number"}
-                        value={studentSearchQuery}
-                        onChange={(e) => {
-                          setStudentSearchQuery(e.target.value);
-                          setIsStudentSearching(true);
-                          if (!e.target.value) {
-                            setSelectedStudent(null);
-                          }
-                        }}
-                        onFocus={() => setIsStudentSearching(true)}
-                        className="w-full p-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        disabled={loadingStudents}
-                      />
-                      {selectedStudent && (
-                        <button
-                          type="button"
-                          onClick={() => {
+                  <div className="relative" ref={searchByParentName ? parentDropdownRef : studentDropdownRef}>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-sm font-medium text-gray-700">{searchByParentName ? 'Parent' : 'Student'}</label>
+                      <label className="flex items-center gap-2 text-xs text-gray-600 select-none cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={searchByParentName}
+                          onChange={(e) => {
+                            const enabled = e.target.checked;
+                            setSearchByParentName(enabled);
                             setSelectedStudent(null);
                             setStudentSearchQuery('');
+                            setIsStudentSearching(false);
+                            setParentSearchQuery('');
+                            setIsParentSearching(false);
                           }}
-                          className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      )}
+                          className="h-4 w-4 cursor-pointer"
+                        />
+                        Search by parent's name
+                      </label>
                     </div>
-                    {isStudentSearching && studentSearchQuery.length > 0 && (
-                      <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 max-h-48 overflow-y-auto shadow-lg">
-                        {filteredStudents.length > 0 ? (
-                          filteredStudents.map(student => (
-                            <li
-                              key={student.admission_number}
-                              onMouseDown={() => handleSelectStudent(student)}
-                              className="p-3 cursor-pointer hover:bg-blue-50 flex justify-between items-center"
+
+                    {!searchByParentName ? (
+                      <>
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                          <input
+                            type="text"
+                            placeholder={loadingStudents ? "Loading students..." : "Search by Name or Adm number"}
+                            value={studentSearchQuery}
+                            onChange={(e) => {
+                              setStudentSearchQuery(e.target.value);
+                              setIsStudentSearching(true);
+                              if (!e.target.value) {
+                                setSelectedStudent(null);
+                              }
+                            }}
+                            onFocus={() => setIsStudentSearching(true)}
+                            className="w-full p-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            disabled={loadingStudents}
+                          />
+                          {selectedStudent && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedStudent(null);
+                                setStudentSearchQuery('');
+                              }}
+                              className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
                             >
-                              <span className="font-medium text-gray-900">{student.name}</span>
-                              <span className="text-sm text-gray-500">{student.admission_number}</span>
-                            </li>
-                          ))
-                        ) : (
-                          <li className="p-3 text-gray-500 italic">No students found matching "{studentSearchQuery}".</li>
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                        {isStudentSearching && studentSearchQuery.length > 0 && (
+                          <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 max-h-48 overflow-y-auto shadow-lg">
+                            {filteredStudents.length > 0 ? (
+                              filteredStudents.map(student => (
+                                <li
+                                  key={student.admission_number}
+                                  onMouseDown={() => handleSelectStudent(student)}
+                                  className="p-3 cursor-pointer hover:bg-blue-50 flex justify-between items-center"
+                                >
+                                  <span className="font-medium text-gray-900">{student.name}</span>
+                                  <span className="text-sm text-gray-500">{student.admission_number}</span>
+                                </li>
+                              ))
+                            ) : (
+                              <li className="p-3 text-gray-500 italic">No students found matching "{studentSearchQuery}".</li>
+                            )}
+                          </ul>
                         )}
-                      </ul>
+                      </>
+                    ) : (
+                      <>
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                          <input
+                            type="text"
+                            placeholder={loadingStudents ? 'Loading students...' : 'Search by parent name'}
+                            value={parentSearchQuery}
+                            onChange={(e) => {
+                              setParentSearchQuery(e.target.value);
+                              setIsParentSearching(true);
+                              if (!e.target.value) {
+                                setSelectedStudent(null);
+                                setStudentSearchQuery('');
+                              }
+                            }}
+                            onFocus={() => setIsParentSearching(true)}
+                            className="w-full p-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            disabled={loadingStudents}
+                          />
+                          {parentSearchQuery && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setParentSearchQuery('');
+                                setSelectedStudent(null);
+                                setStudentSearchQuery('');
+                              }}
+                              className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                        {isParentSearching && parentSearchQuery.length > 0 && (
+                          <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 max-h-48 overflow-y-auto shadow-lg">
+                            {filteredParentStudentOptions.length > 0 ? (
+                              filteredParentStudentOptions.map(opt => (
+                                <li
+                                  key={opt.key}
+                                  onMouseDown={() => handleSelectParentStudentOption(opt)}
+                                  className="p-3 cursor-pointer hover:bg-blue-50 flex justify-between items-center"
+                                >
+                                  <span className="font-medium text-gray-900">{opt.parentName}</span>
+                                  <span className="text-sm text-gray-600">{opt.student.name}</span>
+                                </li>
+                              ))
+                            ) : (
+                              <li className="p-3 text-gray-500 italic">No parents found matching "{parentSearchQuery}".</li>
+                            )}
+                          </ul>
+                        )}
+                      </>
                     )}
                   </div>
                   <div>

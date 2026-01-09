@@ -1,7 +1,7 @@
 // src/components/Students/masterlist/StudentForm.tsx
 
 import React, { useState, useEffect } from 'react';
-import { X, Users, Loader2 } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 import { supabase } from '../../../supabaseClient';
 import { CoreStudentInfoForm } from './CoreStudentInfoForm';
 import { SupplementaryDetailsForm } from './SupplementaryDetailsForm';
@@ -119,7 +119,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({
   }, [selectedStudent]);
 
   const clearIfInvalid = (
-    e: React.FocusEvent<HTMLInputElement>,
+    e: React.FocusEvent<HTMLSelectElement>,
     validList: string[]
   ) => {
     if (!validList.includes(e.target.value)) {
@@ -253,6 +253,8 @@ export const StudentForm: React.FC<StudentFormProps> = ({
     onSubmit(payload);
   };
 
+  const isDisabled = !!selectedStudent && selectedStudent?.status === 'Inactive' && statusValue === 'Inactive';
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-hidden">
@@ -308,7 +310,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({
               teamColourId={teamColourId}
               setTeamColourId={setTeamColourId}
               onOpenProgressionModal={() => setShowProgressionModal(true)}
-              isDisabled={selectedStudent?.status === 'Inactive'}
+              isDisabled={isDisabled}
             />
 
             <SupplementaryDetailsForm
@@ -328,7 +330,7 @@ export const StudentForm: React.FC<StudentFormProps> = ({
               setBoardingRoomId={setBoardingRoomId}
               accommodationTypeId={accommodationTypeId}
               setAccommodationTypeId={setAccommodationTypeId}
-              isDisabled={selectedStudent?.status === 'Inactive'}
+              isDisabled={isDisabled}
               onOpenAllergiesModal={onOpenAllergiesModal}
               onOpenMedicalConditionsModal={onOpenMedicalConditionsModal}
               onOpenEmergencyMedicationsModal={onOpenEmergencyMedicationsModal}

@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Edit, Loader2, X } from 'lucide-react';
-import { fetchFullInvoice, fetchMasterItems, updateInvoice } from '../../../services/financialService';
+import { Edit, Info, Loader2, X } from 'lucide-react';
+import { fetchFullInvoice, fetchMasterItems, fetchOutstandingBalances, markInvoicesAsForwarded, updateInvoice } from '../../../services/financialService';
 import { FullInvoice, InvoiceHeader, InvoiceLineItem, InvoiceSubmissionData, ItemMaster } from '../../../types/database';
 import { InvoiceFormLineItems } from './InvoiceFormLineItems';
+import { supabase } from '../../../supabaseClient';
 
 interface InvoiceEditModalProps {
   invoice: InvoiceHeader;
@@ -34,6 +35,10 @@ export const InvoiceEditModal: React.FC<InvoiceEditModalProps> = ({ invoice, onC
   const [dueDate, setDueDate] = useState('');
   const [description, setDescription] = useState('');
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([]);
+
+  // Balance Brought Forward state
+  const [overdueInvoices, setOverdueInvoices] = useState<{ invoice_number: string; balanceDue: number }[]>([]);
+  const [includeBBF, setIncludeBBF] = useState(false);
 
   const calculateLineTotal = useCallback((item: InvoiceLineItem): number => {
     const discountFactor = 1 - ((item.discount || 0) / 100);
@@ -71,6 +76,20 @@ export const InvoiceEditModal: React.FC<InvoiceEditModalProps> = ({ invoice, onC
           lineTotal: calculateLineTotal(li),
         }));
         setLineItems(initialLineItems);
+
+        // Fetch overdue invoices for BBF functionality (excluding the current invoice being edited)
+        try {
+          const overdueData = await fetchOutstandingBalances([fi.admission_number]);
+          // Filter out the current invoice being edited
+          const filteredOverdue = overdueData.filter(inv => inv.invoice_number !== invoice.invoice_number);
+          setOverdueInvoices(filteredOverdue.map(inv => ({
+            invoice_number: inv.invoice_number,
+            balanceDue: inv.balance_due
+          })));
+        } catch (err) {
+          console.error('Error fetching overdue invoices:', err);
+          setOverdueInvoices([]);
+        }
       } catch (e: any) {
         if (cancelled) return;
         setError(e?.message || 'Failed to load invoice details.');
@@ -153,6 +172,18 @@ export const InvoiceEditModal: React.FC<InvoiceEditModalProps> = ({ invoice, onC
     return Number(fullInvoice.paymentMade) || 0;
   }, [fullInvoice]);
 
+  // Calculate brought forward amount from overdue invoices
+  const broughtForwardAmount = useMemo(() => {
+    return overdueInvoices.reduce((sum, inv) => sum + (inv.balanceDue || 0), 0);
+  }, [overdueInvoices]);
+
+  // Grand total including BBF if enabled
+  const grandTotal = useMemo(() => {
+    return includeBBF && broughtForwardAmount > 0
+      ? lineItemsSubtotal + broughtForwardAmount
+      : lineItemsSubtotal;
+  }, [lineItemsSubtotal, includeBBF, broughtForwardAmount]);
+
   const handleAddItem = () => {
     setLineItems((prev) => [...prev, getNewDefaultLineItem()]);
   };
@@ -228,18 +259,71 @@ export const InvoiceEditModal: React.FC<InvoiceEditModalProps> = ({ invoice, onC
     setError(null);
 
     try {
-      const cleanedLineItems: InvoiceLineItem[] = lineItems
+      let finalLineItems: InvoiceLineItem[] = lineItems
         .filter((li) => li.itemName)
         .map((li) => ({
           ...li,
           lineTotal: li.lineTotal || calculateLineTotal(li),
         }));
 
-      const totalAmount = parseFloat(lineItemsSubtotal.toFixed(2));
-      const paymentMade = Number(fullInvoice.paymentMade) || 0;
+      // Add BBF as a line item if enabled and there are overdue invoices
+      if (includeBBF && overdueInvoices.length > 0 && broughtForwardAmount > 0) {
+        // Find or auto-create "Balance Brought Forward" item
+        let bbfItem = masterItems.find(item => item.item_name === 'Balance Brought Forward');
+        
+        if (!bbfItem) {
+          // Create the BBF item in the database
+          const { data: newBbfItem, error: createError } = await supabase
+            .from('item_master')
+            .insert({
+              item_name: 'Balance Brought Forward',
+              current_unit_price: 0,
+              description: 'System-generated item for carrying forward previous balances'
+            })
+            .select()
+            .single();
+          
+          if (createError || !newBbfItem) {
+            throw new Error('Failed to create Balance Brought Forward item: ' + createError?.message);
+          }
+          
+          bbfItem = {
+            id: newBbfItem.id,
+            item_name: newBbfItem.item_name,
+            current_unit_price: parseFloat(newBbfItem.current_unit_price),
+            description: newBbfItem.description,
+            created_at: newBbfItem.created_at
+          };
+          
+          // Add to local masterItems so it's available for future use
+          setMasterItems(prev => [...prev, bbfItem!]);
+        }
+        
+        const invoiceNumbers = overdueInvoices.map(inv => inv.invoice_number).join(', ');
+        
+        // Add BBF line item
+        finalLineItems.push({
+          itemName: 'Balance Brought Forward',
+          unitPrice: broughtForwardAmount,
+          quantity: 1,
+          discount: 0,
+          description: `Invoices: ${invoiceNumbers}`,
+          lineTotal: broughtForwardAmount
+        });
+      }
 
-      if (paymentMade > 0 && totalAmount < paymentMade) {
-        throw new Error(`Cannot save because the new total (Ksh ${totalAmount.toFixed(2)}) is less than the amount already paid (Ksh ${paymentMade.toFixed(2)}).`);
+      // Recalculate subtotal from finalLineItems (which includes BBF if enabled)
+      const finalSubtotal = finalLineItems.reduce((sum, item) => {
+        const discountFactor = 1 - ((item.discount || 0) / 100);
+        const lineTotal = (item.unitPrice || 0) * (item.quantity || 0) * discountFactor;
+        return sum + lineTotal;
+      }, 0);
+
+      const totalAmount = parseFloat(finalSubtotal.toFixed(2));
+      const currentPaymentMade = Number(fullInvoice.paymentMade) || 0;
+
+      if (currentPaymentMade > 0 && totalAmount < currentPaymentMade) {
+        throw new Error(`Cannot save because the new total (Ksh ${totalAmount.toFixed(2)}) is less than the amount already paid (Ksh ${currentPaymentMade.toFixed(2)}).`);
       }
 
       const submissionData: InvoiceSubmissionData = {
@@ -247,14 +331,27 @@ export const InvoiceEditModal: React.FC<InvoiceEditModalProps> = ({ invoice, onC
           ...fullInvoice,
           due_date: dueDate,
           description,
-          subtotal: parseFloat(lineItemsSubtotal.toFixed(2)),
+          subtotal: parseFloat(finalSubtotal.toFixed(2)),
           totalAmount,
-          paymentMade,
+          paymentMade: currentPaymentMade,
         },
-        line_items: cleanedLineItems,
+        line_items: finalLineItems,
       };
 
       await updateInvoice(invoice.invoice_number, submissionData);
+
+      // Mark the old invoices as 'Forwarded' if balance was brought forward
+      if (includeBBF && overdueInvoices.length > 0 && broughtForwardAmount > 0) {
+        try {
+          const invoiceNumbersToForward = overdueInvoices.map(inv => inv.invoice_number);
+          await markInvoicesAsForwarded(invoiceNumbersToForward);
+          console.log(`✅ Marked ${invoiceNumbersToForward.length} invoices as 'Forwarded'`);
+        } catch (forwardError: any) {
+          console.error("⚠️ Failed to mark invoices as Forwarded:", forwardError);
+          alert(`Invoice updated successfully, but failed to mark old invoices as 'Forwarded'. Please update them manually.\nError: ${forwardError.message}`);
+        }
+      }
+
       onSaved();
       onClose();
     } catch (e: any) {
@@ -384,6 +481,66 @@ export const InvoiceEditModal: React.FC<InvoiceEditModalProps> = ({ invoice, onC
                 handleLineItemChange={handleLineItemChange}
                 calculateLineTotal={calculateLineTotal}
               />
+
+              {/* Balance Brought Forward Section */}
+              {fullInvoice.status !== 'Forwarded' && (
+                <div className="mt-4 p-4 border border-gray-200 rounded-lg bg-gray-50">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <input
+                        type="checkbox"
+                        id="bbf-toggle-edit"
+                        checked={includeBBF}
+                        onChange={(e) => setIncludeBBF(e.target.checked)}
+                        disabled={saving || overdueInvoices.length === 0}
+                        className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500 disabled:opacity-50 cursor-pointer"
+                      />
+                      <label 
+                        htmlFor="bbf-toggle-edit" 
+                        className={`text-sm font-medium cursor-pointer ${overdueInvoices.length === 0 ? 'text-gray-400' : 'text-gray-800'}`}
+                      >
+                        Include Balance Brought Forward
+                      </label>
+                    </div>
+                    {overdueInvoices.length > 0 && (
+                      <div className="text-sm text-gray-600">
+                        {overdueInvoices.length} overdue invoice{overdueInvoices.length > 1 ? 's' : ''} • Ksh.{broughtForwardAmount.toFixed(2)}
+                      </div>
+                    )}
+                  </div>
+
+                  {overdueInvoices.length === 0 && (
+                    <p className="mt-2 text-xs text-gray-500">
+                      No overdue invoices found for this student.
+                    </p>
+                  )}
+
+                  {includeBBF && overdueInvoices.length > 0 && (
+                    <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-start text-sm text-green-800">
+                        <Info className="w-4 h-4 mr-2 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="font-medium">Balance Brought Forward will be added</p>
+                          <p className="text-xs mt-1">
+                            Invoices: {overdueInvoices.map(inv => inv.invoice_number).join(', ')}
+                          </p>
+                          <p className="text-xs mt-1">
+                            Amount: Ksh.{broughtForwardAmount.toFixed(2)} will be added as a line item.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Grand Total Display when BBF is enabled */}
+                  {includeBBF && broughtForwardAmount > 0 && (
+                    <div className="mt-3 flex justify-end text-lg font-semibold">
+                      <span className="text-gray-700 mr-4">Grand Total:</span>
+                      <span className="text-blue-600">Ksh.{grandTotal.toFixed(2)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
                 <button

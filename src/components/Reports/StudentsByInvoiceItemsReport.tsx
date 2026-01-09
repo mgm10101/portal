@@ -2,8 +2,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Download, Eye, Calendar, Loader2 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
-import { fetchVoidedExpenses } from '../../services/expenseService';
-import { fetchVoidedInvoices, fetchVoidedPayments } from '../../services/financialService';
 import { supabase } from '../../supabaseClient';
 import logo from '../../assets/logo.png';
 
@@ -15,25 +13,38 @@ interface InvoiceSettings {
   payment_details: string | null;
 }
 
-interface VoidedRecordsReportProps {
+interface StudentsByInvoiceItemsReportProps {
   onClose: () => void;
 }
 
-type RecordType = 'expenses' | 'invoices' | 'payments_received' | 'payroll';
-
-interface PageData {
-  records: any[];
-  pageNumber: number;
-  totalPages: number;
-  showSummary: boolean; // Whether to show summary cards on this page
+interface StudentInvoiceRecord {
+  id: string;
+  admission_number: string;
+  name: string;
+  class_name: string;
+  invoice_number: string;
+  invoice_date: string;
+  item_name: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+  status: string;
 }
 
-export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClose }) => {
+interface PageData {
+  records: StudentInvoiceRecord[];
+  pageNumber: number;
+  totalPages: number;
+  showSummary: boolean;
+}
+
+export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReportProps> = ({ onClose }) => {
   const [showConfigPopup, setShowConfigPopup] = useState(true);
-  const [recordType, setRecordType] = useState<RecordType>('expenses');
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
-  const [voidedRecords, setVoidedRecords] = useState<any[]>([]);
+  const [selectedItem, setSelectedItem] = useState<string>('all');
+  const [students, setStudents] = useState<StudentInvoiceRecord[]>([]);
+  const [items, setItems] = useState<{ name: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -45,20 +56,20 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
     footerHeight: number;
     summaryHeight: number;
     tableHeaderHeight: number;
-    rowHeights: number[]; // Array of actual row heights measured
-    maxRowHeight: number; // Maximum row height for unmeasured rows
-    avgRowHeight: number; // Average row height for fallback
+    rowHeights: number[];
+    maxRowHeight: number;
+    avgRowHeight: number;
   } | null>(null);
 
-  // Page layout constants (A4 dimensions in pixels at 96 DPI)
-  const A4_WIDTH = 794; // 210mm * 96 / 25.4
-  const A4_HEIGHT = 1123; // 297mm * 96 / 25.4
-  const PAGE_MARGIN = 37.8; // Top, bottom, left, right margins in pixels
-  const HEADER_HEIGHT = 180; // Fallback header height in pixels
-  const FOOTER_HEIGHT = 50; // Fallback footer height in pixels
-  const SUMMARY_HEIGHT = 120; // Fallback summary cards height in pixels
-  const TABLE_HEADER_HEIGHT = 45; // Fallback table header row height
-  const ROW_HEIGHT = 60; // Fallback height per table row in pixels
+  // Page layout constants (A4 dimensions in pixels at 96 DPI) - EXACTLY from VoidedRecordsReport
+  const A4_WIDTH = 794;
+  const A4_HEIGHT = 1123;
+  const PAGE_MARGIN = 37.8;
+  const HEADER_HEIGHT = 180;
+  const FOOTER_HEIGHT = 50;
+  const SUMMARY_HEIGHT = 120;
+  const TABLE_HEADER_HEIGHT = 45;
+  const ROW_HEIGHT = 60;
 
   // Calculate available height for content (excluding header, footer, margins)
   const calculateAvailableContentHeight = useCallback((includeSummary: boolean = false) => {
@@ -72,15 +83,14 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
 
   
   // Split records into pages using actual row height measurement
-  const splitIntoPages = useCallback((records: any[]): PageData[] => {
+  const splitIntoPages = useCallback((records: StudentInvoiceRecord[]): PageData[] => {
     if (records.length === 0) return [];
     
     const pages: PageData[] = [];
-    let currentPageRecords: any[] = [];
+    let currentPageRecords: StudentInvoiceRecord[] = [];
     let currentPageNumber = 1;
     let currentCumulativeHeight = 0;
     
-    // Get available heights
     const availableHeightWithoutSummary = calculateAvailableContentHeight(false);
     const availableHeightWithSummary = calculateAvailableContentHeight(true);
     const summaryHeight = measuredHeights?.summaryHeight || SUMMARY_HEIGHT;
@@ -99,64 +109,64 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
         actualRowHeight = measuredHeights.rowHeights[lastMeasuredIndex];
       }
       
-      // Calculate what the cumulative height would be if we add this row
       const newCumulativeHeight = currentCumulativeHeight + actualRowHeight;
       
+      console.log(`🔍 [DEBUG] Row ${i}:`, {
+        actualRowHeight,
+        currentCumulativeHeight,
+        newCumulativeHeight,
+        availableHeightWithoutSummary,
+        availableHeightWithSummary,
+        wouldExceed: newCumulativeHeight > availableHeightWithoutSummary
+      });
+      
       if (isLastRecord) {
-        // This is the last record - need to decide if summary fits
         const wouldFitWithSummary = (newCumulativeHeight + summaryHeight) <= availableHeightWithSummary;
         
         if (wouldFitWithSummary) {
-          // Add record and summary to current page
           currentPageRecords.push(record);
           pages.push({
             records: [...currentPageRecords],
             pageNumber: currentPageNumber,
-            totalPages: 0, // Will update later
+            totalPages: 0,
             showSummary: true
           });
         } else {
-          // Check if record alone fits on current page
           if (newCumulativeHeight <= availableHeightWithoutSummary) {
-            // Add record to current page, summary goes to next
             currentPageRecords.push(record);
             pages.push({
               records: [...currentPageRecords],
               pageNumber: currentPageNumber,
-              totalPages: 0, // Will update later
+              totalPages: 0,
               showSummary: false
             });
-            // Add summary-only page
             pages.push({
               records: [],
               pageNumber: currentPageNumber + 1,
-              totalPages: 0, // Will update later
+              totalPages: 0,
               showSummary: true
             });
           } else {
-            // Current page is full, save it and start new page with record and summary
             pages.push({
               records: [...currentPageRecords],
               pageNumber: currentPageNumber,
-              totalPages: 0, // Will update later
+              totalPages: 0,
               showSummary: false
             });
             pages.push({
               records: [record],
               pageNumber: currentPageNumber + 1,
-              totalPages: 0, // Will update later
+              totalPages: 0,
               showSummary: true
             });
           }
         }
       } else {
-        // Not the last record - check if adding this record would exceed page limit
         if (newCumulativeHeight > availableHeightWithoutSummary) {
-          // Current page is full, save it and start new page
           pages.push({
             records: [...currentPageRecords],
             pageNumber: currentPageNumber,
-            totalPages: 0, // Will update later
+            totalPages: 0,
             showSummary: false
           });
           currentPageRecords = [record];
@@ -169,7 +179,6 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
       }
     }
     
-    // If there are remaining records (shouldn't happen, but handle edge case)
     if (currentPageRecords.length > 0 && pages.length === 0) {
       pages.push({
         records: [...currentPageRecords],
@@ -179,20 +188,29 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
       });
     }
     
-    // Update totalPages for all pages
     const totalPages = pages.length;
     return pages.map(page => ({ ...page, totalPages }));
   }, [calculateAvailableContentHeight, measuredHeights]);
 
-  // Set default date range (last 30 days) and fetch invoice settings
+  // Set default date range and fetch data on mount
   useEffect(() => {
     const today = new Date();
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(today.getDate() - 30);
+    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
     setDateTo(today.toISOString().split('T')[0]);
-    setDateFrom(thirtyDaysAgo.toISOString().split('T')[0]);
+    setDateFrom(firstDayOfMonth.toISOString().split('T')[0]);
 
-    // Fetch invoice settings for logo
+    async function fetchDropdownData() {
+      try {
+        const { data: itemsData } = await supabase
+          .from('item_master')
+          .select('item_name')
+          .order('item_name');
+        if (itemsData) setItems(itemsData.map(item => ({ name: item.item_name })));
+      } catch (err) {
+        console.error('Failed to fetch items:', err);
+      }
+    }
+
     async function fetchInvoiceSettings() {
       try {
         const { data: settingsData, error: settingsError } = await supabase
@@ -232,52 +250,59 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
       }
     }
 
+    fetchDropdownData();
     fetchInvoiceSettings();
   }, []);
 
   // Measure actual heights after rendering from the first rendered page
   useEffect(() => {
-    if (!showPreview || voidedRecords.length === 0 || pages.length === 0) return;
+    if (!showPreview || students.length === 0 || pages.length === 0) return;
 
     const measureHeights = () => {
-      // Find the first rendered page element to measure from
       const firstPageElement = pageRefs.current[0];
       if (!firstPageElement) return;
 
-      // Measure header
       const headerElement = firstPageElement.querySelector('.mb-4.border-b') as HTMLElement;
       const headerHeight = headerElement ? headerElement.offsetHeight : HEADER_HEIGHT;
 
-      // Measure footer
       const footerElement = firstPageElement.querySelector('.mt-auto.pt-4.border-t') as HTMLElement;
       const footerHeight = footerElement ? footerElement.offsetHeight : FOOTER_HEIGHT;
 
-      // Measure table header
       const tableHeaderElement = firstPageElement.querySelector('table thead tr') as HTMLElement;
       const tableHeaderHeight = tableHeaderElement ? tableHeaderElement.offsetHeight : TABLE_HEADER_HEIGHT;
 
-      // Measure ALL row heights from the rendered page
       const allDataRows = firstPageElement.querySelectorAll('table tbody tr');
       const rowHeights: number[] = [];
       let maxRowHeight = ROW_HEIGHT;
       let totalRowHeight = 0;
       
-      allDataRows.forEach((row) => {
+      console.log('🔍 [DEBUG] Measuring rows:', allDataRows.length, 'rows found');
+      
+      allDataRows.forEach((row, index) => {
         const height = (row as HTMLElement).offsetHeight;
         rowHeights.push(height);
         if (height > maxRowHeight) {
           maxRowHeight = height;
         }
         totalRowHeight += height;
+        if (index < 5) {
+          console.log(`🔍 [DEBUG] Row ${index} height:`, height);
+        }
       });
       
       const avgRowHeight = rowHeights.length > 0 ? totalRowHeight / rowHeights.length : ROW_HEIGHT;
+      
+      console.log('🔍 [DEBUG] Row height summary:', {
+        count: rowHeights.length,
+        maxRowHeight,
+        avgRowHeight,
+        availableWithoutSummary: calculateAvailableContentHeight(false),
+        availableWithSummary: calculateAvailableContentHeight(true)
+      });
 
-      // Measure summary cards if they exist
       const summaryElement = firstPageElement.querySelector('.grid.grid-cols-3.gap-4') as HTMLElement;
       const summaryHeight = summaryElement ? summaryElement.offsetHeight : SUMMARY_HEIGHT;
 
-      // Only update if measurements are different to avoid infinite loops
       setMeasuredHeights(prev => {
         const newHeights = {
           headerHeight,
@@ -302,30 +327,25 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
       });
     };
 
-    // Measure after a delay to ensure DOM is fully rendered
     const timeoutId = setTimeout(measureHeights, 300);
-    
     return () => clearTimeout(timeoutId);
-  }, [showPreview, voidedRecords, pages.length]);
+  }, [showPreview, students, pages.length, calculateAvailableContentHeight]);
 
-  // Update pages when voidedRecords or measuredHeights changes
+  // Update pages when students or measuredHeights changes
   useEffect(() => {
-    if (voidedRecords.length > 0) {
-      // Only split if we have measurements (or use fallbacks on first render)
-      const splitPages = splitIntoPages(voidedRecords);
+    if (students.length > 0) {
+      const splitPages = splitIntoPages(students);
       setPages(splitPages);
-      // Initialize refs array
       pageRefs.current = new Array(splitPages.length).fill(null);
     } else {
       setPages([]);
     }
-  }, [voidedRecords, splitIntoPages, measuredHeights]);
+  }, [students, splitIntoPages, measuredHeights]);
 
-  // Reset state when component closes
   const handleClose = () => {
     setShowPreview(false);
     setShowConfigPopup(false);
-    setVoidedRecords([]);
+    setStudents([]);
     onClose();
   };
 
@@ -337,24 +357,81 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
 
     setLoading(true);
     try {
-      let data: any[] = [];
-      if (recordType === 'expenses') {
-        data = await fetchVoidedExpenses(dateFrom, dateTo);
-      } else if (recordType === 'invoices') {
-        data = await fetchVoidedInvoices(dateFrom, dateTo);
-      } else if (recordType === 'payments_received') {
-        data = await fetchVoidedPayments(dateFrom, dateTo);
-      } else {
-        alert(`${recordType} voided records are not yet implemented.`);
+      // First fetch invoices with students
+      let invoiceQuery = supabase
+        .from('invoices')
+        .select(`
+          invoice_number,
+          invoice_date,
+          status,
+          admission_number,
+          name,
+          students (class_name)
+        `)
+        .gte('invoice_date', dateFrom)
+        .lte('invoice_date', dateTo)
+        .neq('status', 'Voided');
+
+      const { data: invoicesData, error: invoicesError } = await invoiceQuery;
+      if (invoicesError) throw invoicesError;
+
+      if (!invoicesData || invoicesData.length === 0) {
+        setStudents([]);
+        setShowPreview(true);
+        setShowConfigPopup(false);
         setLoading(false);
         return;
       }
-      setVoidedRecords(data);
+
+      // Get all invoice numbers
+      const invoiceNumbers = invoicesData.map(inv => inv.invoice_number);
+
+      // Fetch line items for these invoices
+      let lineItemsQuery = supabase
+        .from('invoice_line_items')
+        .select('id, invoice_number, item_name, quantity, unit_price, line_total')
+        .in('invoice_number', invoiceNumbers);
+
+      if (selectedItem !== 'all') {
+        lineItemsQuery = lineItemsQuery.eq('item_name', selectedItem);
+      }
+
+      const { data: lineItemsData, error: lineItemsError } = await lineItemsQuery;
+      if (lineItemsError) throw lineItemsError;
+
+      // Create a map of invoices for quick lookup
+      const invoiceMap = new Map(invoicesData.map(inv => [inv.invoice_number, inv]));
+
+      // Transform the data
+      const transformedData: StudentInvoiceRecord[] = (lineItemsData || []).map((item: any) => {
+        const invoice = invoiceMap.get(item.invoice_number) as any;
+        return {
+          id: item.id,
+          admission_number: invoice?.admission_number || 'N/A',
+          name: invoice?.name || 'N/A',
+          class_name: invoice?.students?.class_name || 'N/A',
+          invoice_number: item.invoice_number || 'N/A',
+          invoice_date: invoice?.invoice_date || '',
+          item_name: item.item_name || 'N/A',
+          quantity: parseInt(item.quantity) || 0,
+          unit_price: parseFloat(item.unit_price) || 0,
+          line_total: parseFloat(item.line_total) || 0,
+          status: invoice?.status || 'N/A'
+        };
+      });
+
+      transformedData.sort((a, b) => {
+        const dateCompare = new Date(a.invoice_date).getTime() - new Date(b.invoice_date).getTime();
+        if (dateCompare !== 0) return dateCompare;
+        return a.name.localeCompare(b.name);
+      });
+
+      setStudents(transformedData);
       setShowPreview(true);
       setShowConfigPopup(false);
     } catch (error) {
-      console.error('Error fetching voided records:', error);
-      alert('Failed to fetch voided records. Please try again.');
+      console.error('Error fetching data:', error);
+      alert('Failed to fetch data. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -367,20 +444,16 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
     try {
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 10; // 10mm margin
+      const margin = 10;
 
-      // Process each page separately
       for (let i = 0; i < pages.length; i++) {
         const pageElement = pageRefs.current[i];
         if (!pageElement) continue;
 
-        // Add new page (except for first page)
         if (i > 0) {
           pdf.addPage();
         }
 
-        // Capture the page element
         const canvas = await html2canvas(pageElement, {
           scale: 2,
           useCORS: true,
@@ -396,12 +469,11 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
         const imgWidth = pageWidth - (margin * 2);
         const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
-        // Add image to PDF
         pdf.addImage(imgData, 'JPEG', margin, margin, imgWidth, imgHeight);
       }
 
       const sanitizeFilename = (str: string) => str.replace(/[<>:"/\\|?*]/g, '_').trim();
-      const filename = `Voided_${recordType}_${dateFrom}_to_${dateTo}.pdf`;
+      const filename = `Students_By_Invoice_Items_${dateFrom}_to_${dateTo}.pdf`;
       pdf.save(sanitizeFilename(filename));
     } catch (error) {
       console.error('Error exporting to PDF:', error);
@@ -409,11 +481,11 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
     } finally {
       setExportingPdf(false);
     }
-  }, [pages, recordType, dateFrom, dateTo, exportingPdf]);
+  }, [pages, dateFrom, dateTo, exportingPdf]);
 
-  const totalAmount = voidedRecords.reduce((sum, record) => sum + (record.amount || record.total_amount || 0), 0);
+  const totalAmount = students.reduce((sum, record) => sum + record.line_total, 0);
+  const totalQuantity = students.reduce((sum, record) => sum + record.quantity, 0);
 
-  // Format date to DD/MM/YY with slashes
   const formatDate = (dateString: string): string => {
     const date = new Date(dateString);
     const day = String(date.getDate()).padStart(2, '0');
@@ -422,7 +494,6 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
     return `${day}/${month}/${year}`;
   };
 
-  // Format datetime to DD/MM/YY HH:MM with slashes
   const formatDateTime = (dateString: string): string => {
     const date = new Date(dateString);
     const day = String(date.getDate()).padStart(2, '0');
@@ -439,7 +510,7 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
         <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
           <div className="p-6">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-semibold text-gray-800">Voided Records Report</h2>
+              <h2 className="text-xl font-semibold text-gray-800">Students by Invoice Items Report</h2>
               <button
                 onClick={handleClose}
                 className="text-gray-500 hover:text-gray-700"
@@ -449,22 +520,6 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
             </div>
 
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Record Type <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={recordType}
-                  onChange={(e) => setRecordType(e.target.value as RecordType)}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="expenses">Expenses</option>
-                  <option value="invoices">Invoices</option>
-                  <option value="payments_received">Payments Received</option>
-                  <option value="payroll">Payroll Records</option>
-                </select>
-              </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -490,6 +545,24 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
                     required
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Invoice Item (Optional)
+                </label>
+                <select
+                  value={selectedItem}
+                  onChange={(e) => setSelectedItem(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="all">All Items</option>
+                  {items.map((item) => (
+                    <option key={item.name} value={item.name}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="flex justify-end space-x-3 mt-6">
@@ -575,7 +648,7 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
 
             {/* Render multiple pages */}
             <div className="space-y-4">
-              {voidedRecords.length === 0 ? (
+              {students.length === 0 ? (
                 <div
                   className="bg-white mx-auto p-8"
                   style={{
@@ -585,7 +658,7 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
                   }}
                 >
                   <div className="text-center py-12 text-gray-500">
-                    <p className="text-lg">No voided records found for the selected date range.</p>
+                    <p className="text-lg">No records found for the selected criteria.</p>
                   </div>
                 </div>
               ) : (
@@ -610,9 +683,9 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
                     <div className="mb-4 border-b border-gray-200 pb-3 flex-shrink-0">
                       <div className="flex justify-between items-start">
                         <div>
-                          <h1 className="text-3xl font-normal text-gray-900 mb-2">Voided Records Report</h1>
+                          <h1 className="text-3xl font-normal text-gray-900 mb-2">Students by Invoice Items Report</h1>
                           <div className="text-sm text-gray-600 space-y-1">
-                            <p><strong>Record Type:</strong> {recordType.charAt(0).toUpperCase() + recordType.slice(1).replace('_', ' ')}</p>
+                            <p><strong>Invoice Item:</strong> {selectedItem === 'all' ? 'All Items' : selectedItem}</p>
                             <p><strong>Date Range:</strong> {formatDate(dateFrom)} to {formatDate(dateTo)}</p>
                             <p><strong>Generated:</strong> {formatDateTime(new Date().toISOString())}</p>
                           </div>
@@ -661,111 +734,29 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
                           <table className="w-full border-collapse">
                             <thead>
                               <tr className="bg-gray-50 border-b-2 border-gray-200">
-                                {recordType === 'expenses' ? (
-                                  <>
-                                    <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '12%' }}>Date</th>
-                                    <th className="text-left p-3 text-sm font-semibold text-gray-700">Category</th>
-                                    <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '14%', whiteSpace: 'nowrap' }}>Amount (Ksh)</th>
-                                    <th className="text-left text-sm font-semibold text-gray-700" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '12px', paddingRight: '4px' }}>Voided By</th>
-                                    <th className="text-left text-sm font-semibold text-gray-700" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '4px', paddingRight: '12px' }}>Reason</th>
-                                  </>
-                                ) : recordType === 'invoices' ? (
-                                  <>
-                                    <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '12%' }}>Date</th>
-                                    <th className="text-left p-3 text-sm font-semibold text-gray-700">Invoice</th>
-                                    <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '14%', whiteSpace: 'nowrap' }}>Amount (Ksh)</th>
-                                    <th className="text-left text-sm font-semibold text-gray-700" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '12px', paddingRight: '4px' }}>Voided By</th>
-                                    <th className="text-left text-sm font-semibold text-gray-700" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '4px', paddingRight: '12px' }}>Reason</th>
-                                  </>
-                                ) : (
-                                  <>
-                                    <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '12%' }}>Date</th>
-                                    <th className="text-left p-3 text-sm font-semibold text-gray-700">Payment</th>
-                                    <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '14%', whiteSpace: 'nowrap' }}>Amount (Ksh)</th>
-                                    <th className="text-left text-sm font-semibold text-gray-700" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '12px', paddingRight: '4px' }}>Voided By</th>
-                                    <th className="text-left text-sm font-semibold text-gray-700" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '4px', paddingRight: '12px' }}>Reason</th>
-                                  </>
-                                )}
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '10%' }}>Adm No</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '18%' }}>Student Name</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '8%' }}>Class</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '10%' }}>Invoice</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '10%' }}>Date</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '18%' }}>Item</th>
+                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '6%' }}>Qty</th>
+                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '10%' }}>Unit Price</th>
+                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '10%' }}>Total</th>
                               </tr>
                             </thead>
                             <tbody>
                               {pageData.records.map((record, index) => (
                                 <tr key={record.id} className={`border-b border-gray-100 ${index % 2 === 0 ? 'bg-white' : ''}`} style={index % 2 === 1 ? { backgroundColor: '#fcfcfd' } : {}}>
-                                  {recordType === 'expenses' ? (
-                                    <>
-                                      <td className="p-3 text-sm text-gray-900" style={{ width: '12%' }}>
-                                        <div>{formatDate(record.expense_date)}</div>
-                                        <div className="text-xs text-gray-500 mt-1">{record.internal_reference}</div>
-                                      </td>
-                                      <td className="p-3 text-sm text-gray-900">
-                                        <div>{record.category_name || 'N/A'}</div>
-                                        {record.description_name && (
-                                          <div className="text-xs text-gray-500 mt-1">{record.description_name}</div>
-                                        )}
-                                      </td>
-                                      <td className="p-3 text-sm text-right font-medium text-red-600" style={{ width: '14%' }}>
-                                        <div>{record.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                                        <div className="text-xs text-gray-500 mt-1">{record.vendor_name || 'N/A'}</div>
-                                      </td>
-                                      <td className="text-sm text-gray-900" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '12px', paddingRight: '4px' }}>
-                                        <div>{record.voided_by || 'N/A'}</div>
-                                        {record.voided_by && (
-                                          <div className="text-xs text-gray-500 mt-1">{formatDateTime(record.voided_at)}</div>
-                                        )}
-                                      </td>
-                                      <td className="text-sm text-gray-900" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '4px', paddingRight: '12px' }}>{record.void_reason}</td>
-                                    </>
-                                  ) : recordType === 'invoices' ? (
-                                    <>
-                                      <td className="p-3 text-sm text-gray-900" style={{ width: '12%' }}>
-                                        <div>{formatDate(record.invoice_date)}</div>
-                                        <div className="text-xs text-gray-500 mt-1">{record.original_invoice_number}</div>
-                                      </td>
-                                      <td className="p-3 text-sm text-gray-900">
-                                        <div>{record.student_name || 'N/A'}</div>
-                                        {record.description && (
-                                          <div className="text-xs text-gray-500 mt-1">{record.description}</div>
-                                        )}
-                                      </td>
-                                      <td className="p-3 text-sm text-right font-medium text-red-600" style={{ width: '14%' }}>
-                                        <div>{record.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                                        <div className="text-xs text-gray-500 mt-1">{record.status || 'N/A'}</div>
-                                      </td>
-                                      <td className="text-sm text-gray-900" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '12px', paddingRight: '4px' }}>
-                                        <div>{record.voided_by || 'N/A'}</div>
-                                        {record.voided_by && (
-                                          <div className="text-xs text-gray-500 mt-1">{formatDateTime(record.voided_at)}</div>
-                                        )}
-                                      </td>
-                                      <td className="text-sm text-gray-900" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '4px', paddingRight: '12px' }}>{record.void_reason}</td>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <td className="p-3 text-sm text-gray-900" style={{ width: '12%' }}>
-                                        <div>{formatDate(record.payment_date)}</div>
-                                        <div className="text-xs text-gray-500 mt-1">{record.receipt_number}</div>
-                                      </td>
-                                      <td className="p-3 text-sm text-gray-900">
-                                        <div>{record.student_name || 'N/A'}</div>
-                                        {record.payment_method_name && (
-                                          <div className="text-xs text-gray-500 mt-1">{record.payment_method_name}</div>
-                                        )}
-                                      </td>
-                                      <td className="p-3 text-sm text-right font-medium text-red-600" style={{ width: '14%' }}>
-                                        <div>{record.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                                        {record.account_name && (
-                                          <div className="text-xs text-gray-500 mt-1">{record.account_name}</div>
-                                        )}
-                                      </td>
-                                      <td className="text-sm text-gray-900" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '12px', paddingRight: '4px' }}>
-                                        <div>{record.voided_by || 'N/A'}</div>
-                                        {record.voided_by && (
-                                          <div className="text-xs text-gray-500 mt-1">{formatDateTime(record.voided_at)}</div>
-                                        )}
-                                      </td>
-                                      <td className="text-sm text-gray-900" style={{ paddingTop: '12px', paddingBottom: '12px', paddingLeft: '4px', paddingRight: '12px' }}>{record.void_reason}</td>
-                                    </>
-                                  )}
+                                  <td className="p-3 text-sm text-gray-900">{record.admission_number}</td>
+                                  <td className="p-3 text-sm text-gray-900">{record.name}</td>
+                                  <td className="p-3 text-sm text-gray-900">{record.class_name}</td>
+                                  <td className="p-3 text-sm text-gray-900">{record.invoice_number}</td>
+                                  <td className="p-3 text-sm text-gray-900">{formatDate(record.invoice_date)}</td>
+                                  <td className="p-3 text-sm text-gray-900">{record.item_name}</td>
+                                  <td className="p-3 text-sm text-right text-gray-900">{record.quantity}</td>
+                                  <td className="p-3 text-sm text-right text-gray-900">{record.unit_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                  <td className="p-3 text-sm text-right font-medium text-gray-900">{record.line_total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -779,20 +770,16 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
                       <div className="mt-8 grid grid-cols-3 gap-4 flex-shrink-0">
                         <div className="bg-gray-50 p-4 rounded-lg">
                           <p className="text-sm text-gray-600 mb-1">Total Records</p>
-                          <p className="text-2xl font-semibold text-gray-900">{voidedRecords.length}</p>
+                          <p className="text-2xl font-semibold text-gray-900">{students.length}</p>
+                        </div>
+                        <div className="bg-gray-50 p-4 rounded-lg">
+                          <p className="text-sm text-gray-600 mb-1">Total Quantity</p>
+                          <p className="text-2xl font-semibold text-gray-900">{totalQuantity}</p>
                         </div>
                         <div className="bg-gray-50 p-4 rounded-lg">
                           <p className="text-sm text-gray-600 mb-1">Total Amount</p>
-                          <p className="text-2xl font-semibold text-red-600">
+                          <p className="text-2xl font-semibold text-green-600">
                             Ksh. {totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </p>
-                        </div>
-                        <div className="bg-gray-50 p-4 rounded-lg">
-                          <p className="text-sm text-gray-600 mb-1">Average Amount</p>
-                          <p className="text-2xl font-semibold text-gray-900">
-                            {voidedRecords.length > 0
-                              ? `Ksh. ${(totalAmount / voidedRecords.length).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                              : 'Ksh. 0.00'}
                           </p>
                         </div>
                       </div>
@@ -817,5 +804,4 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
   return null;
 };
 
-export default VoidedRecordsReport;
-
+export default StudentsByInvoiceItemsReport;
