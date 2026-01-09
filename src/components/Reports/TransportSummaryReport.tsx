@@ -23,6 +23,7 @@ interface StudentRecord {
   class_name: string;
   stream_name: string;
   transport_zone: string | null;
+  transport_type: string | null;
   transport_route: string | null;
   pickup_point: string | null;
   status: string;
@@ -45,15 +46,28 @@ interface PageData {
 export const TransportSummaryReport: React.FC<TransportSummaryReportProps> = ({ onClose }) => {
   const [showConfigPopup, setShowConfigPopup] = useState(true);
   const [selectedZone, setSelectedZone] = useState<string>('all');
+  const [selectedType, setSelectedType] = useState<string>('both');
   const [includeInactive, setIncludeInactive] = useState(false);
   const [students, setStudents] = useState<StudentRecord[]>([]);
   const [zones, setZones] = useState<{ id: number; name: string }[]>([]);
+  const [transportTypes, setTransportTypes] = useState<{ id: number; name: string }[]>([]);
+  const [classes, setClasses] = useState<{ id: number; name: string }[]>([]);
+  const [streams, setStreams] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings | null>(null);
   const [pages, setPages] = useState<PageData[]>([]);
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [measuredHeights, setMeasuredHeights] = useState<{
+    headerHeight: number;
+    footerHeight: number;
+    summaryHeight: number;
+    tableHeaderHeight: number;
+    rowHeights: number[];
+    maxRowHeight: number;
+    avgRowHeight: number;
+  } | null>(null);
 
   // Page layout constants (A4 dimensions in pixels at 96 DPI)
   const A4_WIDTH = 794;
@@ -66,17 +80,62 @@ export const TransportSummaryReport: React.FC<TransportSummaryReportProps> = ({ 
   const ROW_HEIGHT = 40;
 
   const calculateAvailableContentHeight = useCallback((includeSummary: boolean = false) => {
-    const usedHeight = HEADER_HEIGHT + FOOTER_HEIGHT + TABLE_HEADER_HEIGHT;
-    const summary = includeSummary ? SUMMARY_HEIGHT : 0;
+    const header = measuredHeights?.headerHeight || HEADER_HEIGHT;
+    const footer = measuredHeights?.footerHeight || FOOTER_HEIGHT;
+    const tableHeader = measuredHeights?.tableHeaderHeight || TABLE_HEADER_HEIGHT;
+    const summary = includeSummary ? (measuredHeights?.summaryHeight || SUMMARY_HEIGHT) : 0;
+    const usedHeight = header + footer + tableHeader;
     return A4_HEIGHT - (PAGE_MARGIN * 2) - usedHeight - summary;
-  }, []);
+  }, [measuredHeights]);
 
-  // Group students by transport zone
+  // Fetch transport zones
+  const fetchTransportZones = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('transport_zones')
+        .select('id, name')
+        .order('name');
+      
+      if (error) throw error;
+      
+      return (data || []).map((zone: any) => ({ id: zone.id, name: zone.name }));
+    } catch (err) {
+      console.error('Error fetching transport zones:', err);
+      return [];
+    }
+  };
+
+  // Fetch transport types
+  const fetchTransportTypes = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('transport_types')
+        .select('id, name, sort_order')
+        .order('sort_order', { ascending: true })
+        .order('id', { ascending: true });
+      
+      if (error) throw error;
+      
+      return (data || []).map((type: any) => ({ id: type.id, name: type.name }));
+    } catch (err) {
+      console.error('Error fetching transport types:', err);
+      return [];
+    }
+  };
+
+  // Helper function for transport type labels
+  const getTransportTypeLabel = useCallback((typeId: string | number) => {
+    if (typeId === 'both') return 'Both';
+    const type = transportTypes.find((t: any) => t.id === parseInt(typeId.toString()));
+    return type ? type.name : typeId.toString();
+  }, [transportTypes]);
+
+  // Group students by transport zone only (excluding Unassigned from zone count)
   const groupStudentsByZone = useCallback((studentList: StudentRecord[]): ZoneGroup[] => {
     const groups: { [key: string]: ZoneGroup } = {};
     
     studentList.forEach(student => {
-      const zoneName = student.transport_zone || 'No Transport Zone';
+      const zoneName = student.transport_zone || 'Unassigned';
       
       if (!groups[zoneName]) {
         groups[zoneName] = {
@@ -87,15 +146,15 @@ export const TransportSummaryReport: React.FC<TransportSummaryReportProps> = ({ 
       groups[zoneName].students.push(student);
     });
 
-    // Sort groups by zone name
+    // Sort groups by zone name only (Unassigned always last)
     return Object.values(groups).sort((a, b) => {
-      if (a.zoneName === 'No Transport Zone') return 1;
-      if (b.zoneName === 'No Transport Zone') return -1;
+      if (a.zoneName.includes('Unassigned')) return 1;
+      if (b.zoneName.includes('Unassigned')) return -1;
       return a.zoneName.localeCompare(b.zoneName);
     });
   }, []);
 
-  // Split records into pages
+  // Split records into pages using actual row height measurement
   const splitIntoPages = useCallback((studentList: StudentRecord[]): PageData[] => {
     if (studentList.length === 0) return [];
     
@@ -103,51 +162,177 @@ export const TransportSummaryReport: React.FC<TransportSummaryReportProps> = ({ 
     const pages: PageData[] = [];
     let currentPageNumber = 1;
     
-    const availableHeight = calculateAvailableContentHeight(false);
-    const rowsPerPage = Math.floor(availableHeight / ROW_HEIGHT);
+    const availableHeightWithoutSummary = calculateAvailableContentHeight(false);
+    const availableHeightWithSummary = calculateAvailableContentHeight(true);
+    const summaryHeight = measuredHeights?.summaryHeight || SUMMARY_HEIGHT;
     
-    zoneGroups.forEach((group, groupIndex) => {
-      const isLastGroup = groupIndex === zoneGroups.length - 1;
-      let remainingStudents = [...group.students];
-      let isFirstPageOfGroup = true;
-      
-      while (remainingStudents.length > 0) {
-        const pageStudents = remainingStudents.slice(0, rowsPerPage);
-        remainingStudents = remainingStudents.slice(rowsPerPage);
-        
-        const isLastPageOfGroup = remainingStudents.length === 0;
-        
-        pages.push({
-          records: pageStudents,
-          pageNumber: currentPageNumber,
-          totalPages: 0,
-          showSummary: isLastGroup && isLastPageOfGroup,
-          currentZone: group.zoneName,
-          isZoneContinuation: !isFirstPageOfGroup
+    // Flatten all students to get global row index for height measurement
+    const allStudents: { student: StudentRecord; zoneGroup: ZoneGroup; globalIndex: number }[] = [];
+    zoneGroups.forEach(group => {
+      group.students.forEach(student => {
+        allStudents.push({
+          student,
+          zoneGroup: group,
+          globalIndex: allStudents.length
         });
-        
-        currentPageNumber++;
-        isFirstPageOfGroup = false;
-      }
+      });
     });
     
+    let currentPageRecords: StudentRecord[] = [];
+    let currentCumulativeHeight = 0;
+    let currentZone: string = '';
+    let isZoneContinuation = false;
+    
+    for (let i = 0; i < allStudents.length; i++) {
+      const { student, zoneGroup } = allStudents[i];
+      const isLastStudent = i === allStudents.length - 1;
+      
+      // Check if we're starting a new zone
+      if (currentZone !== zoneGroup.zoneName) {
+        if (currentPageRecords.length > 0) {
+          // Save current page before starting new zone
+          pages.push({
+            records: [...currentPageRecords],
+            pageNumber: currentPageNumber,
+            totalPages: 0,
+            showSummary: false,
+            currentZone,
+            isZoneContinuation
+          });
+          currentPageNumber++;
+          currentPageRecords = [];
+          currentCumulativeHeight = 0;
+        }
+        currentZone = zoneGroup.zoneName;
+        isZoneContinuation = false;
+      }
+      
+      // Get actual height for this specific row
+      let actualRowHeight = ROW_HEIGHT;
+      if (measuredHeights?.rowHeights[i] !== undefined) {
+        actualRowHeight = measuredHeights.rowHeights[i];
+      } else if (measuredHeights && measuredHeights.rowHeights && measuredHeights.rowHeights.length > 0) {
+        // Use the height of the most recently measured row as a better estimate
+        const lastMeasuredIndex = measuredHeights.rowHeights.length - 1;
+        actualRowHeight = measuredHeights.rowHeights[lastMeasuredIndex];
+      }
+      
+      const newCumulativeHeight = currentCumulativeHeight + actualRowHeight;
+      
+      if (isLastStudent) {
+        // This is the last student overall
+        const wouldFitWithSummary = (newCumulativeHeight + summaryHeight) <= availableHeightWithSummary;
+        
+        if (wouldFitWithSummary) {
+          currentPageRecords.push(student);
+          pages.push({
+            records: [...currentPageRecords],
+            pageNumber: currentPageNumber,
+            totalPages: 0,
+            showSummary: true,
+            currentZone,
+            isZoneContinuation
+          });
+        } else {
+          if (newCumulativeHeight <= availableHeightWithoutSummary) {
+            currentPageRecords.push(student);
+            pages.push({
+              records: [...currentPageRecords],
+              pageNumber: currentPageNumber,
+              totalPages: 0,
+              showSummary: false,
+              currentZone,
+              isZoneContinuation
+            });
+            pages.push({
+              records: [],
+              pageNumber: currentPageNumber + 1,
+              totalPages: 0,
+              showSummary: true,
+              currentZone,
+              isZoneContinuation: false
+            });
+          } else {
+            pages.push({
+              records: [...currentPageRecords],
+              pageNumber: currentPageNumber,
+              totalPages: 0,
+              showSummary: false,
+              currentZone,
+              isZoneContinuation
+            });
+            pages.push({
+              records: [student],
+              pageNumber: currentPageNumber + 1,
+              totalPages: 0,
+              showSummary: true,
+              currentZone,
+              isZoneContinuation: false
+            });
+          }
+        }
+      } else {
+        if (newCumulativeHeight > availableHeightWithoutSummary) {
+          // Current page is full, save it and start new page
+          pages.push({
+            records: [...currentPageRecords],
+            pageNumber: currentPageNumber,
+            totalPages: 0,
+            showSummary: false,
+            currentZone,
+            isZoneContinuation
+          });
+          currentPageRecords = [student];
+          currentCumulativeHeight = actualRowHeight;
+          currentPageNumber++;
+          isZoneContinuation = true;
+        } else {
+          currentPageRecords.push(student);
+          currentCumulativeHeight = newCumulativeHeight;
+        }
+      }
+    }
+    
+    // If there are remaining records (shouldn't happen, but handle edge case)
+    if (currentPageRecords.length > 0 && pages.length === 0) {
+      pages.push({
+        records: [...currentPageRecords],
+        pageNumber: 1,
+        totalPages: 1,
+        showSummary: true,
+        currentZone,
+        isZoneContinuation
+      });
+    }
+    
     return pages.map(page => ({ ...page, totalPages: pages.length }));
-  }, [calculateAvailableContentHeight, groupStudentsByZone]);
+  }, [calculateAvailableContentHeight, groupStudentsByZone, measuredHeights]);
 
-  // Fetch zones on mount
+  // Fetch zones and transport types on mount
   useEffect(() => {
     async function fetchDropdownData() {
       try {
+        // Fetch transport zones
         const { data: zonesRes } = await supabase
           .from('transport_zones')
           .select('id, name')
           .order('name');
         
         if (zonesRes) setZones(zonesRes);
+
+        // Fetch transport types
+        const { data: typesRes } = await supabase
+          .from('transport_types')
+          .select('id, name, sort_order')
+          .order('sort_order', { ascending: true })
+          .order('id', { ascending: true });
+        
+        if (typesRes) setTransportTypes(typesRes);
       } catch (err) {
-        console.error('Error fetching zones:', err);
-        // If transport_zones table doesn't exist, set empty array
+        console.error('Error fetching transport data:', err);
+        // If tables don't exist, set empty arrays
         setZones([]);
+        setTransportTypes([]);
       }
     }
 
@@ -185,7 +370,78 @@ export const TransportSummaryReport: React.FC<TransportSummaryReportProps> = ({ 
     } else {
       setPages([]);
     }
-  }, [students, splitIntoPages]);
+  }, [students, measuredHeights]);
+
+  // Measure actual heights after rendering from the first rendered page
+  useEffect(() => {
+    if (!showPreview || students.length === 0 || pages.length === 0) return;
+
+    const measureHeights = () => {
+      const firstPageElement = pageRefs.current[0];
+      if (!firstPageElement) return;
+
+      const headerElement = firstPageElement.querySelector('.mb-4.border-b') as HTMLElement;
+      const headerHeight = headerElement ? headerElement.offsetHeight : HEADER_HEIGHT;
+
+      const footerElement = firstPageElement.querySelector('.mt-auto.pt-4.border-t') as HTMLElement;
+      const footerHeight = footerElement ? footerElement.offsetHeight : FOOTER_HEIGHT;
+
+      const tableHeaderElement = firstPageElement.querySelector('table thead tr') as HTMLElement;
+      const tableHeaderHeight = tableHeaderElement ? tableHeaderElement.offsetHeight : TABLE_HEADER_HEIGHT;
+
+      const allDataRows = firstPageElement.querySelectorAll('table tbody tr');
+      const rowHeights: number[] = [];
+      let maxRowHeight = ROW_HEIGHT;
+      let totalRowHeight = 0;
+      
+      allDataRows.forEach((row) => {
+        const height = (row as HTMLElement).offsetHeight;
+        rowHeights.push(height);
+        if (height > maxRowHeight) {
+          maxRowHeight = height;
+        }
+        totalRowHeight += height;
+      });
+      
+      const avgRowHeight = rowHeights.length > 0 ? totalRowHeight / rowHeights.length : ROW_HEIGHT;
+
+      const summaryElement = firstPageElement.querySelector('.grid.grid-cols-3.gap-4') as HTMLElement;
+      const summaryHeight = summaryElement ? summaryElement.offsetHeight : SUMMARY_HEIGHT;
+
+      setMeasuredHeights(prev => {
+        const newHeights = {
+          headerHeight,
+          footerHeight,
+          summaryHeight,
+          tableHeaderHeight,
+          rowHeights,
+          maxRowHeight,
+          avgRowHeight
+        };
+        
+        if (!prev || 
+            prev.headerHeight !== headerHeight ||
+            prev.footerHeight !== footerHeight ||
+            prev.summaryHeight !== summaryHeight ||
+            prev.tableHeaderHeight !== tableHeaderHeight ||
+            prev.rowHeights.length !== rowHeights.length ||
+            prev.maxRowHeight !== maxRowHeight) {
+          return newHeights;
+        }
+        return prev;
+      });
+    };
+
+    const timeoutId = setTimeout(measureHeights, 300);
+    return () => clearTimeout(timeoutId);
+  }, [showPreview, students, pages.length]);
+
+  // Helper functions to get names by ID
+  const getZoneNameById = (zoneId: string) => {
+    if (zoneId === 'all') return 'All Zones';
+    const zoneObj = zones.find(z => z.id === parseInt(zoneId));
+    return zoneObj ? zoneObj.name : zoneId;
+  };
 
   const handleClose = () => {
     setShowPreview(false);
@@ -205,9 +461,13 @@ export const TransportSummaryReport: React.FC<TransportSummaryReportProps> = ({ 
           current_class_id,
           stream_id,
           transport_zone_id,
-          status
+          transport_type_id,
+          status,
+          classes!students_current_class_id_fkey(name),
+          streams!students_stream_id_fkey(name)
         `)
         .order('transport_zone_id', { ascending: true, nullsFirst: false })
+        .order('transport_type_id', { ascending: false }) // Two-way first, then One-way
         .order('name', { ascending: true });
 
       if (!includeInactive) {
@@ -218,21 +478,46 @@ export const TransportSummaryReport: React.FC<TransportSummaryReportProps> = ({ 
         query = query.eq('transport_zone_id', parseInt(selectedZone));
       }
 
+      if (selectedType !== 'both') {
+        query = query.eq('transport_type_id', selectedType);
+      }
+
       const { data, error } = await query;
       
       if (error) throw error;
       
       // Transform the data to match the expected interface
-      const transformedData = (data || []).map(student => ({
-        admission_number: student.admission_number,
-        name: student.name,
-        class_name: student.current_class_id ? `Class ${student.current_class_id}` : 'Unassigned',
-        stream_name: student.stream_id ? `Stream ${student.stream_id}` : '',
-        transport_zone: student.transport_zone_id ? `Zone ${student.transport_zone_id}` : 'No Zone',
-        transport_route: null,
-        pickup_point: null,
-        status: student.status
-      }));
+      const transformedData = (data || []).map((student: any) => {
+        // Try to get class name from join, fallback to ID-based lookup
+        let className = 'Unassigned';
+        if (student.classes && student.classes.name) {
+          className = student.classes.name;
+        } else if (student.current_class_id) {
+          const classObj = classes.find(c => c.id === student.current_class_id);
+          className = classObj ? classObj.name : `Class ${student.current_class_id}`;
+        }
+        
+        // Try to get stream name from join, fallback to ID-based lookup
+        let streamName = '';
+        if (student.streams && student.streams.name) {
+          streamName = student.streams.name;
+        } else if (student.stream_id) {
+          const streamObj = streams.find(s => s.id === student.stream_id);
+          streamName = streamObj ? streamObj.name : `Stream ${student.stream_id}`;
+        }
+        
+        return {
+          admission_number: student.admission_number,
+          name: student.name,
+          class_name: className,
+          stream_name: streamName,
+          transport_zone: student.transport_zone_id ? `Zone ${student.transport_zone_id}` : 'Unassigned',
+          transport_type: student.transport_type_id || 'N/A',
+          transport_route: null,
+          pickup_point: null,
+          status: student.status
+        };
+      });
       
       setStudents(transformedData);
       setShowPreview(true);
@@ -300,13 +585,15 @@ export const TransportSummaryReport: React.FC<TransportSummaryReportProps> = ({ 
     return `${day}/${month}/${year} ${hours}:${minutes}`;
   };
 
-  // Get summary statistics
+  // Get summary statistics (matching transport module logic)
   const getSummaryStats = () => {
-    const zoneGroups = groupStudentsByZone(students);
     const totalStudents = students.length;
-    const totalZones = new Set(students.filter(s => s.transport_zone).map(s => s.transport_zone)).size;
-    const withTransport = students.filter(s => s.transport_zone).length;
-    const withoutTransport = students.filter(s => !s.transport_zone).length;
+    // Count only students with transport zones (excluding Unassigned)
+    const commutingStudents = students.filter(s => s.transport_zone !== 'Unassigned').length;
+    // Count unique zones (excluding Unassigned)
+    const totalZones = new Set(students.filter(s => s.transport_zone !== 'Unassigned').map(s => s.transport_zone)).size;
+    const withTransport = commutingStudents;
+    const withoutTransport = students.filter(s => s.transport_zone === 'Unassigned').length;
     
     return { totalStudents, totalZones, withTransport, withoutTransport };
   };
@@ -336,6 +623,24 @@ export const TransportSummaryReport: React.FC<TransportSummaryReportProps> = ({ 
                   <option value="all">All Zones</option>
                   {zones.map(z => (
                     <option key={z.id} value={z.id.toString()}>{z.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Transport Type
+                </label>
+                <select
+                  value={selectedType}
+                  onChange={(e) => setSelectedType(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="both">Both</option>
+                  {transportTypes.map((type: any) => (
+                    <option key={type.id} value={type.id}>
+                      {type.name}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -473,7 +778,7 @@ export const TransportSummaryReport: React.FC<TransportSummaryReportProps> = ({ 
                           <h1 className="text-3xl font-normal text-gray-900 mb-2">Transport Summary</h1>
                           <div className="text-sm text-gray-600 space-y-1">
                             <p><strong>Zone:</strong> {pageData.currentZone}{pageData.isZoneContinuation ? ' (continued)' : ''}</p>
-                            <p><strong>Filter:</strong> {selectedZone === 'all' ? 'All Zones' : selectedZone}</p>
+                            <p><strong>Filter:</strong> {getZoneNameById(selectedZone)}</p>
                             <p><strong>Generated:</strong> {formatDateTime(new Date().toISOString())}</p>
                           </div>
                         </div>
@@ -523,13 +828,18 @@ export const TransportSummaryReport: React.FC<TransportSummaryReportProps> = ({ 
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '15%' }}>Adm No.</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Name</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '15%' }}>Class</th>
-                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '20%' }}>Route / Pickup</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '20%' }}>Pick Up/Drop Off</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {pageData.records.map((student, index) => (
+                              {pageData.records.map((student, index) => {
+                                // Calculate cumulative number across all previous pages
+                                const previousPagesCount = pages.slice(0, pageIndex).reduce((total, page) => total + page.records.length, 0);
+                                const cumulativeNumber = previousPagesCount + index + 1;
+                                
+                                return (
                                 <tr key={student.admission_number} className={`border-b border-gray-100 ${index % 2 === 0 ? 'bg-white' : ''}`} style={index % 2 === 1 ? { backgroundColor: '#fcfcfd' } : {}}>
-                                  <td className="p-3 text-sm text-gray-600">{index + 1}</td>
+                                  <td className="p-3 text-sm text-gray-600">{cumulativeNumber}</td>
                                   <td className="p-3 text-sm text-gray-900 font-medium">{student.admission_number}</td>
                                   <td className="p-3 text-sm text-gray-900">{student.name}</td>
                                   <td className="p-3 text-sm text-gray-600">{student.class_name || 'N/A'}</td>
@@ -540,7 +850,8 @@ export const TransportSummaryReport: React.FC<TransportSummaryReportProps> = ({ 
                                     )}
                                   </td>
                                 </tr>
-                              ))}
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>

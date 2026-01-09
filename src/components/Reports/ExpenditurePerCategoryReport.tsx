@@ -43,6 +43,15 @@ export const ExpenditurePerCategoryReport: React.FC<ExpenditurePerCategoryReport
   const [invoiceSettings, setInvoiceSettings] = useState<InvoiceSettings | null>(null);
   const [pages, setPages] = useState<PageData[]>([]);
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [measuredHeights, setMeasuredHeights] = useState<{
+    headerHeight: number;
+    footerHeight: number;
+    summaryHeight: number;
+    tableHeaderHeight: number;
+    rowHeights: number[];
+    maxRowHeight: number;
+    avgRowHeight: number;
+  } | null>(null);
 
   // Page layout constants (A4 dimensions in pixels at 96 DPI)
   const A4_WIDTH = 794;
@@ -55,40 +64,123 @@ export const ExpenditurePerCategoryReport: React.FC<ExpenditurePerCategoryReport
   const ROW_HEIGHT = 45;
 
   const calculateAvailableContentHeight = useCallback((includeSummary: boolean = false) => {
-    const usedHeight = HEADER_HEIGHT + FOOTER_HEIGHT + TABLE_HEADER_HEIGHT;
-    const summary = includeSummary ? SUMMARY_HEIGHT : 0;
+    const header = measuredHeights?.headerHeight || HEADER_HEIGHT;
+    const footer = measuredHeights?.footerHeight || FOOTER_HEIGHT;
+    const tableHeader = measuredHeights?.tableHeaderHeight || TABLE_HEADER_HEIGHT;
+    const summary = includeSummary ? (measuredHeights?.summaryHeight || SUMMARY_HEIGHT) : 0;
+    const usedHeight = header + footer + tableHeader;
     return A4_HEIGHT - (PAGE_MARGIN * 2) - usedHeight - summary;
-  }, []);
+  }, [measuredHeights]);
 
-  // Split records into pages
+  // Split records into pages using actual row height measurement
   const splitIntoPages = useCallback((items: CategoryAggregate[]): PageData[] => {
     if (items.length === 0) return [];
     
     const pages: PageData[] = [];
+    let currentPageRecords: CategoryAggregate[] = [];
     let currentPageNumber = 1;
+    let currentCumulativeHeight = 0;
     
-    const availableHeight = calculateAvailableContentHeight(false);
-    const rowsPerPage = Math.floor(availableHeight / ROW_HEIGHT);
+    const availableHeightWithoutSummary = calculateAvailableContentHeight(false);
+    const availableHeightWithSummary = calculateAvailableContentHeight(true);
+    const summaryHeight = measuredHeights?.summaryHeight || SUMMARY_HEIGHT;
     
-    let remainingItems = [...items];
-    
-    while (remainingItems.length > 0) {
-      const isLastPage = remainingItems.length <= rowsPerPage;
-      const pageItems = remainingItems.slice(0, rowsPerPage);
-      remainingItems = remainingItems.slice(rowsPerPage);
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const isLastRecord = i === items.length - 1;
       
-      pages.push({
-        records: pageItems,
-        pageNumber: currentPageNumber,
-        totalPages: 0,
-        showSummary: isLastPage
-      });
+      // Get actual height for this specific row
+      let actualRowHeight = ROW_HEIGHT;
+      if (measuredHeights?.rowHeights[i] !== undefined) {
+        actualRowHeight = measuredHeights.rowHeights[i];
+      } else if (measuredHeights && measuredHeights.rowHeights && measuredHeights.rowHeights.length > 0) {
+        // Use the height of the most recently measured row as a better estimate
+        const lastMeasuredIndex = measuredHeights.rowHeights.length - 1;
+        actualRowHeight = measuredHeights.rowHeights[lastMeasuredIndex];
+      }
       
-      currentPageNumber++;
+      const newCumulativeHeight = currentCumulativeHeight + actualRowHeight;
+      
+      if (isLastRecord) {
+        // This is the last record - need to decide if summary fits
+        const wouldFitWithSummary = (newCumulativeHeight + summaryHeight) <= availableHeightWithSummary;
+        
+        if (wouldFitWithSummary) {
+          // Add record and summary to current page
+          currentPageRecords.push(item);
+          pages.push({
+            records: [...currentPageRecords],
+            pageNumber: currentPageNumber,
+            totalPages: 0,
+            showSummary: true
+          });
+        } else {
+          // Check if record alone fits on current page
+          if (newCumulativeHeight <= availableHeightWithoutSummary) {
+            // Add record to current page, summary goes to next
+            currentPageRecords.push(item);
+            pages.push({
+              records: [...currentPageRecords],
+              pageNumber: currentPageNumber,
+              totalPages: 0,
+              showSummary: false
+            });
+            // Add summary-only page
+            pages.push({
+              records: [],
+              pageNumber: currentPageNumber + 1,
+              totalPages: 0,
+              showSummary: true
+            });
+          } else {
+            // Current page is full, save it and start new page with record and summary
+            pages.push({
+              records: [...currentPageRecords],
+              pageNumber: currentPageNumber,
+              totalPages: 0,
+              showSummary: false
+            });
+            pages.push({
+              records: [item],
+              pageNumber: currentPageNumber + 1,
+              totalPages: 0,
+              showSummary: true
+            });
+          }
+        }
+      } else {
+        // Not the last record - check if adding this record would exceed page limit
+        if (newCumulativeHeight > availableHeightWithoutSummary) {
+          // Current page is full, save it and start new page
+          pages.push({
+            records: [...currentPageRecords],
+            pageNumber: currentPageNumber,
+            totalPages: 0,
+            showSummary: false
+          });
+          currentPageRecords = [item];
+          currentCumulativeHeight = actualRowHeight;
+          currentPageNumber++;
+        } else {
+          currentPageRecords.push(item);
+          currentCumulativeHeight = newCumulativeHeight;
+        }
+      }
     }
     
-    return pages.map(page => ({ ...page, totalPages: pages.length }));
-  }, [calculateAvailableContentHeight]);
+    // If there are remaining records (shouldn't happen, but handle edge case)
+    if (currentPageRecords.length > 0 && pages.length === 0) {
+      pages.push({
+        records: [...currentPageRecords],
+        pageNumber: 1,
+        totalPages: 1,
+        showSummary: true
+      });
+    }
+    
+    const totalPages = pages.length;
+    return pages.map(page => ({ ...page, totalPages }));
+  }, [calculateAvailableContentHeight, measuredHeights]);
 
   // Set default date range on mount
   useEffect(() => {
@@ -130,7 +222,71 @@ export const ExpenditurePerCategoryReport: React.FC<ExpenditurePerCategoryReport
     } else {
       setPages([]);
     }
-  }, [categories, splitIntoPages]);
+  }, [categories, splitIntoPages, measuredHeights]);
+
+  // Measure actual heights after rendering from the first rendered page
+  useEffect(() => {
+    if (!showPreview || categories.length === 0 || pages.length === 0) return;
+
+    const measureHeights = () => {
+      const firstPageElement = pageRefs.current[0];
+      if (!firstPageElement) return;
+
+      const headerElement = firstPageElement.querySelector('.mb-4.border-b') as HTMLElement;
+      const headerHeight = headerElement ? headerElement.offsetHeight : HEADER_HEIGHT;
+
+      const footerElement = firstPageElement.querySelector('.mt-auto.pt-4.border-t') as HTMLElement;
+      const footerHeight = footerElement ? footerElement.offsetHeight : FOOTER_HEIGHT;
+
+      const tableHeaderElement = firstPageElement.querySelector('table thead tr') as HTMLElement;
+      const tableHeaderHeight = tableHeaderElement ? tableHeaderElement.offsetHeight : TABLE_HEADER_HEIGHT;
+
+      const allDataRows = firstPageElement.querySelectorAll('table tbody tr');
+      const rowHeights: number[] = [];
+      let maxRowHeight = ROW_HEIGHT;
+      let totalRowHeight = 0;
+      
+      allDataRows.forEach((row) => {
+        const height = (row as HTMLElement).offsetHeight;
+        rowHeights.push(height);
+        if (height > maxRowHeight) {
+          maxRowHeight = height;
+        }
+        totalRowHeight += height;
+      });
+      
+      const avgRowHeight = rowHeights.length > 0 ? totalRowHeight / rowHeights.length : ROW_HEIGHT;
+
+      const summaryElement = firstPageElement.querySelector('.grid.grid-cols-3.gap-4') as HTMLElement;
+      const summaryHeight = summaryElement ? summaryElement.offsetHeight : SUMMARY_HEIGHT;
+
+      setMeasuredHeights(prev => {
+        const newHeights = {
+          headerHeight,
+          footerHeight,
+          summaryHeight,
+          tableHeaderHeight,
+          rowHeights,
+          maxRowHeight,
+          avgRowHeight
+        };
+        
+        if (!prev || 
+            prev.headerHeight !== headerHeight ||
+            prev.footerHeight !== footerHeight ||
+            prev.summaryHeight !== summaryHeight ||
+            prev.tableHeaderHeight !== tableHeaderHeight ||
+            prev.rowHeights.length !== rowHeights.length ||
+            prev.maxRowHeight !== maxRowHeight) {
+          return newHeights;
+        }
+        return prev;
+      });
+    };
+
+    const timeoutId = setTimeout(measureHeights, 300);
+    return () => clearTimeout(timeoutId);
+  }, [showPreview, categories, pages.length]);
 
   const handleClose = () => {
     setShowPreview(false);

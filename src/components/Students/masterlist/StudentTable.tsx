@@ -226,9 +226,9 @@ export const StudentTable: React.FC<StudentTableProps> = ({
                 </td>
 
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm font-medium text-gray-900">
-                    {student.current_class?.name || student.current_class_id}
-                    {student.stream?.name ? ` ${student.stream.name}` : ''}
+                  <div className="text-sm text-medium text-gray-900">
+                    <span className="font-medium">{student.current_class?.name || student.current_class_id}</span>
+                    {student.stream?.name ? <span className="font-normal"> {student.stream.name}</span> : ''}
                   </div>
                 </td>
 

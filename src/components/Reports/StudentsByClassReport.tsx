@@ -23,7 +23,7 @@ interface StudentRecord {
   class_name: string | null;
   stream_name: string | null;
   gender: string | null;
-  date_of_birth: string | null;
+  age: number | null;
   status: string;
 }
 
@@ -396,6 +396,19 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
     return () => clearTimeout(timeoutId);
   }, [showPreview, students, pages.length]);
 
+  // Helper functions to get names by ID
+  const getClassNameById = (classId: string) => {
+    if (classId === 'all') return 'All Classes';
+    const classObj = classes.find(c => c.id === parseInt(classId));
+    return classObj ? classObj.name : classId;
+  };
+
+  const getStreamNameById = (streamId: string) => {
+    if (streamId === 'all') return 'All Streams';
+    const streamObj = streams.find(s => s.id === parseInt(streamId));
+    return streamObj ? streamObj.name : streamId;
+  };
+
   const handleClose = () => {
     setShowPreview(false);
     setShowConfigPopup(false);
@@ -415,7 +428,9 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
           stream_id,
           gender,
           date_of_birth,
-          status
+          status,
+          classes!students_current_class_id_fkey(name),
+          streams!students_stream_id_fkey(name)
         `)
         .order('current_class_id', { ascending: true })
         .order('stream_id', { ascending: true })
@@ -438,15 +453,49 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
       if (error) throw error;
       
       // Transform the data to match the expected interface
-      const transformedData = (data || []).map(student => ({
-        admission_number: student.admission_number,
-        name: student.name,
-        class_name: student.current_class_id ? `Class ${student.current_class_id}` : 'Unassigned',
-        stream_name: student.stream_id ? `Stream ${student.stream_id}` : '',
-        gender: student.gender,
-        date_of_birth: student.date_of_birth,
-        status: student.status
-      }));
+      const transformedData = (data || []).map((student: any) => {
+        console.log('Student data:', student); // Debug log
+        
+        // Try to get class name from join, fallback to ID-based lookup
+        let className = 'Unassigned';
+        if (student.classes && student.classes.name) {
+          className = student.classes.name;
+        } else if (student.current_class_id) {
+          const classObj = classes.find(c => c.id === student.current_class_id);
+          className = classObj ? classObj.name : `Class ${student.current_class_id}`;
+        }
+        
+        // Try to get stream name from join, fallback to ID-based lookup
+        let streamName = '';
+        if (student.streams && student.streams.name) {
+          streamName = student.streams.name;
+        } else if (student.stream_id) {
+          const streamObj = streams.find(s => s.id === student.stream_id);
+          streamName = streamObj ? streamObj.name : `Stream ${student.stream_id}`;
+        }
+        
+        // Calculate age from date_of_birth
+        let age = null;
+        if (student.date_of_birth) {
+          const birthDate = new Date(student.date_of_birth);
+          const today = new Date();
+          age = today.getFullYear() - birthDate.getFullYear();
+          const monthDiff = today.getMonth() - birthDate.getMonth();
+          if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+            age--;
+          }
+        }
+        
+        return {
+          admission_number: student.admission_number,
+          name: student.name,
+          class_name: className,
+          stream_name: streamName,
+          gender: student.gender,
+          age: age,
+          status: student.status
+        };
+      });
       
       setStudents(transformedData);
       setShowPreview(true);
@@ -531,6 +580,36 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
     const femaleCount = students.filter(s => s.gender?.toLowerCase() === 'female').length;
     
     return { totalStudents, totalClasses, maleCount, femaleCount };
+  };
+
+  // Get class-wise summary statistics
+  const getClassWiseSummary = () => {
+    const classStats: { [key: string]: { male: number; female: number; total: number } } = {};
+    
+    students.forEach(student => {
+      const className = student.class_name || 'Unassigned';
+      
+      if (!classStats[className]) {
+        classStats[className] = { male: 0, female: 0, total: 0 };
+      }
+      
+      classStats[className].total++;
+      
+      if (student.gender?.toLowerCase() === 'male') {
+        classStats[className].male++;
+      } else if (student.gender?.toLowerCase() === 'female') {
+        classStats[className].female++;
+      }
+    });
+    
+    // Convert to array and sort by class name
+    return Object.entries(classStats)
+      .map(([className, stats]) => ({ className, ...stats }))
+      .sort((a, b) => {
+        if (a.className === 'Unassigned') return 1;
+        if (b.className === 'Unassigned') return -1;
+        return a.className.localeCompare(b.className);
+      });
   };
 
   if (showConfigPopup) {
@@ -711,7 +790,7 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
                           <h1 className="text-3xl font-normal text-gray-900 mb-2">Students by Class</h1>
                           <div className="text-sm text-gray-600 space-y-1">
                             <p><strong>Class:</strong> {pageData.currentClass}{pageData.currentStream ? ` - ${pageData.currentStream}` : ''}{pageData.isClassContinuation ? ' (continued)' : ''}</p>
-                            <p><strong>Filter:</strong> {selectedClass === 'all' ? 'All Classes' : selectedClass}{selectedStream !== 'all' ? `, ${selectedStream}` : ''}</p>
+                            <p><strong>Filter:</strong> {getClassNameById(selectedClass)}{selectedStream !== 'all' ? `, ${getStreamNameById(selectedStream)}` : ''}</p>
                             <p><strong>Generated:</strong> {formatDateTime(new Date().toISOString())}</p>
                           </div>
                         </div>
@@ -761,19 +840,25 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '18%' }}>Adm No.</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Name</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '12%' }}>Gender</th>
-                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '15%' }}>Date of Birth</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '15%' }}>Age</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {pageData.records.map((student, index) => (
+                              {pageData.records.map((student, index) => {
+                                // Calculate cumulative number across all previous pages
+                                const previousPagesCount = pages.slice(0, pageIndex).reduce((total, page) => total + page.records.length, 0);
+                                const cumulativeNumber = previousPagesCount + index + 1;
+                                
+                                return (
                                 <tr key={student.admission_number} className={`border-b border-gray-100 ${index % 2 === 0 ? 'bg-white' : ''}`} style={index % 2 === 1 ? { backgroundColor: '#fcfcfd' } : {}}>
-                                  <td className="p-3 text-sm text-gray-600">{index + 1}</td>
+                                  <td className="p-3 text-sm text-gray-600">{cumulativeNumber}</td>
                                   <td className="p-3 text-sm text-gray-900 font-medium">{student.admission_number}</td>
                                   <td className="p-3 text-sm text-gray-900">{student.name}</td>
                                   <td className="p-3 text-sm text-gray-600">{student.gender || 'N/A'}</td>
-                                  <td className="p-3 text-sm text-gray-600">{formatDate(student.date_of_birth)}</td>
+                                  <td className="p-3 text-sm text-gray-600">{student.age || 'N/A'}</td>
                                 </tr>
-                              ))}
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>
@@ -799,6 +884,33 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
                           <p className="text-sm text-gray-600 mb-1">Female</p>
                           <p className="text-2xl font-semibold text-gray-900">{stats.femaleCount}</p>
                         </div>
+                      </div>
+                    )}
+
+                    {/* Class-wise Summary Table - Only show when all classes selected */}
+                    {pageData.showSummary && selectedClass === 'all' && (
+                      <div className="mt-8 flex-shrink-0">
+                        <h3 className="text-lg font-semibold text-gray-900 mb-4">Class Summary</h3>
+                        <table className="w-full border-collapse">
+                          <thead>
+                            <tr className="bg-gray-50 border-b-2 border-gray-200">
+                              <th className="text-left p-3 text-sm font-semibold text-gray-700">Class</th>
+                              <th className="text-center p-3 text-sm font-semibold text-gray-700">Male</th>
+                              <th className="text-center p-3 text-sm font-semibold text-gray-700">Female</th>
+                              <th className="text-center p-3 text-sm font-semibold text-gray-700">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {getClassWiseSummary().map((classStat, index) => (
+                              <tr key={classStat.className} className={`border-b border-gray-100 ${index % 2 === 0 ? 'bg-white' : ''}`} style={index % 2 === 1 ? { backgroundColor: '#fcfcfd' } : {}}>
+                                <td className="p-3 text-sm text-gray-900 font-medium">{classStat.className}</td>
+                                <td className="p-3 text-sm text-gray-600 text-center">{classStat.male}</td>
+                                <td className="p-3 text-sm text-gray-600 text-center">{classStat.female}</td>
+                                <td className="p-3 text-sm text-gray-900 text-center font-semibold">{classStat.total}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     )}
 
