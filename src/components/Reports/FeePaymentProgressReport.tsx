@@ -17,20 +17,18 @@ interface FeePaymentProgressReportProps {
   onClose: () => void;
 }
 
-interface ClassProgress {
-  className: string;
-  totalStudents: number;
-  fullyPaid: number;
-  partiallyPaid: number;
-  unpaid: number;
-  totalFees: number;
-  totalPaid: number;
-  outstandingBalance: number;
+interface StudentProgress {
+  admission_number: string;
+  name: string;
+  class_name: string;
+  totalOutstanding: number;
+  paid: number;
+  balance: number;
   paymentPercentage: number;
 }
 
 interface PageData {
-  records: ClassProgress[];
+  records: StudentProgress[];
   pageNumber: number;
   totalPages: number;
   showSummary: boolean;
@@ -40,7 +38,8 @@ export const FeePaymentProgressReport: React.FC<FeePaymentProgressReportProps> =
   const [showConfigPopup, setShowConfigPopup] = useState(true);
   const [selectedClass, setSelectedClass] = useState<string>('all');
   const [percentageThreshold, setPercentageThreshold] = useState<number>(50);
-  const [classes, setClasses] = useState<ClassProgress[]>([]);
+  const [reportType, setReportType] = useState<string>('Meeting Threshold');
+  const [students, setStudents] = useState<StudentProgress[]>([]);
   const [classList, setClassList] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -78,11 +77,11 @@ export const FeePaymentProgressReport: React.FC<FeePaymentProgressReportProps> =
   }, [measuredHeights]);
 
   // Split records into pages using actual row height measurement
-  const splitIntoPages = useCallback((items: ClassProgress[]): PageData[] => {
+  const splitIntoPages = useCallback((items: StudentProgress[]): PageData[] => {
     if (items.length === 0) return [];
     
     const pages: PageData[] = [];
-    let currentPageRecords: ClassProgress[] = [];
+    let currentPageRecords: StudentProgress[] = [];
     let currentPageNumber = 1;
     let currentCumulativeHeight = 0;
     
@@ -229,18 +228,18 @@ export const FeePaymentProgressReport: React.FC<FeePaymentProgressReportProps> =
   }, []);
 
   useEffect(() => {
-    if (classes.length > 0) {
-      const splitPages = splitIntoPages(classes);
+    if (students.length > 0) {
+      const splitPages = splitIntoPages(students);
       setPages(splitPages);
       pageRefs.current = new Array(splitPages.length).fill(null);
     } else {
       setPages([]);
     }
-  }, [classes, splitIntoPages, measuredHeights]);
+  }, [students, splitIntoPages, measuredHeights]);
 
   // Measure actual heights after rendering from the first rendered page
   useEffect(() => {
-    if (!showPreview || classes.length === 0 || pages.length === 0) return;
+    if (!showPreview || students.length === 0 || pages.length === 0) return;
 
     const measureHeights = () => {
       const firstPageElement = pageRefs.current[0];
@@ -300,12 +299,12 @@ export const FeePaymentProgressReport: React.FC<FeePaymentProgressReportProps> =
 
     const timeoutId = setTimeout(measureHeights, 300);
     return () => clearTimeout(timeoutId);
-  }, [showPreview, classes, pages.length]);
+  }, [showPreview, students, pages.length]);
 
   const handleClose = () => {
     setShowPreview(false);
     setShowConfigPopup(false);
-    setClasses([]);
+    setStudents([]);
     onClose();
   };
 
@@ -318,7 +317,7 @@ export const FeePaymentProgressReport: React.FC<FeePaymentProgressReportProps> =
         .select(`
           admission_number,
           name,
-          students(class_name),
+          students!inner(class_name),
           total_amount,
           payment_made,
           balance_due,
@@ -334,56 +333,65 @@ export const FeePaymentProgressReport: React.FC<FeePaymentProgressReportProps> =
       
       if (error) throw error;
 
-      // Group by class and calculate progress
-      const classProgressMap: { [key: string]: ClassProgress } = {};
+      // Group by student and calculate progress
+      const studentProgressMap: { [key: string]: StudentProgress } = {};
       
       (invoices || []).forEach(invoice => {
-        const className = Array.isArray(invoice.students) ? invoice.students[0]?.class_name || 'Unassigned' : 'Unassigned';
+        const admissionNumber = invoice.admission_number || 'N/A';
+        const studentName = invoice.name || 'N/A';
+        const className = Array.isArray(invoice.students) ? invoice.students[0]?.class_name || 'Unassigned' : invoice.students?.class_name || 'Unassigned';
         const totalAmount = parseFloat(invoice.total_amount) || 0;
         const paymentMade = parseFloat(invoice.payment_made) || 0;
         const balanceDue = parseFloat(invoice.balance_due) || 0;
         
-        if (!classProgressMap[className]) {
-          classProgressMap[className] = {
-            className,
-            totalStudents: 0,
-            fullyPaid: 0,
-            partiallyPaid: 0,
-            unpaid: 0,
-            totalFees: 0,
-            totalPaid: 0,
-            outstandingBalance: 0,
+        if (!studentProgressMap[admissionNumber]) {
+          studentProgressMap[admissionNumber] = {
+            admission_number: admissionNumber,
+            name: studentName,
+            class_name: className,
+            totalOutstanding: 0,
+            paid: 0,
+            balance: 0,
             paymentPercentage: 0
           };
         }
         
-        const classData = classProgressMap[className];
-        classData.totalStudents += 1;
-        classData.totalFees += totalAmount;
-        classData.totalPaid += paymentMade;
-        classData.outstandingBalance += balanceDue;
-        
-        if (balanceDue <= 0) {
-          classData.fullyPaid += 1;
-        } else if (paymentMade > 0) {
-          classData.partiallyPaid += 1;
-        } else {
-          classData.unpaid += 1;
-        }
+        const studentData = studentProgressMap[admissionNumber];
+        studentData.totalOutstanding += totalAmount;
+        studentData.paid += paymentMade;
+        studentData.balance += balanceDue;
       });
 
-      // Calculate payment percentage for each class
-      const classProgressArray = Object.values(classProgressMap).map(classData => ({
-        ...classData,
-        paymentPercentage: classData.totalFees > 0 
-          ? (classData.totalPaid / classData.totalFees) * 100 
+      // Calculate payment percentage for each student
+      const studentProgressArray = Object.values(studentProgressMap).map(studentData => ({
+        ...studentData,
+        paymentPercentage: studentData.totalOutstanding > 0 
+          ? (studentData.paid / studentData.totalOutstanding) * 100 
           : 0
       }));
 
-      // Sort by payment percentage (lowest first) to show classes needing attention
-      const sortedClasses = classProgressArray.sort((a, b) => a.paymentPercentage - b.paymentPercentage);
+      // Filter students based on report type and sort by admission number ascending
+      const filteredStudents = studentProgressArray
+        .filter(student => 
+          reportType === 'Meeting Threshold' 
+            ? student.paymentPercentage >= percentageThreshold
+            : student.paymentPercentage < percentageThreshold
+        )
+        .sort((a, b) => {
+          // Handle both numeric and text admission numbers
+          const aNum = parseInt(a.admission_number);
+          const bNum = parseInt(b.admission_number);
+          
+          // If both are valid numbers, sort numerically
+          if (!isNaN(aNum) && !isNaN(bNum)) {
+            return aNum - bNum;
+          }
+          
+          // If one or both are not numbers, sort as strings
+          return a.admission_number.localeCompare(b.admission_number);
+        });
       
-      setClasses(sortedClasses);
+      setStudents(filteredStudents);
       setShowPreview(true);
       setShowConfigPopup(false);
     } catch (error) {
@@ -453,30 +461,35 @@ export const FeePaymentProgressReport: React.FC<FeePaymentProgressReportProps> =
     return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  const getProgressColor = (percentage: number): string => {
-    if (percentage >= 80) return 'text-green-600';
-    if (percentage >= 50) return 'text-yellow-600';
-    return 'text-red-600';
-  };
-
+  
   // Get summary statistics
   const getSummaryStats = () => {
-    const totalStudents = classes.reduce((sum, c) => sum + c.totalStudents, 0);
-    const fullyPaid = classes.reduce((sum, c) => sum + c.fullyPaid, 0);
-    const partiallyPaid = classes.reduce((sum, c) => sum + c.partiallyPaid, 0);
-    const unpaid = classes.reduce((sum, c) => sum + c.unpaid, 0);
-    const totalFees = classes.reduce((sum, c) => sum + c.totalFees, 0);
-    const totalPaid = classes.reduce((sum, c) => sum + c.totalPaid, 0);
+    const totalStudents = students.length;
+    const totalFees = students.reduce((sum, s) => sum + s.totalOutstanding, 0);
+    const totalPaid = students.reduce((sum, s) => sum + s.paid, 0);
+    const totalBalance = students.reduce((sum, s) => sum + s.balance, 0);
     const overallPercentage = totalFees > 0 ? (totalPaid / totalFees) * 100 : 0;
     
-    return { totalStudents, fullyPaid, partiallyPaid, unpaid, totalFees, totalPaid, overallPercentage };
+    return { totalStudents, totalFees, totalPaid, totalBalance, overallPercentage };
   };
 
   if (showConfigPopup) {
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-          <div className="p-6">
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center p-4 z-50 overflow-y-auto">
+        <div className="bg-white shadow-xl w-full max-w-md my-8">
+          <div 
+            className="p-6 max-h-[calc(100vh-4rem)] overflow-y-auto"
+            style={{
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'transparent transparent',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.scrollbarColor = '#d1d5db #9ca3af';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.scrollbarColor = 'transparent transparent';
+            }}
+          >
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-semibold text-gray-800">Fee Payment Progress</h2>
               <button onClick={handleClose} className="text-gray-500 hover:text-gray-700">
@@ -498,6 +511,20 @@ export const FeePaymentProgressReport: React.FC<FeePaymentProgressReportProps> =
                   {classList.map(c => (
                     <option key={c.id} value={c.name}>{c.name}</option>
                   ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Type
+                </label>
+                <select
+                  value={reportType}
+                  onChange={(e) => setReportType(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="Meeting Threshold">Meeting Threshold</option>
+                  <option value="Failed to meet Threshold">Failed to meet Threshold</option>
                 </select>
               </div>
 
@@ -604,7 +631,7 @@ export const FeePaymentProgressReport: React.FC<FeePaymentProgressReportProps> =
             </div>
 
             <div className="space-y-4">
-              {classes.length === 0 ? (
+              {students.length === 0 ? (
                 <div
                   className="bg-white mx-auto p-8"
                   style={{
@@ -640,6 +667,7 @@ export const FeePaymentProgressReport: React.FC<FeePaymentProgressReportProps> =
                           <h1 className="text-3xl font-normal text-gray-900 mb-2">Fee Payment Progress</h1>
                           <div className="text-sm text-gray-600 space-y-1">
                             <p><strong>Class:</strong> {selectedClass === 'all' ? 'All Classes' : selectedClass}</p>
+                            <p><strong>Type:</strong> {reportType}</p>
                             <p><strong>Threshold:</strong> {percentageThreshold}% cleared</p>
                             <p><strong>Generated:</strong> {formatDateTime(new Date().toISOString())}</p>
                           </div>
@@ -686,29 +714,23 @@ export const FeePaymentProgressReport: React.FC<FeePaymentProgressReportProps> =
                           <table className="w-full border-collapse">
                             <thead>
                               <tr className="bg-gray-50 border-b-2 border-gray-200">
-                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '5%' }}>#</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700">Adm</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700">Name</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700">Class</th>
-                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '10%' }}>Students</th>
-                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '15%' }}>Fully Paid</th>
-                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '15%' }}>Partially Paid</th>
-                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '15%' }}>Unpaid</th>
-                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '15%' }}>Progress</th>
+                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '15%' }}>Total</th>
+                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '15%' }}>Paid</th>
+                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '15%' }}>Balance</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {pageData.records.map((classData, index) => (
-                                <tr key={classData.className} className={`border-b border-gray-100 ${index % 2 === 0 ? 'bg-white' : ''}`} style={index % 2 === 1 ? { backgroundColor: '#fcfcfd' } : {}}>
-                                  <td className="p-3 text-sm text-gray-600">{index + 1}</td>
-                                  <td className="p-3 text-sm text-gray-900 font-medium">{classData.className}</td>
-                                  <td className="p-3 text-sm text-gray-600 text-right">{classData.totalStudents}</td>
-                                  <td className="p-3 text-sm text-right text-green-600">{classData.fullyPaid}</td>
-                                  <td className="p-3 text-sm text-right text-yellow-600">{classData.partiallyPaid}</td>
-                                  <td className="p-3 text-sm text-right text-red-600">{classData.unpaid}</td>
-                                  <td className="p-3 text-sm text-right">
-                                    <span className={`font-medium ${getProgressColor(classData.paymentPercentage)}`}>
-                                      {classData.paymentPercentage.toFixed(1)}%
-                                    </span>
-                                  </td>
+                              {pageData.records.map((studentData, index) => (
+                                <tr key={studentData.admission_number} className={`border-b border-gray-100 ${index % 2 === 0 ? 'bg-white' : ''}`} style={index % 2 === 1 ? { backgroundColor: '#fcfcfd' } : {}}>
+                                  <td className="p-3 text-sm text-gray-900">{studentData.admission_number}</td>
+                                  <td className="p-3 text-sm text-gray-900 font-medium">{studentData.name}</td>
+                                  <td className="p-3 text-sm text-gray-900">{studentData.class_name}</td>
+                                  <td className="p-3 text-sm text-right text-red-600">{formatCurrency(studentData.totalOutstanding)}</td>
+                                  <td className="p-3 text-sm text-right text-green-600">{formatCurrency(studentData.paid)}</td>
+                                  <td className="p-3 text-sm text-right text-orange-600">{formatCurrency(studentData.balance)}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -725,16 +747,16 @@ export const FeePaymentProgressReport: React.FC<FeePaymentProgressReportProps> =
                           <p className="text-2xl font-semibold text-gray-900">{stats.totalStudents}</p>
                         </div>
                         <div className="bg-gray-50 p-4 rounded-lg">
-                          <p className="text-sm text-gray-600 mb-1">Fully Paid</p>
-                          <p className="text-2xl font-semibold text-green-600">{stats.fullyPaid}</p>
+                          <p className="text-sm text-gray-600 mb-1">Total Fees</p>
+                          <p className="text-2xl font-semibold text-red-600">{formatCurrency(stats.totalFees)}</p>
                         </div>
                         <div className="bg-gray-50 p-4 rounded-lg">
-                          <p className="text-sm text-gray-600 mb-1">Partially Paid</p>
-                          <p className="text-2xl font-semibold text-yellow-600">{stats.partiallyPaid}</p>
+                          <p className="text-sm text-gray-600 mb-1">Total Paid</p>
+                          <p className="text-2xl font-semibold text-green-600">{formatCurrency(stats.totalPaid)}</p>
                         </div>
                         <div className="bg-gray-50 p-4 rounded-lg">
-                          <p className="text-sm text-gray-600 mb-1">Overall Progress</p>
-                          <p className="text-2xl font-semibold text-blue-600">{stats.overallPercentage.toFixed(1)}%</p>
+                          <p className="text-sm text-gray-600 mb-1">Total Balance</p>
+                          <p className="text-2xl font-semibold text-orange-600">{formatCurrency(stats.totalBalance)}</p>
                         </div>
                       </div>
                     )}

@@ -186,9 +186,35 @@ export const ExpenditurePerVendorReport: React.FC<ExpenditurePerVendorReportProp
   // Set default date range on mount
   useEffect(() => {
     const today = new Date();
-    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    setDateTo(today.toISOString().split('T')[0]);
-    setDateFrom(firstDayOfMonth.toISOString().split('T')[0]);
+    
+    // Get today's date components
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth(); // 0-11
+    const currentDay = today.getDate();
+    
+    // Calculate one month ago
+    let targetYear = currentYear;
+    let targetMonth = currentMonth - 1;
+    
+    // Handle year rollover
+    if (targetMonth < 0) {
+      targetMonth = 11; // December
+      targetYear = currentYear - 1;
+    }
+    
+    // Create the date one month ago
+    const oneMonthAgo = new Date(targetYear, targetMonth, currentDay);
+    
+    // Format dates as YYYY-MM-DD in local timezone
+    const formatDateLocal = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    
+    setDateTo(formatDateLocal(today));
+    setDateFrom(formatDateLocal(oneMonthAgo));
 
     async function fetchInvoiceSettings() {
       try {
@@ -439,9 +465,21 @@ export const ExpenditurePerVendorReport: React.FC<ExpenditurePerVendorReportProp
 
   if (showConfigPopup) {
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-          <div className="p-6">
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center p-4 z-50 overflow-y-auto">
+        <div className="bg-white shadow-xl w-full max-w-md my-8">
+          <div 
+            className="p-6 max-h-[calc(100vh-4rem)] overflow-y-auto"
+            style={{
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'transparent transparent',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.scrollbarColor = '#d1d5db #9ca3af';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.scrollbarColor = 'transparent transparent';
+            }}
+          >
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-semibold text-gray-800">Expenditure Per Vendor</h2>
               <button onClick={handleClose} className="text-gray-500 hover:text-gray-700">
@@ -573,7 +611,10 @@ export const ExpenditurePerVendorReport: React.FC<ExpenditurePerVendorReportProp
                   </div>
                 </div>
               ) : (
-                pages.map((pageData, pageIndex) => (
+                pages.map((pageData, pageIndex) => {
+                  // Calculate continuous numbering across pages
+                  const previousPagesItemsCount = pages.slice(0, pageIndex).reduce((sum, page) => sum + page.records.length, 0);
+                  return (
                   <div
                     key={`page-${pageData.pageNumber}`}
                     ref={(el) => { pageRefs.current[pageIndex] = el; }}
@@ -594,6 +635,7 @@ export const ExpenditurePerVendorReport: React.FC<ExpenditurePerVendorReportProp
                         <div>
                           <h1 className="text-3xl font-normal text-gray-900 mb-2">Expenditure Per Vendor</h1>
                           <div className="text-sm text-gray-600 space-y-1">
+                            <p><strong>Description:</strong> Total expenditure breakdown by vendors</p>
                             <p><strong>Date Range:</strong> {formatDate(dateFrom)} to {formatDate(dateTo)}</p>
                             <p><strong>Generated:</strong> {formatDateTime(new Date().toISOString())}</p>
                           </div>
@@ -652,7 +694,7 @@ export const ExpenditurePerVendorReport: React.FC<ExpenditurePerVendorReportProp
                             <tbody>
                               {pageData.records.map((vendor, index) => (
                                 <tr key={vendor.vendorName} className={`border-b border-gray-100 ${index % 2 === 0 ? 'bg-white' : ''}`} style={index % 2 === 1 ? { backgroundColor: '#fcfcfd' } : {}}>
-                                  <td className="p-3 text-sm text-gray-600">{index + 1}</td>
+                                  <td className="p-3 text-sm text-gray-600">{previousPagesItemsCount + index + 1}</td>
                                   <td className="p-3 text-sm text-gray-900 font-medium">{vendor.vendorName}</td>
                                   <td className="p-3 text-sm text-gray-600 text-right">{vendor.expenseCount.toLocaleString()}</td>
                                   <td className="p-3 text-sm text-right text-green-600">{formatCurrency(vendor.paidAmount)}</td>
@@ -669,22 +711,18 @@ export const ExpenditurePerVendorReport: React.FC<ExpenditurePerVendorReportProp
 
                     {/* Summary Cards */}
                     {pageData.showSummary && (
-                      <div className="mt-8 grid grid-cols-4 gap-4 flex-shrink-0">
-                        <div className="bg-gray-50 p-4 rounded-lg">
-                          <p className="text-sm text-gray-600 mb-1">Total Vendors</p>
-                          <p className="text-2xl font-semibold text-gray-900">{stats.totalVendors}</p>
-                        </div>
+                      <div className="mt-8 grid grid-cols-3 gap-4 flex-shrink-0">
                         <div className="bg-gray-50 p-4 rounded-lg">
                           <p className="text-sm text-gray-600 mb-1">Total Expenditure</p>
-                          <p className="text-2xl font-semibold text-red-600">Ksh. {formatCurrency(stats.totalExpenditure)}</p>
+                          <p className="text-2xl font-semibold text-red-600">{formatCurrency(stats.totalExpenditure)}</p>
                         </div>
                         <div className="bg-gray-50 p-4 rounded-lg">
-                          <p className="text-sm text-gray-600 mb-1">Paid</p>
-                          <p className="text-2xl font-semibold text-green-600">Ksh. {formatCurrency(stats.totalPaid)}</p>
+                          <p className="text-sm text-gray-600 mb-1">Total Paid</p>
+                          <p className="text-2xl font-semibold text-green-600">{formatCurrency(stats.totalPaid)}</p>
                         </div>
                         <div className="bg-gray-50 p-4 rounded-lg">
-                          <p className="text-sm text-gray-600 mb-1">Outstanding</p>
-                          <p className="text-2xl font-semibold text-orange-600">Ksh. {formatCurrency(stats.totalOutstanding)}</p>
+                          <p className="text-sm text-gray-600 mb-1">Total Outstanding</p>
+                          <p className="text-2xl font-semibold text-orange-600">{formatCurrency(stats.totalOutstanding)}</p>
                         </div>
                       </div>
                     )}
@@ -696,7 +734,8 @@ export const ExpenditurePerVendorReport: React.FC<ExpenditurePerVendorReportProp
                       </div>
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>

@@ -45,6 +45,56 @@ interface ModuleConfig {
   filters?: string[];
 }
 
+// Define available reports for access control
+interface ReportAccessConfig {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+}
+
+const REPORT_ACCESS_CONFIG: ReportAccessConfig[] = [
+  // Student Reports
+  { id: 'students-by-class', name: 'Students by Class', category: 'Student Reports', description: 'View students organized by class and stream' },
+  { id: 'attendance-summary', name: 'Attendance Summary', category: 'Student Reports', description: 'Attendance rates by class and individual students' },
+  { id: 'assessment-averages', name: 'Assessment Averages by Subject', category: 'Student Reports', description: 'Average assessment scores and performance by subject' },
+  { id: 'academic-performance', name: 'Academic Performance', category: 'Student Reports', description: 'Overall academic performance and ranking by class and subject' },
+  { id: 'medical-summary', name: 'Medical Summary', category: 'Student Reports', description: 'Students by allergies and medical conditions' },
+  { id: 'disciplinary-records', name: 'Disciplinary Records', category: 'Student Reports', description: 'Disciplinary incidents and actions taken' },
+  { id: 'transport-summary', name: 'Transport Summary', category: 'Student Reports', description: 'Students by transport zones' },
+  { id: 'boarding-summary', name: 'Boarding Summary', category: 'Student Reports', description: 'Students by boarding houses and rooms' },
+  { id: 'enrollment-trends', name: 'Enrollment Trends', category: 'Student Reports', description: 'Student enrollment patterns and trends over time' },
+  { id: 'students-by-teams', name: 'Students by Teams', category: 'Student Reports', description: 'Student distribution by teams' },
+  { id: 'age-group-analysis', name: 'Age Group Analysis', category: 'Student Reports', description: 'Student demographics and distribution by age groups' },
+  
+  // Financial & Procurement Reports
+  { id: 'monthly-financial-summary', name: 'Monthly Financial Summary', category: 'Financial Reports', description: 'Income vs expenses for the current month' },
+  { id: 'outstanding-invoices', name: 'Outstanding Invoices', category: 'Financial Reports', description: 'Pending and overdue invoices, can also be filtered per class' },
+  { id: 'payments-received', name: 'Payments Received', category: 'Financial Reports', description: 'All received payments by account, method, and period' },
+  { id: 'projected-revenue', name: 'Projected Revenue by Source', category: 'Financial Reports', description: 'Projected revenue breakdown by Invoice line items' },
+  { id: 'expenditure-per-category', name: 'Expenditure per Category', category: 'Financial Reports', description: 'Total expenditure breakdown by expense categories' },
+  { id: 'expenditure-per-vendor', name: 'Expenditure Per Vendor', category: 'Financial Reports', description: 'Spending analysis by vendor for custom periods' },
+  { id: 'fee-payment-progress', name: 'Fee Payment Progress', category: 'Financial Reports', description: 'Percentage of Students who have cleared a specified percentage of their outstanding fees' },
+  { id: 'invoice-distribution', name: 'Invoice Distribution by Status', category: 'Financial Reports', description: 'Breakdown of invoices by payment status: paid, partially paid, unpaid, and overdue' },
+  { id: 'students-by-invoice-items', name: 'Students by Invoice Items', category: 'Financial Reports', description: 'Break Down of Students with specified line items in their invoices for a specified period' },
+  { id: 'expense-analysis', name: 'Expense Analysis', category: 'Financial Reports', description: 'Expenses by category and subcategory, vendor, and account' },
+  { id: 'budget-vs-spending', name: 'Budget vs Spending', category: 'Financial Reports', description: 'Budget comparison by department and per staff member' },
+  { id: 'stock-records', name: 'Stock Records', category: 'Financial Reports', description: 'In stock, out of stock, and negative stock items with requisition status' },
+  { id: 'requisition-summary', name: 'Requisition Summary', category: 'Financial Reports', description: 'Inventory requisitions by staff, department, and period' },
+  { id: 'asset-issuance-summary', name: 'Asset Issuance Summary', category: 'Financial Reports', description: 'Asset issuance records by staff, department, and status' },
+  { id: 'voided-records', name: 'Voided Records', category: 'Financial Reports', description: 'View and export voided financial records with reasons' },
+  
+  // HR Reports
+  { id: 'staff-distribution', name: 'Staff Distribution', category: 'HR Reports', description: 'Staff distribution by department and position' },
+  { id: 'staff-status-reports', name: 'Staff Status Reports', category: 'HR Reports', description: 'Staff status breakdown: on leave, suspended, active, and terminated' },
+  { id: 'payroll-summary', name: 'Payroll Summary', category: 'HR Reports', description: 'Payroll breakdown by department and position' },
+  { id: 'payslips', name: 'Payslips', category: 'HR Reports', description: 'Individual staff payslips by period' },
+  { id: 'payroll-analysis', name: 'Payroll Analysis', category: 'HR Reports', description: 'Payroll analysis by department, statutory deductions, and totals by period' },
+  { id: 'leave-summary', name: 'Leave Summary', category: 'HR Reports', description: 'Leave records by status, by staff, and leave balances' },
+  { id: 'hr-disciplinary-records', name: 'Disciplinary Records', category: 'HR Reports', description: 'Incidents and actions taken, including history for each staff member' },
+  { id: 'staff-qualifications', name: 'Staff Qualifications', category: 'HR Reports', description: 'Staff qualifications by type and by department, showing qualification counts' }
+];
+
 const MODULE_CONFIG: Record<string, ModuleConfig> = {
   'Dashboard': { permissions: ['view'] },
   'Students': {
@@ -445,11 +495,11 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
         setDescription(selectedUser.description || '');
         setStatus(selectedUser.status || 'Active');
         
-        // Load employee_id, selected_modules, and student_ids if available (need to fetch from database)
+        // Load employee_id, selected_modules, student_ids, and report_access if available (need to fetch from database)
         if (selectedUser.id) {
           supabase
             .from('users')
-            .select('employee_id, is_employee, selected_modules, student_ids')
+            .select('employee_id, is_employee, selected_modules, student_ids, report_access')
             .eq('id', selectedUser.id)
             .single()
             .then(({ data, error }) => {
@@ -476,6 +526,19 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
                     }
                   } catch (err) {
                     console.error('Error parsing selected_modules:', err);
+                  }
+                }
+                // Load report_access if available
+                if (data.report_access) {
+                  try {
+                    const reports = typeof data.report_access === 'string' 
+                      ? JSON.parse(data.report_access) 
+                      : data.report_access;
+                    if (Array.isArray(reports)) {
+                      setSelectedReports(reports);
+                    }
+                  } catch (err) {
+                    console.error('Error parsing report_access:', err);
                   }
                 }
                 // Load student_ids for Parent accounts
@@ -510,11 +573,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
         setEmployeeSearch('');
         setCustomIsEmployee(false);
         setParentStudentIds([]);
+        setSelectedReports([]);
       }
       setSubmitError('');
       setSelectedModuleItems([]);
-      // Note: parentStudentIds is only reset when creating a new user (in else block above)
-      // When editing, it's loaded from the database in the fetch above
+      // Note: parentStudentIds and selectedReports are only reset when creating a new user (in else block above)
+      // When editing, they're loaded from the database in the fetch above
     }, [selectedUser, staffMembers]);
     
     // Reset employee fields when role changes
@@ -553,6 +617,11 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
     const [moduleSearch, setModuleSearch] = useState('');
     const [showModuleDropdown, setShowModuleDropdown] = useState(false);
     const [selectedModuleItems, setSelectedModuleItems] = useState<Array<{ id: string; label: string; module: string; isSubmodule: boolean; submoduleId?: string }>>([]);
+    
+    // Report access state
+    const [selectedReports, setSelectedReports] = useState<string[]>([]);
+    const [reportSearch, setReportSearch] = useState('');
+    const [showReportDropdown, setShowReportDropdown] = useState(false);
 
     // Filter staff
     const filteredStaff = useMemo(() => {
@@ -787,6 +856,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
           userData.selected_modules = JSON.stringify([{ id: 'parent-portal', label: 'Parent Portal', module: 'Parent Portal', isSubmodule: false }]);
         } else {
           userData.selected_modules = null;
+        }
+
+        // Update report_access from selectedReports - store as JSON
+        if (selectedReports.length > 0) {
+          userData.report_access = JSON.stringify(selectedReports);
+        } else {
+          userData.report_access = null;
         }
 
         if (selectedUser && selectedUser.id) {
@@ -1198,6 +1274,137 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
                   )}
                 </div>
 
+              </div>
+            )}
+
+            {/* Report Access Section - Only show when Reports module is selected */}
+            {selectedModuleItems.some(item => item.module === 'Reports') && (
+              <div className="border-t border-gray-200 pt-6">
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Report Access Control</h3>
+                
+                <div className="mb-4">
+                  <p className="text-sm text-gray-600 mb-3">
+                    Select which specific reports this user should have access to. If no reports are selected, the user will have access to all reports.
+                  </p>
+                </div>
+
+                {/* Report Search and Selection */}
+                <div className="mb-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Available Reports
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allReportIds = REPORT_ACCESS_CONFIG.map(report => report.id);
+                        setSelectedReports(allReportIds);
+                      }}
+                      className="px-3 py-1.5 text-sm bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors border border-green-200"
+                    >
+                      Select All Reports
+                    </button>
+                  </div>
+                  
+                  {/* Search Input */}
+                  <div className="relative mb-3">
+                    <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      value={reportSearch}
+                      onChange={(e) => {
+                        setReportSearch(e.target.value);
+                        setShowReportDropdown(true);
+                      }}
+                      onFocus={() => setShowReportDropdown(true)}
+                      placeholder="Search reports by name or category..."
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    
+                    {/* Dropdown Results */}
+                    {showReportDropdown && reportSearch && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                        {REPORT_ACCESS_CONFIG
+                          .filter(report => 
+                            !selectedReports.includes(report.id) &&
+                            (report.name.toLowerCase().includes(reportSearch.toLowerCase()) ||
+                             report.category.toLowerCase().includes(reportSearch.toLowerCase()))
+                          )
+                          .map(report => (
+                            <div
+                              key={report.id}
+                              onClick={() => {
+                                setSelectedReports(prev => [...prev, report.id]);
+                                setReportSearch('');
+                                setShowReportDropdown(false);
+                              }}
+                              className="p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-0"
+                            >
+                              <div className="font-medium text-gray-800">{report.name}</div>
+                              <div className="text-xs text-gray-500 mt-0.5">{report.category}</div>
+                              <div className="text-xs text-gray-400 mt-1">{report.description}</div>
+                            </div>
+                          ))}
+                        {REPORT_ACCESS_CONFIG.filter(report => 
+                          !selectedReports.includes(report.id) &&
+                          (report.name.toLowerCase().includes(reportSearch.toLowerCase()) ||
+                           report.category.toLowerCase().includes(reportSearch.toLowerCase()))
+                        ).length === 0 && (
+                          <div className="p-3 text-gray-500 text-center">No reports found</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Selected Reports Tags */}
+                  {selectedReports.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-gray-700">Selected Reports ({selectedReports.length})</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedReports([])}
+                          className="text-xs text-red-600 hover:text-red-800 transition-colors"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                      
+                      {/* Group by category */}
+                      {Object.entries(
+                        selectedReports.reduce((groups, reportId) => {
+                          const report = REPORT_ACCESS_CONFIG.find(r => r.id === reportId);
+                          if (report) {
+                            if (!groups[report.category]) groups[report.category] = [];
+                            groups[report.category].push(report);
+                          }
+                          return groups;
+                        }, {} as Record<string, typeof REPORT_ACCESS_CONFIG>)
+                      ).map(([category, reports]) => (
+                        <div key={category} className="bg-gray-50 rounded-lg border border-gray-200 p-3">
+                          <h4 className="text-sm font-medium text-gray-700 mb-2">{category}</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {reports.map(report => (
+                              <span
+                                key={report.id}
+                                className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+                              >
+                                {report.name}
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedReports(prev => prev.filter(id => id !== report.id))}
+                                  className="ml-2 text-blue-600 hover:text-blue-800"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

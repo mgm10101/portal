@@ -49,7 +49,7 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
   const [selectedStream, setSelectedStream] = useState<string>('all');
   const [includeInactive, setIncludeInactive] = useState(false);
   const [students, setStudents] = useState<StudentRecord[]>([]);
-  const [classes, setClasses] = useState<{ id: number; name: string }[]>([]);
+  const [classes, setClasses] = useState<{ id: number; name: string; sort_order: number }[]>([]);
   const [streams, setStreams] = useState<{ id: number; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
@@ -61,6 +61,7 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
     headerHeight: number;
     footerHeight: number;
     summaryHeight: number;
+    classSummaryHeight: number;
     tableHeaderHeight: number;
     rowHeights: number[];
     maxRowHeight: number;
@@ -76,6 +77,7 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
   const SUMMARY_HEIGHT = 100;
   const TABLE_HEADER_HEIGHT = 45;
   const ROW_HEIGHT = 40;
+  const CLASS_SUMMARY_TABLE_HEIGHT = 200; // Estimated height for class summary table
 
   const calculateAvailableContentHeight = useCallback((includeSummary: boolean = false) => {
     const header = measuredHeights?.headerHeight || HEADER_HEIGHT;
@@ -85,6 +87,13 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
     const usedHeight = header + footer + tableHeader;
     return A4_HEIGHT - (PAGE_MARGIN * 2) - usedHeight - summary;
   }, [measuredHeights]);
+
+  // Helper function to get sort order for a class
+  const getSortOrderForClass = useCallback((className: string | null): number => {
+    if (!className || className === 'Unassigned') return 999; // Put Unassigned last
+    const classItem = classes.find(c => c.name === className);
+    return classItem ? classItem.sort_order : 999;
+  }, [classes]);
 
   // Group students by class and stream
   const groupStudentsByClass = useCallback((studentList: StudentRecord[]): ClassGroup[] => {
@@ -105,16 +114,17 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
       groups[key].students.push(student);
     });
 
-    // Sort groups by class name, then by stream name
+    // Sort groups by class sort_order, then by stream name
     return Object.values(groups).sort((a, b) => {
-      const classCompare = a.className.localeCompare(b.className);
-      if (classCompare !== 0) return classCompare;
+      const sortOrderA = getSortOrderForClass(a.className);
+      const sortOrderB = getSortOrderForClass(b.className);
+      if (sortOrderA !== sortOrderB) return sortOrderA - sortOrderB;
       if (!a.streamName && !b.streamName) return 0;
       if (!a.streamName) return -1;
       if (!b.streamName) return 1;
       return a.streamName.localeCompare(b.streamName);
     });
-  }, []);
+  }, [getSortOrderForClass]);
 
   // Split records into pages using actual row height measurement
   const splitIntoPages = useCallback((studentList: StudentRecord[]): PageData[] => {
@@ -186,7 +196,10 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
       
       if (isLastStudent) {
         // This is the last student overall
-        const wouldFitWithSummary = (newCumulativeHeight + summaryHeight) <= availableHeightWithSummary;
+        // Calculate if summary + class summary table would fit
+        const measuredClassSummaryHeight = measuredHeights?.classSummaryHeight || (selectedClass === 'all' ? CLASS_SUMMARY_TABLE_HEIGHT : 0);
+        const totalAdditionalHeight = summaryHeight + measuredClassSummaryHeight;
+        const wouldFitWithSummary = (newCumulativeHeight + totalAdditionalHeight) <= availableHeightWithSummary;
         
         if (wouldFitWithSummary) {
           currentPageRecords.push(student);
@@ -211,6 +224,7 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
               currentStream,
               isClassContinuation
             });
+            // Create a summary page that includes both summary cards and class summary table
             pages.push({
               records: [],
               pageNumber: currentPageNumber + 1,
@@ -285,7 +299,7 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
     async function fetchDropdownData() {
       try {
         const [classesRes, streamsRes] = await Promise.all([
-          supabase.from('classes').select('id, name').order('sort_order', { ascending: true }),
+          supabase.from('classes').select('id, name, sort_order').order('sort_order', { ascending: true }),
           supabase.from('streams').select('id, name').order('sort_order', { ascending: true })
         ]);
         
@@ -368,11 +382,16 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
       const summaryElement = firstPageElement.querySelector('.grid.grid-cols-3.gap-4') as HTMLElement;
       const summaryHeight = summaryElement ? summaryElement.offsetHeight : SUMMARY_HEIGHT;
 
+      // Measure class summary table if present
+      const classSummaryElement = firstPageElement.querySelector('h3.text-lg.font-semibold')?.nextElementSibling as HTMLElement;
+      const classSummaryHeight = classSummaryElement ? classSummaryElement.offsetHeight : (selectedClass === 'all' ? CLASS_SUMMARY_TABLE_HEIGHT : 0);
+
       setMeasuredHeights(prev => {
         const newHeights = {
           headerHeight,
           footerHeight,
           summaryHeight,
+          classSummaryHeight,
           tableHeaderHeight,
           rowHeights,
           maxRowHeight,
@@ -383,6 +402,7 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
             prev.headerHeight !== headerHeight ||
             prev.footerHeight !== footerHeight ||
             prev.summaryHeight !== summaryHeight ||
+            prev.classSummaryHeight !== classSummaryHeight ||
             prev.tableHeaderHeight !== tableHeaderHeight ||
             prev.rowHeights.length !== rowHeights.length ||
             prev.maxRowHeight !== maxRowHeight) {
@@ -602,21 +622,33 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
       }
     });
     
-    // Convert to array and sort by class name
+    // Convert to array and sort by sort_order
     return Object.entries(classStats)
       .map(([className, stats]) => ({ className, ...stats }))
       .sort((a, b) => {
-        if (a.className === 'Unassigned') return 1;
-        if (b.className === 'Unassigned') return -1;
-        return a.className.localeCompare(b.className);
+        const sortOrderA = getSortOrderForClass(a.className);
+        const sortOrderB = getSortOrderForClass(b.className);
+        return sortOrderA - sortOrderB;
       });
   };
 
   if (showConfigPopup) {
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-          <div className="p-6">
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center p-4 z-50 overflow-y-auto">
+        <div className="bg-white shadow-xl w-full max-w-md my-8">
+          <div 
+            className="p-6 max-h-[calc(100vh-4rem)] overflow-y-auto"
+            style={{
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'transparent transparent',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.scrollbarColor = '#d1d5db #9ca3af';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.scrollbarColor = 'transparent transparent';
+            }}
+          >
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-semibold text-gray-800">Students by Class Report</h2>
               <button onClick={handleClose} className="text-gray-500 hover:text-gray-700">

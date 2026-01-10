@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { X, Download, Eye, Loader2 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -44,10 +44,32 @@ export const ExpenseAnalysisReport: React.FC<ExpenseAnalysisReportProps> = ({ on
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedVendor, setSelectedVendor] = useState<string>('all');
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
+  const [selectedDescription, setSelectedDescription] = useState<string>('all');
+  const [allDescriptions, setAllDescriptions] = useState<{ id: number; name: string; category_id: number }[]>([]);
   const [expenses, setExpenses] = useState<ExpenseDetail[]>([]);
   const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
   const [vendors, setVendors] = useState<{ id: number; name: string }[]>([]);
   const [accounts, setAccounts] = useState<{ id: number; name: string }[]>([]);
+
+  // Filter descriptions based on selected category
+  const descriptions = useMemo(() => {
+    if (selectedCategory === 'all') {
+      return [];
+    }
+    const selectedCategoryObj = categories.find(c => c.name === selectedCategory);
+    if (!selectedCategoryObj) {
+      return [];
+    }
+    return allDescriptions
+      .filter(d => d.category_id === selectedCategoryObj.id)
+      .map(({ category_id, ...rest }) => ({ id: rest.id, name: rest.name }));
+  }, [selectedCategory, categories, allDescriptions]);
+
+  // Clear description when category changes
+  const handleCategoryChange = (categoryName: string) => {
+    setSelectedCategory(categoryName);
+    setSelectedDescription('all'); // Clear description when category changes
+  };
   const [loading, setLoading] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -196,23 +218,51 @@ export const ExpenseAnalysisReport: React.FC<ExpenseAnalysisReportProps> = ({ on
   // Set default date range and fetch dropdown data on mount
   useEffect(() => {
     const today = new Date();
-    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    setDateTo(today.toISOString().split('T')[0]);
-    setDateFrom(firstDayOfMonth.toISOString().split('T')[0]);
+    
+    // Get today's date components
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth(); // 0-11
+    const currentDay = today.getDate();
+    
+    // Calculate one month ago
+    let targetYear = currentYear;
+    let targetMonth = currentMonth - 1;
+    
+    // Handle year rollover
+    if (targetMonth < 0) {
+      targetMonth = 11; // December
+      targetYear = currentYear - 1;
+    }
+    
+    // Create the date one month ago
+    const oneMonthAgo = new Date(targetYear, targetMonth, currentDay);
+    
+    // Format dates as YYYY-MM-DD in local timezone
+    const formatDateLocal = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    
+    setDateTo(formatDateLocal(today));
+    setDateFrom(formatDateLocal(oneMonthAgo));
 
     async function fetchDropdownData() {
       try {
-        const [categoriesRes, vendorsRes, accountsRes] = await Promise.all([
+        const [categoriesRes, vendorsRes, accountsRes, descriptionsRes] = await Promise.all([
           supabase.from('expense_categories').select('id, name').eq('is_active', true).order('sort_order', { ascending: true }),
           supabase.from('expense_vendors').select('id, name').eq('is_active', true).order('sort_order', { ascending: true }),
-          supabase.from('expense_paid_through').select('id, name').eq('is_active', true).order('sort_order', { ascending: true })
+          supabase.from('expense_paid_through').select('id, name').eq('is_active', true).order('sort_order', { ascending: true }),
+          supabase.from('expense_descriptions').select('id, name, category_id').eq('is_active', true).order('sort_order', { ascending: true })
         ]);
         
         if (categoriesRes.data) setCategories(categoriesRes.data);
         if (vendorsRes.data) setVendors(vendorsRes.data);
         if (accountsRes.data) setAccounts(accountsRes.data);
+        if (descriptionsRes.data) setAllDescriptions(descriptionsRes.data);
       } catch (err) {
-        console.error('Error fetching dropdown data:', err);
+        console.error('Failed to fetch dropdown data:', err);
       }
     }
 
@@ -364,6 +414,10 @@ export const ExpenseAnalysisReport: React.FC<ExpenseAnalysisReportProps> = ({ on
         query = query.eq('paid_through_name', selectedAccount);
       }
 
+      if (selectedDescription !== 'all') {
+        query = query.eq('description_name', selectedDescription);
+      }
+
       const { data, error } = await query;
       
       if (error) throw error;
@@ -464,15 +518,28 @@ export const ExpenseAnalysisReport: React.FC<ExpenseAnalysisReportProps> = ({ on
     const unpaidCount = expenses.filter(exp => exp.payment_status === 'Unpaid').length;
     const partialCount = expenses.filter(exp => exp.payment_status === 'Partial').length;
     const paidAmount = expenses.filter(exp => exp.payment_status === 'Paid').reduce((sum, exp) => sum + exp.amount, 0);
+    const unpaidAmount = expenses.filter(exp => exp.payment_status === 'Unpaid').reduce((sum, exp) => sum + exp.amount, 0);
     
-    return { totalExpenses, totalAmount, paidCount, unpaidCount, partialCount, paidAmount };
+    return { totalExpenses, totalAmount, paidCount, unpaidCount, partialCount, paidAmount, unpaidAmount };
   };
 
   if (showConfigPopup) {
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-          <div className="p-6">
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center p-4 z-50 overflow-y-auto">
+        <div className="bg-white shadow-xl w-full max-w-md my-8">
+          <div 
+            className="p-6 max-h-[calc(100vh-4rem)] overflow-y-auto"
+            style={{
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'transparent transparent',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.scrollbarColor = '#d1d5db #9ca3af';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.scrollbarColor = 'transparent transparent';
+            }}
+          >
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-semibold text-gray-800">Expense Analysis</h2>
               <button onClick={handleClose} className="text-gray-500 hover:text-gray-700">
@@ -508,11 +575,11 @@ export const ExpenseAnalysisReport: React.FC<ExpenseAnalysisReportProps> = ({ on
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Category (Optional)
+                  Category
                 </label>
                 <select
                   value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  onChange={(e) => handleCategoryChange(e.target.value)}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="all">All Categories</option>
@@ -524,7 +591,24 @@ export const ExpenseAnalysisReport: React.FC<ExpenseAnalysisReportProps> = ({ on
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Vendor (Optional)
+                  Description
+                </label>
+                <select
+                  value={selectedDescription}
+                  onChange={(e) => setSelectedDescription(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={selectedCategory === 'all'}
+                >
+                  <option value="all">All Descriptions</option>
+                  {descriptions.map(d => (
+                    <option key={d.id} value={d.name}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Vendor
                 </label>
                 <select
                   value={selectedVendor}
@@ -540,7 +624,7 @@ export const ExpenseAnalysisReport: React.FC<ExpenseAnalysisReportProps> = ({ on
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Account (Optional)
+                  Account
                 </label>
                 <select
                   value={selectedAccount}
@@ -721,23 +805,25 @@ export const ExpenseAnalysisReport: React.FC<ExpenseAnalysisReportProps> = ({ on
                             <thead>
                               <tr className="bg-gray-50 border-b-2 border-gray-200">
                                 <th className="text-left p-2 text-xs font-semibold text-gray-700" style={{ width: '8%' }}>Date</th>
-                                <th className="text-left p-2 text-xs font-semibold text-gray-700" style={{ width: '10%' }}>Ref</th>
-                                <th className="text-left p-2 text-xs font-semibold text-gray-700">Category</th>
-                                <th className="text-left p-2 text-xs font-semibold text-gray-700">Description</th>
+                                <th className="text-left p-2 text-xs font-semibold text-gray-700">Category & Description</th>
                                 <th className="text-left p-2 text-xs font-semibold text-gray-700">Vendor</th>
                                 <th className="text-left p-2 text-xs font-semibold text-gray-700">Account</th>
                                 <th className="text-right p-2 text-xs font-semibold text-gray-700" style={{ width: '10%' }}>Amount</th>
                                 <th className="text-center p-2 text-xs font-semibold text-gray-700" style={{ width: '8%' }}>Status</th>
-                                <th className="text-left p-2 text-xs font-semibold text-gray-700" style={{ width: '8%' }}>Due Date</th>
+                                <th className="text-left p-2 text-xs font-semibold text-gray-700" style={{ width: '8%' }}>Due</th>
                               </tr>
                             </thead>
                             <tbody>
                               {pageData.records.map((expense, index) => (
                                 <tr key={expense.internal_reference} className={`border-b border-gray-100 ${index % 2 === 0 ? 'bg-white' : ''}`} style={index % 2 === 1 ? { backgroundColor: '#fcfcfd' } : {}}>
-                                  <td className="p-2 text-xs text-gray-600">{formatDate(expense.expense_date)}</td>
-                                  <td className="p-2 text-xs text-gray-900 font-medium">{expense.internal_reference}</td>
-                                  <td className="p-2 text-xs text-gray-900">{expense.category_name || 'N/A'}</td>
-                                  <td className="p-2 text-xs text-gray-600">{expense.description_name || 'N/A'}</td>
+                                  <td className="p-2 text-xs text-gray-600">
+                                    <div className="font-semibold text-black">{formatDate(expense.expense_date)}</div>
+                                    <div className="text-xs text-gray-500 font-normal">{expense.internal_reference}</div>
+                                  </td>
+                                  <td className="p-2 text-xs text-gray-600">
+                                    <div className="font-semibold text-black">{expense.category_name || 'N/A'}</div>
+                                    <div className="text-xs text-gray-500 font-normal">{expense.description_name || 'N/A'}</div>
+                                  </td>
                                   <td className="p-2 text-xs text-gray-600">{expense.vendor_name || 'N/A'}</td>
                                   <td className="p-2 text-xs text-gray-600">{expense.paid_through_name || 'N/A'}</td>
                                   <td className="p-2 text-xs text-right font-medium text-red-600">{formatCurrency(expense.amount)}</td>
@@ -757,22 +843,18 @@ export const ExpenseAnalysisReport: React.FC<ExpenseAnalysisReportProps> = ({ on
 
                     {/* Summary Cards */}
                     {pageData.showSummary && (
-                      <div className="mt-8 grid grid-cols-4 gap-4 flex-shrink-0">
-                        <div className="bg-gray-50 p-4 rounded-lg">
-                          <p className="text-sm text-gray-600 mb-1">Total Expenses</p>
-                          <p className="text-2xl font-semibold text-gray-900">{stats.totalExpenses}</p>
-                        </div>
+                      <div className="mt-8 grid grid-cols-3 gap-4 flex-shrink-0">
                         <div className="bg-gray-50 p-4 rounded-lg">
                           <p className="text-sm text-gray-600 mb-1">Total Amount</p>
                           <p className="text-2xl font-semibold text-red-600">Ksh. {formatCurrency(stats.totalAmount)}</p>
                         </div>
                         <div className="bg-gray-50 p-4 rounded-lg">
                           <p className="text-sm text-gray-600 mb-1">Paid</p>
-                          <p className="text-2xl font-semibold text-green-600">{stats.paidCount}</p>
+                          <p className="text-2xl font-semibold text-green-600">Ksh. {formatCurrency(stats.paidAmount)}</p>
                         </div>
                         <div className="bg-gray-50 p-4 rounded-lg">
                           <p className="text-sm text-gray-600 mb-1">Unpaid</p>
-                          <p className="text-2xl font-semibold text-red-600">{stats.unpaidCount}</p>
+                          <p className="text-2xl font-semibold text-red-600">Ksh. {formatCurrency(stats.unpaidAmount)}</p>
                         </div>
                       </div>
                     )}

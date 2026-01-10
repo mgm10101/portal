@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Download, Eye, Loader2, Calendar } from 'lucide-react';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
+import { Calendar, Download, Eye, X, Loader2 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+import { fetchMasterItems } from '../../services/financialService';
+import { ItemMaster } from '../../types/database';
 import logo from '../../assets/logo.png';
 
 interface InvoiceSettings {
@@ -18,7 +20,9 @@ interface ProjectedRevenueReportProps {
 }
 
 interface LineItemAggregate {
+  itemId: string;
   itemName: string;
+  description: string | null;
   totalQuantity: number;
   totalAmount: number;
   invoiceCount: number;
@@ -38,6 +42,7 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
   const [selectedClass, setSelectedClass] = useState<string>('all');
   const [lineItems, setLineItems] = useState<LineItemAggregate[]>([]);
   const [classes, setClasses] = useState<{ id: number; name: string }[]>([]);
+  const [itemMaster, setItemMaster] = useState<ItemMaster[]>([]);
   const [loading, setLoading] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -186,9 +191,35 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
   // Set default date range and fetch data on mount
   useEffect(() => {
     const today = new Date();
-    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    setDateTo(today.toISOString().split('T')[0]);
-    setDateFrom(firstDayOfMonth.toISOString().split('T')[0]);
+    
+    // Get today's date components
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth(); // 0-11
+    const currentDay = today.getDate();
+    
+    // Calculate one month ago
+    let targetYear = currentYear;
+    let targetMonth = currentMonth - 1;
+    
+    // Handle year rollover
+    if (targetMonth < 0) {
+      targetMonth = 11; // December
+      targetYear = currentYear - 1;
+    }
+    
+    // Create the date one month ago
+    const oneMonthAgo = new Date(targetYear, targetMonth, currentDay);
+    
+    // Format dates as YYYY-MM-DD in local timezone
+    const formatDateLocal = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    
+    setDateTo(formatDateLocal(today));
+    setDateFrom(formatDateLocal(oneMonthAgo));
 
     async function fetchDropdownData() {
       try {
@@ -198,8 +229,12 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
           .order('sort_order', { ascending: true });
         
         if (classesRes) setClasses(classesRes);
+
+        // Fetch item master data for sorting using existing service
+        const masterItems = await fetchMasterItems();
+        if (masterItems) setItemMaster(masterItems);
       } catch (err) {
-        console.error('Error fetching classes:', err);
+        console.error('Error fetching dropdown data:', err);
       }
     }
 
@@ -303,6 +338,20 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
     return () => clearTimeout(timeoutId);
   }, [showPreview, lineItems, pages.length]);
 
+  // Helper function to get sort order for an item
+  const getSortOrderForItem = useCallback((itemName: string, description: string | null): number => {
+    // Find matching item in item_master
+    const matchingItem = itemMaster.find(item => 
+      item.item_name === itemName && 
+      (item.description === description || 
+       (item.description === null && description === null) ||
+       (item.description === '' && description === null) ||
+       (item.description === null && description === ''))
+    );
+    
+    return matchingItem ? (matchingItem.sort_order || 999) : 999; // Put unknown items last
+  }, [itemMaster]);
+
   const handleClose = () => {
     setShowPreview(false);
     setShowConfigPopup(false);
@@ -321,7 +370,7 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
       // First, get invoices in the date range
       let invoiceQuery = supabase
         .from('invoices')
-        .select('invoice_number, students(class_name)')
+        .select('invoice_number, students!inner(class_name)')
         .gte('invoice_date', dateFrom)
         .lte('invoice_date', dateTo)
         .neq('status', 'Voided');
@@ -333,6 +382,10 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
       const { data: invoices, error: invoiceError } = await invoiceQuery;
       
       if (invoiceError) throw invoiceError;
+      
+      console.log('🔍 [DEBUG] Class filter - Selected Class:', selectedClass);
+      console.log('🔍 [DEBUG] Class filter - Invoices fetched:', invoices?.length);
+      console.log('🔍 [DEBUG] Class filter - Sample invoice data:', invoices?.[0]);
       
       if (!invoices || invoices.length === 0) {
         setLineItems([]);
@@ -348,31 +401,43 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
       // Get line items for these invoices
       const { data: lineItemsData, error: lineItemsError } = await supabase
         .from('invoice_line_items')
-        .select('item_name, unit_price, quantity, discount, line_total')
+        .select('item_name, description, unit_price, quantity, discount, line_total')
         .in('invoice_number', invoiceNumbers);
 
       if (lineItemsError) throw lineItemsError;
 
-      // Aggregate by item name
+      // Aggregate by composite key (item_name + description) for uniqueness
       const aggregated: { [key: string]: LineItemAggregate } = {};
       
       (lineItemsData || []).forEach(item => {
         const itemName = item.item_name || 'Unknown Item';
-        if (!aggregated[itemName]) {
-          aggregated[itemName] = {
+        const description = item.description || null;
+        // Create composite key for uniqueness
+        const compositeKey = `${itemName}|${description || ''}`;
+        
+        if (!aggregated[compositeKey]) {
+          aggregated[compositeKey] = {
+            itemId: compositeKey, // Use composite key as ID
             itemName,
+            description,
             totalQuantity: 0,
             totalAmount: 0,
             invoiceCount: 0
           };
         }
-        aggregated[itemName].totalQuantity += item.quantity || 0;
-        aggregated[itemName].totalAmount += parseFloat(item.line_total) || 0;
-        aggregated[itemName].invoiceCount += 1;
+        aggregated[compositeKey].totalQuantity += item.quantity || 0;
+        aggregated[compositeKey].totalAmount += item.line_total || 0;
+        aggregated[compositeKey].invoiceCount += 1;
       });
 
-      // Sort by total amount descending
-      const sortedItems = Object.values(aggregated).sort((a, b) => b.totalAmount - a.totalAmount);
+      // Sort by sort_order from item_master, then by total amount descending
+      const sortedItems = Object.values(aggregated).sort((a, b) => {
+        const sortOrderA = getSortOrderForItem(a.itemName, a.description);
+        const sortOrderB = getSortOrderForItem(b.itemName, b.description);
+        if (sortOrderA !== sortOrderB) return sortOrderA - sortOrderB;
+        // If same sort_order, sort by total amount descending
+        return b.totalAmount - a.totalAmount;
+      });
       
       setLineItems(sortedItems);
       setShowPreview(true);
@@ -463,9 +528,21 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
 
   if (showConfigPopup) {
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-          <div className="p-6">
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center p-4 z-50 overflow-y-auto">
+        <div className="bg-white shadow-xl w-full max-w-md my-8">
+          <div 
+            className="p-6 max-h-[calc(100vh-4rem)] overflow-y-auto"
+            style={{
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'transparent transparent',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.scrollbarColor = '#d1d5db #9ca3af';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.scrollbarColor = 'transparent transparent';
+            }}
+          >
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-semibold text-gray-800">Projected Revenue by Source</h2>
               <button onClick={handleClose} className="text-gray-500 hover:text-gray-700">
@@ -477,7 +554,7 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Date From <span className="text-red-500">*</span>
+                    Invoice Date From <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="date"
@@ -488,7 +565,7 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Date To <span className="text-red-500">*</span>
+                    Invoice Date To <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="date"
@@ -613,7 +690,10 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
                   </div>
                 </div>
               ) : (
-                pages.map((pageData, pageIndex) => (
+                pages.map((pageData, pageIndex) => {
+                  // Calculate continuous numbering across pages
+                  const previousPagesItemsCount = pages.slice(0, pageIndex).reduce((sum, page) => sum + page.records.length, 0);
+                  return (
                   <div
                     key={`page-${pageData.pageNumber}`}
                     ref={(el) => { pageRefs.current[pageIndex] = el; }}
@@ -634,7 +714,7 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
                         <div>
                           <h1 className="text-3xl font-normal text-gray-900 mb-2">Projected Revenue by Source</h1>
                           <div className="text-sm text-gray-600 space-y-1">
-                            <p><strong>Date Range:</strong> {formatDate(dateFrom)} to {formatDate(dateTo)}</p>
+                            <p><strong>Invoice Date Range:</strong> {formatDate(dateFrom)} to {formatDate(dateTo)}</p>
                             <p><strong>Class:</strong> {selectedClass === 'all' ? 'All Classes' : selectedClass}</p>
                             <p><strong>Generated:</strong> {formatDateTime(new Date().toISOString())}</p>
                           </div>
@@ -690,9 +770,14 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
                             </thead>
                             <tbody>
                               {pageData.records.map((item, index) => (
-                                <tr key={item.itemName} className={`border-b border-gray-100 ${index % 2 === 0 ? 'bg-white' : ''}`} style={index % 2 === 1 ? { backgroundColor: '#fcfcfd' } : {}}>
-                                  <td className="p-3 text-sm text-gray-600">{index + 1}</td>
-                                  <td className="p-3 text-sm text-gray-900 font-medium">{item.itemName}</td>
+                                <tr key={item.itemId} className={`border-b border-gray-100 ${index % 2 === 0 ? 'bg-white' : ''}`} style={index % 2 === 1 ? { backgroundColor: '#fcfcfd' } : {}}>
+                                  <td className="p-3 text-sm text-gray-600">{previousPagesItemsCount + index + 1}</td>
+                                  <td className="p-3 text-sm text-gray-900">
+                                  <p className="font-medium">{item.itemName}</p>
+                                  {item.description && (
+                                    <p className="text-xs text-gray-600 mt-1">{item.description}</p>
+                                  )}
+                                </td>
                                   <td className="p-3 text-sm text-gray-600 text-right">{item.totalQuantity.toLocaleString()}</td>
                                   <td className="p-3 text-sm text-gray-600 text-right">{item.invoiceCount.toLocaleString()}</td>
                                   <td className="p-3 text-sm text-right font-medium text-green-600">{formatCurrency(item.totalAmount)}</td>
@@ -729,7 +814,8 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
                       </div>
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>

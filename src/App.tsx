@@ -53,6 +53,7 @@ interface UserInfo {
   selectedModules?: any; // Parsed selected_modules from database
   username?: string | null;
   description?: string | null;
+  reportAccess?: string[]; // Parsed report_access from database
 }
 
 function App() {
@@ -90,7 +91,7 @@ function App() {
       if (authUser) {
         const { data: userData, error } = await supabase
           .from('users')
-          .select('email, role, selected_modules, username, description')
+          .select('email, role, selected_modules, username, description, report_access')
           .eq('id', authUser.id)
           .single();
         
@@ -104,6 +105,18 @@ function App() {
                 : userData.selected_modules;
             } catch (err) {
               console.error('Error parsing selected_modules:', err);
+            }
+          }
+
+          // Parse report_access if it's a JSON string
+          let parsedReportAccess = null;
+          if (userData.report_access) {
+            try {
+              parsedReportAccess = typeof userData.report_access === 'string'
+                ? JSON.parse(userData.report_access)
+                : userData.report_access;
+            } catch (err) {
+              console.error('Error parsing report_access:', err);
             }
           }
           
@@ -128,7 +141,8 @@ function App() {
             role: userData.role || 'Admin', // Fallback to 'Admin' if no role
             selectedModules: parsedModules,
             username: userData.username || null,
-            description: userData.description || null
+            description: userData.description || null,
+            reportAccess: parsedReportAccess
           });
         } else {
           // Fallback if user not found in users table
@@ -140,20 +154,21 @@ function App() {
             role: 'Admin',
             selectedModules: null,
             username: null,
-            description: null
+            description: null,
+            reportAccess: null
           });
         }
       } else {
         setActiveSection('custom-dashboard');
         localStorage.setItem('activeSection', 'custom-dashboard');
-        setUser({ email, type: userType, role: 'Admin', selectedModules: null, username: null, description: null });
+        setUser({ email, type: userType, role: 'Admin', selectedModules: null, username: null, description: null, reportAccess: null });
       }
     } catch (err) {
       console.error('Error fetching user details:', err);
       // Fallback on error
       setActiveSection('custom-dashboard');
       localStorage.setItem('activeSection', 'custom-dashboard');
-      setUser({ email, type: userType, role: 'Admin', selectedModules: null, username: null, description: null });
+      setUser({ email, type: userType, role: 'Admin', selectedModules: null, username: null, description: null, reportAccess: null });
     }
   };
 
@@ -174,7 +189,7 @@ function App() {
       if (authUser && user) {
         const { data: userData, error } = await supabase
           .from('users')
-          .select('email, role, selected_modules, username, description')
+          .select('email, role, selected_modules, username, description, report_access')
           .eq('id', authUser.id)
           .single();
         
@@ -188,6 +203,18 @@ function App() {
                 : userData.selected_modules;
             } catch (err) {
               console.error('Error parsing selected_modules:', err);
+            }
+          }
+
+          // Parse report_access if it's a JSON string
+          let parsedReportAccess = null;
+          if (userData.report_access) {
+            try {
+              parsedReportAccess = typeof userData.report_access === 'string'
+                ? JSON.parse(userData.report_access)
+                : userData.report_access;
+            } catch (err) {
+              console.error('Error parsing report_access:', err);
             }
           }
           
@@ -215,7 +242,8 @@ function App() {
             role: userData.role || 'Admin',
             selectedModules: parsedModules,
             username: userData.username || null,
-            description: userData.description || null
+            description: userData.description || null,
+            reportAccess: parsedReportAccess
           });
         }
       }
@@ -507,7 +535,7 @@ function App() {
       case 'leave-management': return <LeaveManagement />;
       case 'disciplinary': return <Disciplinary />;
       case 'performance': return <Performance />;
-      case 'reports': return <ReportBuilder />;
+      case 'reports': return <ReportBuilder reportAccess={user?.reportAccess} />;
       case 'custom-records': return <CustomRecords />;
       case 'tasks': return <TaskScheduler />;
       case 'school-calendar': return <SchoolCalendar />;

@@ -20,6 +20,7 @@ interface PaymentsReceivedReportProps {
 interface PaymentRecord {
   id: string;
   receipt_number: string;
+  reference_number: string | null;
   admission_number: string;
   student_name: string;
   class_name: string;
@@ -195,9 +196,35 @@ export const PaymentsReceivedReport: React.FC<PaymentsReceivedReportProps> = ({ 
   // Set default date range and fetch data on mount
   useEffect(() => {
     const today = new Date();
-    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    setDateTo(today.toISOString().split('T')[0]);
-    setDateFrom(firstDayOfMonth.toISOString().split('T')[0]);
+    
+    // Get today's date components
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth(); // 0-11
+    const currentDay = today.getDate();
+    
+    // Calculate one month ago
+    let targetYear = currentYear;
+    let targetMonth = currentMonth - 1;
+    
+    // Handle year rollover
+    if (targetMonth < 0) {
+      targetMonth = 11; // December
+      targetYear = currentYear - 1;
+    }
+    
+    // Create the date one month ago
+    const oneMonthAgo = new Date(targetYear, targetMonth, currentDay);
+    
+    // Format dates as YYYY-MM-DD in local timezone
+    const formatDateLocal = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    
+    setDateTo(formatDateLocal(today));
+    setDateFrom(formatDateLocal(oneMonthAgo));
 
     async function fetchDropdownData() {
       try {
@@ -352,7 +379,7 @@ export const PaymentsReceivedReport: React.FC<PaymentsReceivedReportProps> = ({ 
     try {
       let query = supabase
         .from('payments_view')
-        .select('*')
+        .select('*, students(class_name)')
         .gte('payment_date', dateFrom)
         .lte('payment_date', dateTo);
 
@@ -371,9 +398,10 @@ export const PaymentsReceivedReport: React.FC<PaymentsReceivedReportProps> = ({ 
       const transformedData: PaymentRecord[] = (data || []).map((item: any) => ({
         id: item.id,
         receipt_number: item.receipt_number || 'N/A',
+        reference_number: item.reference_number || null,
         admission_number: item.admission_number || 'N/A',
         student_name: item.student_name || 'N/A',
-        class_name: item.class_name || 'N/A', // This might not exist in payments_view
+        class_name: item.students?.class_name || 'N/A',
         payment_date: item.payment_date || '',
         payment_method_name: item.payment_method_name || 'N/A',
         account_name: item.account_name || 'N/A',
@@ -466,9 +494,21 @@ export const PaymentsReceivedReport: React.FC<PaymentsReceivedReportProps> = ({ 
 
   if (showConfigPopup) {
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-          <div className="p-6">
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center p-4 z-50 overflow-y-auto">
+        <div className="bg-white shadow-xl w-full max-w-md my-8">
+          <div 
+            className="p-6 max-h-[calc(100vh-4rem)] overflow-y-auto"
+            style={{
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'transparent transparent',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.scrollbarColor = '#d1d5db #9ca3af';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.scrollbarColor = 'transparent transparent';
+            }}
+          >
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-semibold text-gray-800">Payments Received Report</h2>
               <button
@@ -712,7 +752,7 @@ export const PaymentsReceivedReport: React.FC<PaymentsReceivedReportProps> = ({ 
                           <table className="w-full border-collapse">
                             <thead>
                               <tr className="bg-gray-50 border-b-2 border-gray-200">
-                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '10%' }}>Receipt</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '10%' }}>Ref No</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '10%' }}>Adm No</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '18%' }}>Student Name</th>
                                 <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '8%' }}>Class</th>
@@ -725,7 +765,12 @@ export const PaymentsReceivedReport: React.FC<PaymentsReceivedReportProps> = ({ 
                             <tbody>
                               {pageData.records.map((record, index) => (
                                 <tr key={record.id} className={`border-b border-gray-100 ${index % 2 === 0 ? 'bg-white' : ''}`} style={index % 2 === 1 ? { backgroundColor: '#fcfcfd' } : {}}>
-                                  <td className="p-3 text-sm text-gray-900">{record.receipt_number}</td>
+                                  <td className="p-3 text-sm text-gray-900">
+                                  <p className="font-medium">{record.receipt_number}</p>
+                                  {record.reference_number && (
+                                    <p className="text-xs text-gray-600 mt-1">{record.reference_number}</p>
+                                  )}
+                                </td>
                                   <td className="p-3 text-sm text-gray-900">{record.admission_number}</td>
                                   <td className="p-3 text-sm text-gray-900">{record.student_name}</td>
                                   <td className="p-3 text-sm text-gray-900">{record.class_name}</td>

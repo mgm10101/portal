@@ -2,6 +2,9 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Download, Eye, Calendar, Loader2 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import { formatDateTime, formatDate } from '../../utils/dateUtils';
+import { InvoiceSettings } from '../../types/database';
+import { fetchMasterItems } from '../../services/financialService';
 import { supabase } from '../../supabaseClient';
 import logo from '../../assets/logo.png';
 
@@ -42,9 +45,12 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
   const [showConfigPopup, setShowConfigPopup] = useState(true);
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
-  const [selectedItem, setSelectedItem] = useState<string>('all');
+  const [selectedItem, setSelectedItem] = useState<string>('');
+  const [selectedClass, setSelectedClass] = useState<string>('all');
   const [students, setStudents] = useState<StudentInvoiceRecord[]>([]);
-  const [items, setItems] = useState<{ name: string }[]>([]);
+  const [items, setItems] = useState<{ id: string; name: string; description: string; displayName: string }[]>([]);
+  const [classList, setClassList] = useState<{ id: number; name: string }[]>([]);
+  const [itemSearchTerm, setItemSearchTerm] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -195,19 +201,95 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
   // Set default date range and fetch data on mount
   useEffect(() => {
     const today = new Date();
-    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    setDateTo(today.toISOString().split('T')[0]);
-    setDateFrom(firstDayOfMonth.toISOString().split('T')[0]);
+    
+    // Get today's date components
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth(); // 0-11
+    const currentDay = today.getDate();
+    
+    // Calculate one month ago
+    let targetYear = currentYear;
+    let targetMonth = currentMonth - 1;
+    
+    // Handle year rollover
+    if (targetMonth < 0) {
+      targetMonth = 11; // December
+      targetYear = currentYear - 1;
+    }
+    
+    // Create the date one month ago
+    const oneMonthAgo = new Date(targetYear, targetMonth, currentDay);
+    
+    // Format dates as YYYY-MM-DD in local timezone
+    const formatDateLocal = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    
+    const todayString = formatDateLocal(today);
+    const oneMonthAgoString = formatDateLocal(oneMonthAgo);
+    
+    console.log('Today:', today);
+    console.log('One month ago:', oneMonthAgo);
+    console.log('Today date string:', todayString);
+    console.log('One month ago date string:', oneMonthAgoString);
+    
+    setDateTo(todayString);
+    setDateFrom(oneMonthAgoString);
 
     async function fetchDropdownData() {
       try {
-        const { data: itemsData } = await supabase
-          .from('item_master')
-          .select('item_name')
-          .order('item_name');
-        if (itemsData) setItems(itemsData.map(item => ({ name: item.item_name })));
+        // Fetch classes
+        const { data: classesRes } = await supabase
+          .from('classes')
+          .select('id, name')
+          .order('sort_order', { ascending: true });
+        
+        if (classesRes) setClassList(classesRes);
+
+        // Fetch items using the same ordering as ProjectedRevenueReport
+        const masterItems = await fetchMasterItems();
+        console.log('Master items fetched:', masterItems);
+        
+        if (masterItems) {
+          const itemsList = masterItems
+            .filter(item => {
+              // Filter out "Balance Brought Forward" items
+              const isBalanceBroughtForward = item.item_name.toLowerCase().includes('balance') && 
+                                           item.item_name.toLowerCase().includes('brought') && 
+                                           item.item_name.toLowerCase().includes('forward');
+              return !isBalanceBroughtForward;
+            })
+            .map(item => {
+              const displayName = item.description 
+                ? `${item.item_name} - ${item.description}`
+                : item.item_name;
+              console.log('Processing item:', {
+                id: item.id,
+                item_name: item.item_name,
+                description: item.description,
+                displayName,
+                name: item.item_name
+              });
+              return {
+                id: item.id.toString(),
+                name: item.item_name,
+                description: item.description || '',
+                displayName
+              };
+            });
+          console.log('Final items list:', itemsList);
+          setItems(itemsList);
+          // Set the first item as default selection if no item is selected
+          if (itemsList.length > 0 && !selectedItem) {
+            console.log('Setting default selected item:', itemsList[0].id);
+            setSelectedItem(itemsList[0].id);
+          }
+        }
       } catch (err) {
-        console.error('Failed to fetch items:', err);
+        console.error('Failed to fetch dropdown data:', err);
       }
     }
 
@@ -253,6 +335,19 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
     fetchDropdownData();
     fetchInvoiceSettings();
   }, []);
+
+  // Filter items based on search term
+  const filteredItems = items.filter(item =>
+    !itemSearchTerm || 
+    item.displayName.toLowerCase().includes(itemSearchTerm.toLowerCase()) ||
+    item.name.toLowerCase().includes(itemSearchTerm.toLowerCase())
+  );
+
+  // Add console log to track items state changes
+  useEffect(() => {
+    console.log('Items state updated:', items);
+    console.log('Current selectedItem:', selectedItem);
+  }, [items, selectedItem]);
 
   // Measure actual heights after rendering from the first rendered page
   useEffect(() => {
@@ -354,6 +449,10 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
       alert('Please select a date range');
       return;
     }
+    if (!selectedItem) {
+      alert('Please select an invoice item');
+      return;
+    }
 
     setLoading(true);
     try {
@@ -375,7 +474,18 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
       const { data: invoicesData, error: invoicesError } = await invoiceQuery;
       if (invoicesError) throw invoicesError;
 
-      if (!invoicesData || invoicesData.length === 0) {
+      // Filter invoices by class if a specific class is selected
+      let filteredInvoicesData = invoicesData;
+      if (selectedClass !== 'all') {
+        filteredInvoicesData = invoicesData.filter((invoice: any) => {
+          const className = Array.isArray(invoice.students) 
+            ? invoice.students[0]?.class_name 
+            : invoice.students?.class_name;
+          return className === selectedClass;
+        });
+      }
+
+      if (!filteredInvoicesData || filteredInvoicesData.length === 0) {
         setStudents([]);
         setShowPreview(true);
         setShowConfigPopup(false);
@@ -383,33 +493,63 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
         return;
       }
 
-      // Get all invoice numbers
-      const invoiceNumbers = invoicesData.map(inv => inv.invoice_number);
+      // Get all invoice numbers from filtered data
+      const invoiceNumbers = filteredInvoicesData.map(inv => inv.invoice_number);
 
       // Fetch line items for these invoices
       let lineItemsQuery = supabase
         .from('invoice_line_items')
-        .select('id, invoice_number, item_name, quantity, unit_price, line_total')
+        .select('id, invoice_number, item_name, quantity, unit_price, line_total, description')
         .in('invoice_number', invoiceNumbers);
 
-      if (selectedItem !== 'all') {
-        lineItemsQuery = lineItemsQuery.eq('item_name', selectedItem);
+      // Find the selected item by id to get its name and description
+      const selectedItemData = items.find(item => item.id === selectedItem);
+      const selectedItemName = selectedItemData?.name;
+      const selectedItemDescription = selectedItemData?.description;
+      
+      if (selectedItemName) {
+        lineItemsQuery = lineItemsQuery.eq('item_name', selectedItemName);
+      }
+      
+      // Also filter by description if it exists
+      if (selectedItemDescription) {
+        lineItemsQuery = lineItemsQuery.eq('description', selectedItemDescription);
       }
 
       const { data: lineItemsData, error: lineItemsError } = await lineItemsQuery;
       if (lineItemsError) throw lineItemsError;
 
+      // If description field doesn't exist in line items, filter by description in application logic
+      let filteredLineItemsData = lineItemsData;
+      if (selectedItemDescription && lineItemsData && lineItemsData.length > 0) {
+        // Check if description field exists in the data
+        const hasDescriptionField = lineItemsData[0].hasOwnProperty('description');
+        
+        if (!hasDescriptionField) {
+          // Filter by matching item_name and description from item_master
+          console.log('Description field not found in line items, filtering by application logic');
+          filteredLineItemsData = lineItemsData.filter((lineItem: any) => {
+            // Find the corresponding item in item_master to match description
+            const matchingItem = items.find(item => 
+              item.name === lineItem.item_name && 
+              item.description === selectedItemDescription
+            );
+            return matchingItem !== undefined;
+          });
+        }
+      }
+
       // Create a map of invoices for quick lookup
-      const invoiceMap = new Map(invoicesData.map(inv => [inv.invoice_number, inv]));
+      const invoiceMap = new Map(filteredInvoicesData.map(inv => [inv.invoice_number, inv]));
 
       // Transform the data
-      const transformedData: StudentInvoiceRecord[] = (lineItemsData || []).map((item: any) => {
+      const transformedData: StudentInvoiceRecord[] = (filteredLineItemsData || []).map((item: any) => {
         const invoice = invoiceMap.get(item.invoice_number) as any;
         return {
           id: item.id,
           admission_number: invoice?.admission_number || 'N/A',
           name: invoice?.name || 'N/A',
-          class_name: invoice?.students?.class_name || 'N/A',
+          class_name: Array.isArray(invoice?.students) ? invoice.students[0]?.class_name || 'N/A' : invoice?.students?.class_name || 'N/A',
           invoice_number: item.invoice_number || 'N/A',
           invoice_date: invoice?.invoice_date || '',
           item_name: item.item_name || 'N/A',
@@ -506,9 +646,21 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
 
   if (showConfigPopup) {
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-          <div className="p-6">
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center p-4 z-50 overflow-y-auto">
+        <div className="bg-white shadow-xl w-full max-w-md my-8">
+          <div 
+            className="p-6 max-h-[calc(100vh-4rem)] overflow-y-auto"
+            style={{
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'transparent transparent',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.scrollbarColor = '#d1d5db #9ca3af';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.scrollbarColor = 'transparent transparent';
+            }}
+          >
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-semibold text-gray-800">Students by Invoice Items Report</h2>
               <button
@@ -523,7 +675,7 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Date From <span className="text-red-500">*</span>
+                    Invoice Date From <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="date"
@@ -535,7 +687,7 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Date To <span className="text-red-500">*</span>
+                    Invoice Date To <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="date"
@@ -549,20 +701,69 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Invoice Item (Optional)
+                  Class (Optional)
                 </label>
                 <select
-                  value={selectedItem}
-                  onChange={(e) => setSelectedItem(e.target.value)}
+                  value={selectedClass}
+                  onChange={(e) => setSelectedClass(e.target.value)}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  <option value="all">All Items</option>
-                  {items.map((item) => (
-                    <option key={item.name} value={item.name}>
-                      {item.name}
-                    </option>
+                  <option value="all">All Classes</option>
+                  {classList.map(c => (
+                    <option key={c.id} value={c.name}>{c.name}</option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Invoice Item
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={itemSearchTerm !== null ? itemSearchTerm : items.find(item => item.id === selectedItem)?.displayName || ''}
+                    onChange={(e) => {
+                      if (itemSearchTerm !== null) {
+                        setItemSearchTerm(e.target.value);
+                      }
+                    }}
+                    onFocus={() => setItemSearchTerm('')}
+                    onBlur={() => {
+                      // Delay to allow click on dropdown items
+                      setTimeout(() => {
+                        if (itemSearchTerm === '' || itemSearchTerm === null) {
+                          setItemSearchTerm(null);
+                        }
+                      }, 200);
+                    }}
+                    placeholder="Search for an item..."
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    readOnly={itemSearchTerm === null}
+                  />
+                  {itemSearchTerm !== null && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                      {filteredItems.length > 0 ? (
+                        filteredItems.map((item) => (
+                          <div
+                            key={item.id}
+                            onMouseDown={() => {
+                              setSelectedItem(item.id);
+                              setItemSearchTerm(null);
+                            }}
+                            className="p-3 hover:bg-gray-100 cursor-pointer border-b border-gray-100 last:border-b-0"
+                          >
+                            <div className="font-medium text-gray-900">{item.displayName}</div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="p-3 text-gray-500 text-center">
+                          No items found
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="flex justify-end space-x-3 mt-6">
@@ -574,9 +775,9 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
                 </button>
                 <button
                   onClick={handleGenerate}
-                  disabled={loading || !dateFrom || !dateTo}
+                  disabled={loading || !dateFrom || !dateTo || !selectedItem}
                   className={`px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 ${
-                    loading || !dateFrom || !dateTo ? 'opacity-50 cursor-not-allowed' : ''
+                    loading || !dateFrom || !dateTo || !selectedItem ? 'opacity-50 cursor-not-allowed' : ''
                   }`}
                 >
                   {loading ? (
@@ -685,8 +886,8 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
                         <div>
                           <h1 className="text-3xl font-normal text-gray-900 mb-2">Students by Invoice Items Report</h1>
                           <div className="text-sm text-gray-600 space-y-1">
-                            <p><strong>Invoice Item:</strong> {selectedItem === 'all' ? 'All Items' : selectedItem}</p>
-                            <p><strong>Date Range:</strong> {formatDate(dateFrom)} to {formatDate(dateTo)}</p>
+                            <p><strong>Invoice Item:</strong> {items.find(item => item.id === selectedItem)?.displayName || selectedItem}</p>
+                            <p><strong>Filter:</strong> {selectedClass === 'all' ? 'All Classes' : selectedClass}, Invoice Date Range from {formatDate(dateFrom)} to {formatDate(dateTo)}</p>
                             <p><strong>Generated:</strong> {formatDateTime(new Date().toISOString())}</p>
                           </div>
                         </div>
@@ -734,15 +935,13 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
                           <table className="w-full border-collapse">
                             <thead>
                               <tr className="bg-gray-50 border-b-2 border-gray-200">
-                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '10%' }}>Adm No</th>
-                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '18%' }}>Student Name</th>
-                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '8%' }}>Class</th>
-                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '10%' }}>Invoice</th>
-                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '10%' }}>Date</th>
-                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '18%' }}>Item</th>
-                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '6%' }}>Qty</th>
-                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '10%' }}>Unit Price</th>
-                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '10%' }}>Total</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '12%' }}>Adm No</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '22%' }}>Student Name</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '10%' }}>Class</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '12%' }}>Invoice</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '12%' }}>Date</th>
+                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '8%' }}>Qty</th>
+                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '12%' }}>Total</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -753,9 +952,7 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
                                   <td className="p-3 text-sm text-gray-900">{record.class_name}</td>
                                   <td className="p-3 text-sm text-gray-900">{record.invoice_number}</td>
                                   <td className="p-3 text-sm text-gray-900">{formatDate(record.invoice_date)}</td>
-                                  <td className="p-3 text-sm text-gray-900">{record.item_name}</td>
                                   <td className="p-3 text-sm text-right text-gray-900">{record.quantity}</td>
-                                  <td className="p-3 text-sm text-right text-gray-900">{record.unit_price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                   <td className="p-3 text-sm text-right font-medium text-gray-900">{record.line_total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                 </tr>
                               ))}

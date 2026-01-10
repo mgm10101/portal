@@ -439,6 +439,7 @@ export const TransportSummaryReport: React.FC<TransportSummaryReportProps> = ({ 
   // Helper functions to get names by ID
   const getZoneNameById = (zoneId: string) => {
     if (zoneId === 'all') return 'All Zones';
+    if (zoneId === 'unassigned') return 'Unassigned';
     const zoneObj = zones.find(z => z.id === parseInt(zoneId));
     return zoneObj ? zoneObj.name : zoneId;
   };
@@ -475,7 +476,11 @@ export const TransportSummaryReport: React.FC<TransportSummaryReportProps> = ({ 
       }
 
       if (selectedZone !== 'all') {
-        query = query.eq('transport_zone_id', parseInt(selectedZone));
+        if (selectedZone === 'unassigned') {
+          query = query.is('transport_zone_id', null);
+        } else {
+          query = query.eq('transport_zone_id', parseInt(selectedZone));
+        }
       }
 
       if (selectedType !== 'both') {
@@ -590,8 +595,8 @@ export const TransportSummaryReport: React.FC<TransportSummaryReportProps> = ({ 
     const totalStudents = students.length;
     // Count only students with transport zones (excluding Unassigned)
     const commutingStudents = students.filter(s => s.transport_zone !== 'Unassigned').length;
-    // Count unique zones (excluding Unassigned)
-    const totalZones = new Set(students.filter(s => s.transport_zone !== 'Unassigned').map(s => s.transport_zone)).size;
+    // Count total zones from database (not just zones with students)
+    const totalZones = zones.length;
     const withTransport = commutingStudents;
     const withoutTransport = students.filter(s => s.transport_zone === 'Unassigned').length;
     
@@ -600,9 +605,21 @@ export const TransportSummaryReport: React.FC<TransportSummaryReportProps> = ({ 
 
   if (showConfigPopup) {
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-          <div className="p-6">
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center p-4 z-50 overflow-y-auto">
+        <div className="bg-white shadow-xl w-full max-w-md my-8">
+          <div 
+            className="p-6 max-h-[calc(100vh-4rem)] overflow-y-auto"
+            style={{
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'transparent transparent',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.scrollbarColor = '#d1d5db #9ca3af';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.scrollbarColor = 'transparent transparent';
+            }}
+          >
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-semibold text-gray-800">Transport Summary Report</h2>
               <button onClick={handleClose} className="text-gray-500 hover:text-gray-700">
@@ -621,29 +638,32 @@ export const TransportSummaryReport: React.FC<TransportSummaryReportProps> = ({ 
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="all">All Zones</option>
+                  <option value="unassigned">Unassigned</option>
                   {zones.map(z => (
                     <option key={z.id} value={z.id.toString()}>{z.name}</option>
                   ))}
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Transport Type
-                </label>
-                <select
-                  value={selectedType}
-                  onChange={(e) => setSelectedType(e.target.value)}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="both">Both</option>
-                  {transportTypes.map((type: any) => (
-                    <option key={type.id} value={type.id}>
-                      {type.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {selectedZone !== 'unassigned' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Transport Type
+                  </label>
+                  <select
+                    value={selectedType}
+                    onChange={(e) => setSelectedType(e.target.value)}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="both">Both</option>
+                    {transportTypes.map((type: any) => (
+                      <option key={type.id} value={type.id}>
+                        {type.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div className="flex items-center">
                 <input
