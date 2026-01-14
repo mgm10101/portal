@@ -112,6 +112,7 @@ const MODULE_CONFIG: Record<string, ModuleConfig> = {
   'Financials': {
     submodules: [
       { id: 'invoices', label: 'Invoices', permissions: ['view', 'add', 'edit', 'void', 'approve'] },
+      { id: 'payment-plans', label: 'Payment Plans', permissions: ['view', 'add', 'edit', 'delete', 'approve'] },
       { id: 'fee-structure', label: 'Fee Structure', permissions: ['view', 'add', 'edit', 'delete'] },
       { id: 'payments', label: 'Received', permissions: ['view', 'add', 'edit', 'void'] },
       { id: 'expenses', label: 'Expenses', permissions: ['view', 'add', 'edit', 'void', 'approve'] },

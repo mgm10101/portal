@@ -245,6 +245,41 @@ export const InvoiceEditModal: React.FC<InvoiceEditModalProps> = ({ invoice, onC
     });
   };
 
+  const handleToggleBadDebt = async () => {
+    if (!fullInvoice) return;
+
+    if (fullInvoice.status === 'Forwarded') {
+      setError('Forwarded invoices cannot be marked as bad debt.');
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      const newBadDebtStatus = !fullInvoice.bad_debt;
+      
+      const submissionData: InvoiceSubmissionData = {
+        header: {
+          ...fullInvoice,
+          bad_debt: newBadDebtStatus,
+        },
+        line_items: fullInvoice.line_items,
+      };
+
+      await updateInvoice(invoice.invoice_number, submissionData);
+      
+      // Update the local state to reflect the change
+      setFullInvoice(prev => prev ? { ...prev, bad_debt: newBadDebtStatus } : null);
+      
+      onSaved();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to update bad debt status.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -542,29 +577,53 @@ export const InvoiceEditModal: React.FC<InvoiceEditModalProps> = ({ invoice, onC
                 </div>
               )}
 
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
+              <div className="flex items-center justify-between gap-3 pt-4 border-t border-gray-200">
                 <button
                   type="button"
-                  onClick={onClose}
-                  className="px-4 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-                  disabled={saving}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center"
+                  onClick={handleToggleBadDebt}
+                  className={`px-4 py-2 text-sm rounded-lg transition-colors flex items-center ${
+                    fullInvoice.bad_debt 
+                      ? 'text-white bg-purple-600 hover:bg-purple-700' 
+                      : 'text-white bg-orange-600 hover:bg-orange-700'
+                  }`}
                   disabled={saving || fullInvoice.status === 'Forwarded'}
                 >
                   {saving ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                      Saving...
+                      Updating...
                     </>
+                  ) : fullInvoice.bad_debt ? (
+                    'Remove Bad Debt'
                   ) : (
-                    'Save Changes'
+                    'Mark as Bad Debt'
                   )}
                 </button>
+                
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-4 py-2 text-sm text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                    disabled={saving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center"
+                    disabled={saving || fullInvoice.status === 'Forwarded'}
+                  >
+                    {saving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        Saving...
+                      </>
+                    ) : (
+                      'Save Changes'
+                    )}
+                  </button>
+                </div>
               </div>
             </form>
           ) : null}

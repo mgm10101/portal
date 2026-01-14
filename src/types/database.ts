@@ -70,7 +70,10 @@ export interface InvoiceHeader {
     // --------------------------------------------------------
     invoice_date: string; // date (YYYY-MM-DD format)
     due_date: string; // date (YYYY-MM-DD format)
-    status: 'Draft' | 'Pending' | 'Paid' | 'Overdue' | 'Forwarded'; // text
+    status: 'Pending' | 'Paid' | 'Overdue' | 'Forwarded' | 'Payment Plan On Track' | 'Payment Plan Off Track' | 'Bad Debt' | 'Withdrawn'; // text
+    withdrawn: boolean; // boolean - indicates if invoice is withdrawn
+    bad_debt: boolean; // boolean - indicates if invoice is bad debt
+    payment_plan: 'none' | 'on track' | 'off track'; // payment plan status
     description: string | null; // text (The general description, e.g., 'Q1 Term Fees')
 
     // Balance Brought Forward Fields

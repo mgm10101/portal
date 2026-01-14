@@ -29,15 +29,16 @@ import {
 // Helper types to represent the raw data returned by Supabase 
 // (where all 'numeric' database fields are returned as 'string' before coercion)
 // --- FIX 1: Revert numeric fields to SNAKE_CASE, as returned by the database/PostgREST
-type RawInvoiceData = Omit<InvoiceHeader, 'subtotal' | 'totalAmount' | 'paymentMade' | 'balanceDue' | 'class_name'> & {
+type RawInvoiceData = Omit<InvoiceHeader, 'subtotal' | 'totalAmount' | 'paymentMade' | 'balanceDue' | 'class_name' | 'withdrawn' | 'bad_debt' | 'payment_plan'> & {
     subtotal: string;
-    total_amount: string; // ✅ FIX: Changed to use snake_case for raw DB response
-    payment_made: string; // ✅ FIX: Changed to use snake_case for raw DB response
-    balance_due: string; // ✅ FIX: Changed to use snake_case for raw DB response
-    // NOTE: broughtforward_amount removed - BBF is now only included as a line item
-    // --- ADDED: Structure for the joined 'students' table to retrieve class_name ---
-    students: { class_name: string | null } | null;
-    // -----------------------------------------------------------------------------
+    total_amount: string; // FIX: Changed to use snake_case for raw DB response
+    payment_made: string; // FIX: Changed to use snake_case for raw DB response
+    balance_due: string; // FIX: Changed to use snake_case for raw DB response
+    withdrawn: boolean; // boolean field from database
+    bad_debt: boolean; // boolean field from database
+    payment_plan: 'none' | 'on track' | 'off track'; // payment plan status from database
+    // The 'students' join field is included here but excluded from InvoiceHeader
+    students?: { class_name: string | null } | null;
 };
 
 // --- BATCH CREATION TYPES ---
@@ -48,8 +49,7 @@ interface BatchLineItem {
     unitPrice: number;
     quantity: number;
     discount: number;
-    // NOTE: Adding itemName and lineTotal is crucial for reusability with createInvoice
-    itemName: string; 
+    // NOTE: Adding lineTotal is crucial for reusability with createInvoice
     lineTotal: number;
     description: string | null;
 }
@@ -131,7 +131,7 @@ export async function fetchMasterItems(): Promise<ItemMaster[]> {
     const { data, error } = await supabase
         .from('item_master')
         .select('*')
-        .order('sort_order', { ascending: true, nullsLast: true })
+        .order('sort_order', { ascending: true })
         .order('created_at', { ascending: true }); // Secondary sort
     if (error) {
         console.error("❌ [ERROR] Error fetching master items:", error);
@@ -399,7 +399,7 @@ export async function fetchInvoices(): Promise<InvoiceHeader[]> {
     }
     
     // Use RawInvoiceData for the incoming data
-    const typedData: InvoiceHeader[] = data.map((item: RawInvoiceData) => ({
+    const typedData: InvoiceHeader[] = data!.map((item: RawInvoiceData) => ({
         // Spread the original properties (non-numeric, non-joined)
         ...item,
         
@@ -413,6 +413,9 @@ export async function fetchInvoices(): Promise<InvoiceHeader[]> {
         totalAmount: parseFloat(item.total_amount), // ✅ FIX: Using item.total_amount
         paymentMade: parseFloat(item.payment_made), // ✅ FIX: Using item.payment_made
         balanceDue: parseFloat(item.balance_due), // ✅ FIX: Using item.balance_due
+        withdrawn: item.withdrawn, // ✅ FIX: Include withdrawn field
+        bad_debt: item.bad_debt, // ✅ FIX: Include bad_debt field
+        payment_plan: item.payment_plan, // ✅ FIX: Include payment_plan field
     }));
 
     // Ensure most recently modified invoices appear first.
@@ -515,12 +518,14 @@ export async function fetchFullInvoice(invoiceNumber: string): Promise<FullInvoi
         totalAmount: parseFloat(total_amount), 
         paymentMade: parseFloat(payment_made), 
         balanceDue: parseFloat(balance_due), 
+        withdrawn: rawFullInvoice.withdrawn, // ✅ FIX: Include withdrawn field
+        bad_debt: rawFullInvoice.bad_debt, // ✅ FIX: Include bad_debt field
+        payment_plan: rawFullInvoice.payment_plan, // ✅ FIX: Include payment_plan field
         line_items: coercedLineItems,
     };
     console.log(`✅ [DEBUG] Full invoice ${invoiceNumber} fetched successfully.`);
     return coercedInvoice;
 }
-
 
 // --- D. Batch Invoice Creation (NEW IMPLEMENTATION) ---
 
@@ -707,6 +712,9 @@ export async function createBatchInvoices(
                     invoice_date: data.invoiceDate,
                     due_date: data.dueDate,
                     status: 'Pending', 
+                    withdrawn: false, // Default to not withdrawn
+                    bad_debt: false, // Default to not bad debt
+                    payment_plan: 'none', // Default to no payment plan
                     description: data.description, 
                     
                     // BBF fields (description only - amount is in line items)
@@ -775,10 +783,13 @@ export async function updateInvoice(invoiceNumber: string, data: InvoiceSubmissi
     // --- 1. UPDATE INVOICE HEADER ---
     console.log(`🐛 [DEBUG] Step 1: Updating Invoice Header for ${invoiceNumber}...`);
 
-    // Only update the editable fields: due_date, description, and the calculated totals.
+    // Only update the editable fields: due_date, description, bad_debt, and the calculated totals.
     const headerToUpdate = {
         due_date: data.header.due_date,
         description: data.header.description || null,
+        
+        // Update status fields
+        bad_debt: data.header.bad_debt,
         
         // Update calculated fields (must be snake_case)
         subtotal: data.header.subtotal,
@@ -1249,7 +1260,10 @@ export async function fetchStudentInvoicesForPayment(admissionNumber: string): P
         subtotal: parseFloat(item.subtotal),
         totalAmount: parseFloat(item.total_amount),
         paymentMade: parseFloat(item.payment_made),
-        balanceDue: parseFloat(item.balance_due)
+        balanceDue: parseFloat(item.balance_due),
+        withdrawn: item.withdrawn || false,
+        bad_debt: item.bad_debt || false,
+        payment_plan: item.payment_plan || 'none'
     }));
 }
 
@@ -2030,7 +2044,7 @@ export async function deleteInvoice(invoiceNumber: string): Promise<boolean> {
             if (item.description) {
                 const match = item.description.match(/Invoices:\s*(.+)/);
                 if (match) {
-                    const invoiceNumbers = match[1].split(',').map(inv => inv.trim());
+                    const invoiceNumbers = match[1].split(',').map((inv: string) => inv.trim());
                     invoicesToCascadeDelete.push(...invoiceNumbers);
                 }
             }

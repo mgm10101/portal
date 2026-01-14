@@ -15,23 +15,62 @@ interface InvoiceTableProps {
     onDataMutation: () => void; 
 }
 
-// Helper function to map database status to a Tailwind CSS class (Keep existing code)
-const getStatusClasses = (status: InvoiceHeader['status']) => {
-    switch (status) {
-        case 'Paid':
-            return 'bg-green-100 text-green-800';
-        case 'Pending':
-            return 'bg-yellow-100 text-yellow-800';
-        case 'Overdue':
-            return 'bg-red-100 text-red-800';
-        case 'Forwarded':
-            return 'bg-blue-100 text-blue-800';
-        case 'Draft':
-            return 'bg-gray-100 text-gray-800';
-        default:
-            return 'bg-gray-100 text-gray-800';
+// Helper function to get display status and classes
+const getDisplayStatus = (invoice: InvoiceHeader) => {
+    // Priority: Forwarded > Bad Debt > Withdrawn > Payment Plan > Normal Status
+    // Forwarded is highest priority because when an invoice is forwarded, nothing else matters
+    if (invoice.status === 'Forwarded') {
+        return {
+            status: 'Forwarded',
+            classes: 'bg-blue-100 text-blue-800'
+        };
     }
-}
+    
+    // Then check bad debt
+    if (invoice.bad_debt) {
+        return {
+            status: 'Bad Debt',
+            classes: 'bg-red-100 text-red-800'
+        };
+    }
+    
+    // If withdrawn, show "Withdrawn" regardless of actual status
+    if (invoice.withdrawn) {
+        return {
+            status: 'Withdrawn',
+            classes: 'bg-orange-100 text-orange-800'
+        };
+    }
+    
+    // If payment plan is active, show payment plan status
+    if (invoice.payment_plan !== 'none') {
+        const displayText = invoice.payment_plan === 'on track' ? 'Payment Plan On Track' : 'Payment Plan Off Track';
+        const classes = invoice.payment_plan === 'on track' 
+            ? 'bg-blue-100 text-blue-800' 
+            : 'bg-orange-100 text-orange-800';
+        return {
+            status: displayText,
+            classes: classes
+        };
+    }
+    
+    // Otherwise, show actual status with existing classes
+    const statusClasses = {
+        'Paid': 'bg-green-100 text-green-800',
+        'Pending': 'bg-yellow-100 text-yellow-800',
+        'Overdue': 'bg-red-100 text-red-800',
+        'Forwarded': 'bg-blue-100 text-blue-800',
+        'Payment Plan On Track': 'bg-blue-100 text-blue-800',
+        'Payment Plan Off Track': 'bg-orange-100 text-orange-800',
+        'Bad Debt': 'bg-red-100 text-red-800',
+        'Withdrawn': 'bg-orange-100 text-orange-800'
+    };
+    
+    return {
+        status: invoice.status,
+        classes: statusClasses[invoice.status] || 'bg-gray-100 text-gray-800'
+    };
+};
 
 // UPDATE: Added 'onView' and 'onDownload' props here
 export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onView, onDataMutation }) => {
@@ -206,10 +245,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onView, on
                                 Class
                             </th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Total
-                            </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Balance Due
+                                Total / Balance
                             </th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Status
@@ -259,14 +295,12 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onView, on
                                     {invoice.class_name || '-'}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                    Ksh.{invoice.totalAmount.toFixed(2)}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                    Ksh.{invoice.balanceDue.toFixed(2)}
+                                    <div className="text-sm font-semibold text-gray-900">Ksh.{invoice.totalAmount.toFixed(2)}</div>
+                                    <div className="text-sm text-gray-500">Balance: Ksh.{invoice.balanceDue.toFixed(2)}</div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusClasses(invoice.status)}`}>
-                                        {invoice.status}
+                                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getDisplayStatus(invoice).classes}`}>
+                                        {getDisplayStatus(invoice).status}
                                     </span>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">

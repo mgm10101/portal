@@ -1,7 +1,7 @@
 // src/components/Financial/Invoices/InvoiceForm.tsx
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Search } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import { 
     ItemMaster, 
     InvoiceHeader, 
@@ -51,6 +51,9 @@ const initialInvoiceHeader: InvoiceHeader = {
     invoice_date: new Date().toISOString().split('T')[0], 
     due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], 
     status: 'Pending',
+    withdrawn: false, // Default to not withdrawn
+    bad_debt: false, // Default to not bad debt
+    payment_plan: 'none', // Default to no payment plan
     subtotal: 0.00,
     totalAmount: 0.00,
     paymentMade: 0.00, // Important default for creation
@@ -675,42 +678,51 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ selectedInvoice, onClo
 
                 {/* --- TAB NAVIGATION --- */}
                 {/* 🎯 EDIT MODE: Hide/Disable other tabs */}
-                <div className="flex border-b border-gray-200 mb-6 -mx-6 px-6 overflow-x-auto">
-                    <button 
-                        onClick={() => setActiveTab('Single Invoice')} 
-                        className={getTabClassName('Single Invoice')}
-                        disabled={isEditMode} // Cannot switch tabs in edit mode
+                <div className="flex justify-between items-center border-b border-gray-200 mb-6 -mx-6 px-6 overflow-x-auto">
+                    <div className="flex overflow-x-auto">
+                        <button 
+                            onClick={() => setActiveTab('Single Invoice')} 
+                            className={getTabClassName('Single Invoice')}
+                            disabled={isEditMode} // Cannot switch tabs in edit mode
+                        >
+                            {isEditMode ? 'Single Invoice (Editing)' : 'Single Invoice'}
+                        </button>
+                        {!isEditMode && (
+                            <>
+                                <button 
+                                    onClick={() => setActiveTab('Batch Creation')} 
+                                    className={getTabClassName('Batch Creation')}
+                                >
+                                    Batch Creation
+                                </button>
+                                <button 
+                                    onClick={() => setActiveTab('Batch Export')} 
+                                    className={getTabClassName('Batch Export')}
+                                >
+                                    Batch Export
+                                </button>
+                                <button 
+                                    onClick={() => setActiveTab('Invoice Items')} 
+                                    className={getTabClassName('Invoice Items')}
+                                >
+                                    Invoice Items
+                                </button>
+                                <button 
+                                    onClick={() => setActiveTab('Invoice Details')} 
+                                    className={getTabClassName('Invoice Details')}
+                                >
+                                    Invoice Details
+                                </button>
+                            </>
+                        )}
+                    </div>
+                    <button
+                        onClick={onClose}
+                        className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                        title="Close"
                     >
-                        {isEditMode ? 'Single Invoice (Editing)' : 'Single Invoice'}
+                        <X className="w-5 h-5" />
                     </button>
-                    {!isEditMode && (
-                        <>
-                            <button 
-                                onClick={() => setActiveTab('Batch Creation')} 
-                                className={getTabClassName('Batch Creation')}
-                            >
-                                Batch Creation
-                            </button>
-                            <button 
-                                onClick={() => setActiveTab('Batch Export')} 
-                                className={getTabClassName('Batch Export')}
-                            >
-                                Batch Export
-                            </button>
-                            <button 
-                                onClick={() => setActiveTab('Invoice Items')} 
-                                className={getTabClassName('Invoice Items')}
-                            >
-                                Invoice Items
-                            </button>
-                            <button 
-                                onClick={() => setActiveTab('Invoice Details')} 
-                                className={getTabClassName('Invoice Details')}
-                            >
-                                Invoice Details
-                            </button>
-                        </>
-                    )}
                 </div>
 
                 {/* --- TAB CONTENT --- */}

@@ -93,7 +93,7 @@ export const InvoiceFilters: React.FC<InvoiceFiltersProps> = ({
 
   // Get unique classes and statuses for dropdowns
   const uniqueClasses = Array.from(new Set(invoices.map(inv => inv.class_name).filter(Boolean))) as string[];
-  const statuses: InvoiceHeader['status'][] = ['Draft', 'Pending', 'Paid', 'Overdue', 'Forwarded'];
+  const statuses: InvoiceHeader['status'][] = ['Pending', 'Paid', 'Overdue', 'Forwarded', 'Payment Plan On Track', 'Payment Plan Off Track', 'Bad Debt', 'Withdrawn'];
 
   // Apply filters
   React.useEffect(() => {
@@ -119,9 +119,48 @@ export const InvoiceFilters: React.FC<InvoiceFiltersProps> = ({
       filtered = filtered.filter(invoice => invoice.class_name === filters.class);
     }
 
-    // Status filter
+    // Status filter - with complex logic for payment plan statuses
     if (filters.status) {
-      filtered = filtered.filter(invoice => invoice.status === filters.status);
+      filtered = filtered.filter(invoice => {
+        // Priority: Forwarded > Bad Debt > Withdrawn > Payment Plan > Normal Status
+        // Forwarded is highest priority because when an invoice is forwarded, nothing else matters
+        if (filters.status === 'Forwarded') {
+          return invoice.status === 'Forwarded';
+        }
+        
+        if (filters.status === 'Bad Debt') {
+          return invoice.bad_debt === true && invoice.status !== 'Forwarded';
+        }
+        
+        if (filters.status === 'Withdrawn') {
+          return invoice.withdrawn === true && invoice.status !== 'Forwarded';
+        }
+        
+        if (filters.status === 'Payment Plan On Track') {
+          return invoice.payment_plan === 'on track' && invoice.status !== 'Forwarded';
+        }
+        
+        if (filters.status === 'Payment Plan Off Track') {
+          return invoice.payment_plan === 'off track' && invoice.status !== 'Forwarded';
+        }
+        
+        // For normal statuses, only show if no higher priority status applies
+        // This ensures filters match exactly what's displayed in the frontend
+        if (filters.status === 'Pending' || filters.status === 'Overdue' || 
+            filters.status === 'Paid') {
+          // Only include if no higher priority status is active
+          if (invoice.status === 'Forwarded') return false;
+          if (invoice.bad_debt) return false;
+          if (invoice.withdrawn) return false;
+          if (invoice.payment_plan !== 'none') return false;
+          
+          // Then check the actual status
+          return invoice.status === filters.status;
+        }
+        
+        // Default case (shouldn't reach here with current status options)
+        return invoice.status === filters.status;
+      });
     }
 
     // Total range filter
@@ -216,12 +255,17 @@ export const InvoiceFilters: React.FC<InvoiceFiltersProps> = ({
           </div>
           <button 
             onClick={() => setShowFilters(true)}
-            className={`flex-shrink-0 flex items-center justify-center p-2 md:px-4 md:py-2 border border-gray-300 rounded-lg hover:bg-gray-50 ${
-              hasActiveFilters ? 'bg-blue-50 border-blue-300' : ''
+            className={`flex-shrink-0 flex items-center justify-center p-2 md:px-4 md:py-2 border rounded-lg transition-colors relative ${
+              hasActiveFilters 
+                ? 'border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100' 
+                : 'border-gray-300 hover:bg-gray-50'
             }`}
           >
             <Filter className="w-4 h-4 md:mr-2" />
             <span className="hidden md:inline">Filters</span>
+            {hasActiveFilters && (
+              <span className="absolute -top-1 -right-1 w-3 h-3 bg-blue-600 rounded-full"></span>
+            )}
           </button>
           <button
             onClick={onCreateInvoice}

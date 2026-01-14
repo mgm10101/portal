@@ -154,7 +154,7 @@ export const StudentTable: React.FC<StudentTableProps> = ({
                 Student
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Admission Details
+                Admission
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Class
@@ -163,7 +163,7 @@ export const StudentTable: React.FC<StudentTableProps> = ({
                 Gender
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Emergency Contact
+                Primary Contact
               </th>
               <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
                 Status

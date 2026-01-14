@@ -54,6 +54,7 @@ const hasModuleAccess = (moduleId: string, submoduleId: string | undefined, sele
         submoduleId === 'inventory-list' ? 'inventory' :
         submoduleId === 'requisition-records' ? 'requisitions' :
         submoduleId === 'behaviour' ? 'disciplinary' :
+        submoduleId === 'payment-plans' ? 'payment_plans' :
         submoduleId;
       return (
         m.id === `submodule-${moduleName}-${submoduleIdFormatted}` ||
@@ -94,6 +95,7 @@ const getActionConfig = (moduleId: string, submoduleId?: string) => {
     'homework': { label: 'Manage Homework', icon: BookOpen, hoverColor: 'hover:bg-teal-50 hover:border-teal-300', iconColor: 'text-teal-600' },
     // Financials submodules
     'invoices': { label: 'Create Invoice', icon: DollarSign, hoverColor: 'hover:bg-green-50 hover:border-green-300', iconColor: 'text-green-600' },
+    'payment-plans': { label: 'View Payment Plans', icon: CalendarClock, hoverColor: 'hover:bg-violet-50 hover:border-violet-300', iconColor: 'text-violet-600' },
     'fee-structure': { label: 'Manage Fee Structure', icon: FileText, hoverColor: 'hover:bg-teal-50 hover:border-teal-300', iconColor: 'text-teal-600' },
     'payments': { label: 'Record Payment', icon: Receipt, hoverColor: 'hover:bg-emerald-50 hover:border-emerald-300', iconColor: 'text-emerald-600' },
     'expenses': { label: 'Record Expense', icon: TrendingDown, hoverColor: 'hover:bg-red-50 hover:border-red-300', iconColor: 'text-red-600' },
@@ -157,7 +159,7 @@ export const CustomDashboard: React.FC<CustomDashboardProps> = ({
     // Define all modules and their submodules
     const moduleStructure = [
       { id: 'students', submodules: ['masterlist', 'assessments', 'behaviour', 'attendance', 'transport', 'boarding', 'medical', 'homework'] },
-      { id: 'financial', submodules: ['invoices', 'fee-structure', 'payments', 'expenses', 'payroll'] },
+      { id: 'financial', submodules: ['invoices', 'payment-plans', 'fee-structure', 'payments', 'expenses', 'payroll'] },
       { id: 'inventory', submodules: ['inventory-list', 'requisition-records', 'repair-requests', 'asset-issuance', 'budgets'] },
       { id: 'hr', submodules: ['staff-info', 'leave-management', 'disciplinary', 'performance'] },
       { id: 'programs', submodules: ['school-calendar', 'lesson-plans', 'shifts', 'schedules'] },

@@ -43,6 +43,7 @@ import {
   Activity,
   HeartPulse
 } from 'lucide-react';
+import { PaymentPlanIcon } from '../Icons/PaymentPlanIcon';
 
 interface IconSidebarProps {
   activeSection: string;
@@ -149,6 +150,7 @@ export const IconSidebar: React.FC<IconSidebarProps> = ({
     ],
     'financial': [
       { id: 'invoices', icon: DollarSign },
+      { id: 'payment-plans', icon: CalendarClock },
       { id: 'fee-structure', icon: FileText },
       { id: 'payments', icon: Receipt },
       { id: 'expenses', icon: TrendingDown },
@@ -244,7 +246,7 @@ export const IconSidebar: React.FC<IconSidebarProps> = ({
   const isParentActive = (parentId: string) => {
     const parentChildMap: Record<string, string[]> = {
       'students': ['masterlist', 'assessments', 'behaviour', 'attendance', 'transport', 'boarding', 'medical', 'homework'],
-      'financial': ['invoices', 'fee-structure', 'payments', 'expenses', 'payroll'],
+      'financial': ['invoices', 'payment-plans', 'fee-structure', 'payments', 'expenses', 'payroll'],
       'inventory': ['inventory-list', 'requisition-records', 'repair-requests', 'asset-issuance', 'budgets'],
       'library': ['books-masterlist', 'borrowing-records'],
       'hr': ['staff-info', 'leave-management', 'disciplinary', 'performance'],

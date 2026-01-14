@@ -65,6 +65,9 @@ export const Invoices: React.FC = () => {
         invoiceDate: fullDetails.invoice_date,
         dueDate: fullDetails.due_date,
         status: fullDetails.status as 'Overdue' | 'Paid' | 'Draft' | 'Pending' | 'Forwarded',
+        withdrawn: fullDetails.withdrawn || false, // Include withdrawn field
+        bad_debt: fullDetails.bad_debt || false, // Include bad_debt field
+        payment_plan: fullDetails.payment_plan || 'none', // Include payment_plan field
         billToName: fullDetails.name,
         billToDescription: fullDetails.description || 'N/A',
         slogan: '"Nurturing Their Potential"',
@@ -117,6 +120,9 @@ export const Invoices: React.FC = () => {
         invoiceDate: fullDetails.invoice_date,
         dueDate: fullDetails.due_date,
         status: fullDetails.status as 'Overdue' | 'Paid' | 'Draft' | 'Pending' | 'Forwarded',
+        withdrawn: fullDetails.withdrawn || false, // Include withdrawn field
+        bad_debt: fullDetails.bad_debt || false, // Include bad_debt field
+        payment_plan: fullDetails.payment_plan || 'none', // Include payment_plan field
         billToName: fullDetails.name,
         billToDescription: fullDetails.description || 'N/A',
         slogan: '"Nurturing Their Potential"',

@@ -175,7 +175,7 @@ const MarkAsPaidPopup: React.FC<{
 };
 
 // Expense Display Component (Read-only view)
-const ExpenseDisplay: React.FC<{ expense: Expense; onClose: () => void; onMarkAsPaid?: (expense: Expense, datePaid: string, reference: string, paidThroughId: number | undefined, amountPaid: number) => void; paidThroughOptions?: ExpensePaidThrough[] }> = ({ expense, onClose, onMarkAsPaid, paidThroughOptions = [] }) => {
+const ExpenseDisplay: React.FC<{ expense: Expense; onClose: () => void; onMarkAsPaid?: (expense: Expense, datePaid: string, reference: string, paidThroughId: number | undefined, amountPaid: number) => void; onEdit?: (expense: Expense) => void; paidThroughOptions?: ExpensePaidThrough[] }> = ({ expense, onClose, onMarkAsPaid, onEdit, paidThroughOptions = [] }) => {
   const [showMarkAsPaidPopup, setShowMarkAsPaidPopup] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
   const [payments, setPayments] = useState<any[]>([]);
@@ -185,8 +185,8 @@ const ExpenseDisplay: React.FC<{ expense: Expense; onClose: () => void; onMarkAs
                  (expense.due_date && new Date(expense.due_date) < new Date() ? 'Payment Overdue' : 'Pending Payment');
   const statusClasses = {
     'Paid': 'bg-green-100 text-green-800',
-    'Pending Payment': 'bg-yellow-100 text-yellow-800',
-    'Payment Overdue': 'bg-red-100 text-red-800'
+    'Pending Payment': 'text-yellow-600',
+    'Payment Overdue': 'text-red-600'
   };
   
   const canMarkAsPaid = status === 'Pending Payment' || status === 'Payment Overdue';
@@ -306,9 +306,22 @@ const ExpenseDisplay: React.FC<{ expense: Expense; onClose: () => void; onMarkAs
               </div>
               <div>
                 <p className="text-sm text-gray-500 mb-1">Status</p>
-                <span className={`inline-flex px-3 py-1 text-sm font-semibold rounded-full ${statusClasses[status as keyof typeof statusClasses] || 'bg-gray-100 text-gray-800'}`}>
-                  {status}
-                </span>
+                <div>
+                  {status === 'Paid' ? (
+                    <span className={`inline-flex px-3 py-1 text-sm font-semibold rounded-full ${statusClasses[status]}`}>
+                      {status}
+                    </span>
+                  ) : (
+                    <div>
+                      <span className={`text-sm font-semibold ${statusClasses[status]}`}>
+                        {status}
+                      </span>
+                      <div className="text-xs text-gray-500 mt-1">
+                        Balance: Ksh. {((expense as any).balance_due || expense.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -415,6 +428,14 @@ const ExpenseDisplay: React.FC<{ expense: Expense; onClose: () => void; onMarkAs
 
           {/* Action Buttons */}
           <div className="flex justify-end space-x-3 mt-8 pt-6 border-t border-gray-200">
+            {onEdit && (
+              <button
+                onClick={() => onEdit(expense)}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Edit Expense
+              </button>
+            )}
             {canMarkAsPaid && onMarkAsPaid && (
               <button
                 onClick={() => setShowMarkAsPaidPopup(true)}
@@ -432,7 +453,6 @@ const ExpenseDisplay: React.FC<{ expense: Expense; onClose: () => void; onMarkAs
           </div>
         </div>
       </div>
-      
       {showMarkAsPaidPopup && (
         <MarkAsPaidPopup
           expense={expense}
@@ -938,19 +958,25 @@ export const Expenses: React.FC = () => {
 
   // Handle edit expense
   const handleEditExpense = (expense: Expense) => {
+    // Close the display modal
+    setExpenseToDisplay(null);
+    
+    // Set the expense data to the form
     setSelectedExpense(expense);
-    setExpenseDate(expense.expense_date);
-    setAmount(expense.amount);
-    setAmountInput(expense.amount.toString());
     setPaymentStatus(expense.payment_status);
     setDueDate(expense.due_date || '');
     setDatePaid(expense.date_paid || '');
+    setExpenseDate(expense.expense_date);
+    setAmount(expense.amount);
+    setAmountInput(expense.amount.toString());
     setPaymentReferenceNo(expense.payment_reference_no || '');
     setNotes((expense as any).notes || '');
-    setSelectedCategoryId(expense.category_id);
+    setSelectedCategoryId(expense.category_id || undefined);
     setSelectedDescriptionId(expense.description_id || undefined);
     setSelectedVendorId(expense.vendor_id || undefined);
     setSelectedPaidThroughId(expense.paid_through_id || undefined);
+    
+    // Open the form
     setShowForm(true);
   };
 
@@ -1780,10 +1806,7 @@ export const Expenses: React.FC = () => {
                     Date
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Category
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Description
+                    Category / Description
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Amount
@@ -1805,13 +1828,13 @@ export const Expenses: React.FC = () => {
               <tbody className="bg-white divide-y divide-gray-200">
                 {loadingExpenses ? (
                   <tr>
-                    <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan={8} className="px-6 py-8 text-center text-gray-500">
                       Loading expenses...
                     </td>
                   </tr>
                 ) : expenses.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan={8} className="px-6 py-8 text-center text-gray-500">
                       No expenses found
                     </td>
                   </tr>
@@ -1820,8 +1843,8 @@ export const Expenses: React.FC = () => {
                   const status = getExpenseStatus(expense);
                   const statusClasses = {
                     'Paid': 'bg-green-100 text-green-800',
-                    'Pending Payment': 'bg-yellow-100 text-yellow-800',
-                    'Payment Overdue': 'bg-red-100 text-red-800'
+                    'Pending Payment': 'text-yellow-600',
+                    'Payment Overdue': 'text-red-600'
                   };
                   const isHovered = hoveredRow === expense.id;
                   const isSelected = selectedExpenses.has(expense.id);
@@ -1868,13 +1891,11 @@ export const Expenses: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-                          {expense.category_name || 'N/A'}
-                      </span>
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900">{expense.category_name || 'N/A'}</div>
+                        <div className="text-sm text-gray-500">{expense.description_name || 'N/A'}</div>
+                      </div>
                     </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {expense.description_name || 'N/A'}
-                      </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-red-600">Ksh. {expense.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                     </td>
@@ -1885,9 +1906,20 @@ export const Expenses: React.FC = () => {
                         {expense.vendor_name || 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${statusClasses[status as keyof typeof statusClasses] || 'bg-gray-100 text-gray-800'}`}>
-                          {status}
-                        </span>
+                        {status === 'Paid' ? (
+                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${statusClasses[status]}`}>
+                            {status}
+                          </span>
+                        ) : (
+                          <div>
+                            <span className={`text-xs font-semibold ${statusClasses[status]}`}>
+                              {status}
+                            </span>
+                            <div className="text-xs text-gray-500 mt-1">
+                              Balance: Ksh. {((expense as any).balance_due || expense.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                          </div>
+                        )}
                     </td>
                       <td 
                         className="px-6 py-4 whitespace-nowrap text-sm font-medium"
@@ -1917,6 +1949,7 @@ export const Expenses: React.FC = () => {
             paidThroughOptions={paidThroughOptions}
             onClose={() => setExpenseToDisplay(null)}
             onMarkAsPaid={handleMarkAsPaid}
+            onEdit={handleEditExpense}
           />
         )}
 

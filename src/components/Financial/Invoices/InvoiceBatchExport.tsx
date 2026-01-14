@@ -222,6 +222,9 @@ export const InvoiceBatchExport: React.FC<InvoiceBatchExportProps> = ({ onClose 
                 invoiceDate: headerData.invoice_date,
                 dueDate: headerData.due_date,
                 status: headerData.status,
+                withdrawn: headerData.withdrawn || false, // Include withdrawn field
+                bad_debt: headerData.bad_debt || false, // Include bad_debt field
+                payment_plan: headerData.payment_plan || 'none', // Include payment_plan field
                 billToName: headerData.name,
                 billToDescription: headerData.description || 'N/A',
                 slogan: 'Excellence in Education',

@@ -38,6 +38,9 @@ export interface InvoiceData {
   invoiceDate: string;
   dueDate: string;
   status: 'Overdue' | 'Paid' | 'Draft' | 'Pending' | 'Forwarded';
+  withdrawn: boolean; // indicates if invoice is withdrawn
+  bad_debt: boolean; // indicates if invoice is bad debt
+  payment_plan: 'none' | 'on track' | 'off track'; // payment plan status
   billToName: string;
   billToDescription: string;
   slogan: string;
@@ -181,12 +184,32 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
     return <div className="p-10 text-center text-gray-600">Loading updated financial details...</div>;
   }
   
-  // --- Rendering Logic (No Change) ---
-
+  // --- Rendering Logic (Updated) ---
+  
+  // Priority: Bad Debt > Withdrawn > Payment Plan > Normal Status
+  let displayStatus: string;
+  if (data.bad_debt) {
+    displayStatus = 'Bad Debt';
+  } else if (data.withdrawn) {
+    displayStatus = 'Withdrawn';
+  } else if (data.payment_plan !== 'none') {
+    displayStatus = data.payment_plan === 'on track' ? 'Payment Plan On Track' : 'Payment Plan Off Track';
+  } else {
+    displayStatus = status;
+  }
+  
   const statusColor =
-    status === 'Overdue'
+    displayStatus === 'Bad Debt'
       ? 'text-red-600'
-      : status === 'Paid'
+      : displayStatus === 'Withdrawn'
+      ? 'text-orange-600'
+      : displayStatus === 'Payment Plan On Track'
+      ? 'text-blue-600'
+      : displayStatus === 'Payment Plan Off Track'
+      ? 'text-orange-600'
+      : displayStatus === 'Overdue'
+      ? 'text-red-600'
+      : displayStatus === 'Paid'
       ? 'text-green-600'
       : 'text-gray-600';
 
@@ -322,7 +345,7 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
                 </div>
                 <div className="flex justify-end gap-4">
                   <span className="font-medium text-right" style={{ display: 'inline-block', width: '100px' }}>Status:</span>
-                  <span className={`font-bold ${statusColor} text-left`}>{status}</span>
+                  <span className={`font-bold ${statusColor} text-left`}>{displayStatus}</span>
                 </div>
               </div>
             </div>

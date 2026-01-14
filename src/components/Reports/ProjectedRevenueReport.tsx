@@ -28,11 +28,21 @@ interface LineItemAggregate {
   invoiceCount: number;
 }
 
+interface ItemNameSummary {
+  itemName: string;
+  totalQuantity: number;
+  totalAmount: number;
+  invoiceCount: number;
+  descriptionCount: number;
+}
+
 interface PageData {
   records: LineItemAggregate[];
   pageNumber: number;
   totalPages: number;
   showSummary: boolean;
+  isHighLevelSummary?: boolean;
+  summaryData?: ItemNameSummary[];
 }
 
 export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ onClose }) => {
@@ -41,6 +51,7 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
   const [dateTo, setDateTo] = useState<string>('');
   const [selectedClass, setSelectedClass] = useState<string>('all');
   const [lineItems, setLineItems] = useState<LineItemAggregate[]>([]);
+  const [summaryData, setSummaryData] = useState<ItemNameSummary[]>([]);
   const [classes, setClasses] = useState<{ id: number; name: string }[]>([]);
   const [itemMaster, setItemMaster] = useState<ItemMaster[]>([]);
   const [loading, setLoading] = useState(false);
@@ -79,12 +90,112 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
   }, [measuredHeights]);
 
   // Split records into pages using actual row height measurement
-  const splitIntoPages = useCallback((items: LineItemAggregate[]): PageData[] => {
-    if (items.length === 0) return [];
+  const splitIntoPages = useCallback((items: LineItemAggregate[], summary: ItemNameSummary[]): PageData[] => {
+    if (items.length === 0 && summary.length === 0) return [];
     
     const pages: PageData[] = [];
+    
+    // First, paginate the high-level summary if it exists
+    if (summary.length > 0) {
+      let currentPageSummary: ItemNameSummary[] = [];
+      let currentPageNumber = 1;
+      let currentCumulativeHeight = 0;
+      
+      const availableHeightWithoutSummary = calculateAvailableContentHeight(false);
+      const availableHeightWithSummary = calculateAvailableContentHeight(true);
+      const summaryHeight = measuredHeights?.summaryHeight || SUMMARY_HEIGHT;
+      
+      for (let i = 0; i < summary.length; i++) {
+        const item = summary[i];
+        const isLastRecord = i === summary.length - 1;
+        
+        // Use standard row height for summary items
+        const actualRowHeight = ROW_HEIGHT;
+        const newCumulativeHeight = currentCumulativeHeight + actualRowHeight;
+        
+        if (isLastRecord) {
+          // This is the last summary record - need to decide if summary cards fit
+          const wouldFitWithSummary = (newCumulativeHeight + summaryHeight) <= availableHeightWithSummary;
+          
+          if (wouldFitWithSummary) {
+            // Add record and summary cards to current page
+            currentPageSummary.push(item);
+            pages.push({
+              records: [],
+              pageNumber: currentPageNumber,
+              totalPages: 0,
+              showSummary: true,
+              isHighLevelSummary: true,
+              summaryData: [...currentPageSummary]
+            });
+          } else {
+            // Check if record alone fits on current page
+            if (newCumulativeHeight <= availableHeightWithoutSummary) {
+              // Add record to current page, summary cards go to next
+              currentPageSummary.push(item);
+              pages.push({
+                records: [],
+                pageNumber: currentPageNumber,
+                totalPages: 0,
+                showSummary: false,
+                isHighLevelSummary: true,
+                summaryData: [...currentPageSummary]
+              });
+              // Add summary cards-only page
+              pages.push({
+                records: [],
+                pageNumber: currentPageNumber + 1,
+                totalPages: 0,
+                showSummary: true,
+                isHighLevelSummary: true,
+                summaryData: []
+              });
+            } else {
+              // Current page is full, save it and start new page with record and summary cards
+              pages.push({
+                records: [],
+                pageNumber: currentPageNumber,
+                totalPages: 0,
+                showSummary: false,
+                isHighLevelSummary: true,
+                summaryData: [...currentPageSummary]
+              });
+              pages.push({
+                records: [],
+                pageNumber: currentPageNumber + 1,
+                totalPages: 0,
+                showSummary: true,
+                isHighLevelSummary: true,
+                summaryData: [item]
+              });
+            }
+          }
+        } else {
+          // Not the last record - check if adding this record would exceed page limit
+          if (newCumulativeHeight > availableHeightWithoutSummary) {
+            // Current page is full, save it and start new page
+            pages.push({
+              records: [],
+              pageNumber: currentPageNumber,
+              totalPages: 0,
+              showSummary: false,
+              isHighLevelSummary: true,
+              summaryData: [...currentPageSummary]
+            });
+            currentPageSummary = [item];
+            currentCumulativeHeight = actualRowHeight;
+            currentPageNumber++;
+          } else {
+            currentPageSummary.push(item);
+            currentCumulativeHeight = newCumulativeHeight;
+          }
+        }
+      }
+    }
+    
+    // Then process the detailed items
     let currentPageRecords: LineItemAggregate[] = [];
-    let currentPageNumber = 1;
+    let currentPageNumber = pages.length + 1;
     let currentCumulativeHeight = 0;
     
     const availableHeightWithoutSummary = calculateAvailableContentHeight(false);
@@ -266,13 +377,13 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
 
   useEffect(() => {
     if (lineItems.length > 0) {
-      const splitPages = splitIntoPages(lineItems);
+      const splitPages = splitIntoPages(lineItems, summaryData);
       setPages(splitPages);
       pageRefs.current = new Array(splitPages.length).fill(null);
     } else {
       setPages([]);
     }
-  }, [lineItems, splitIntoPages, measuredHeights]);
+  }, [lineItems, summaryData, splitIntoPages, measuredHeights]);
 
   // Measure actual heights after rendering from the first rendered page
   useEffect(() => {
@@ -351,6 +462,33 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
     
     return matchingItem ? (matchingItem.sort_order || 999) : 999; // Put unknown items last
   }, [itemMaster]);
+
+  // Helper function to group items by name (case-insensitive)
+  const groupByItemName = useCallback((items: LineItemAggregate[]): ItemNameSummary[] => {
+    const grouped: { [key: string]: ItemNameSummary } = {};
+    
+    items.forEach(item => {
+      const normalizedName = item.itemName.toLowerCase().trim();
+      
+      if (!grouped[normalizedName]) {
+        grouped[normalizedName] = {
+          itemName: item.itemName, // Keep original casing for display
+          totalQuantity: 0,
+          totalAmount: 0,
+          invoiceCount: 0,
+          descriptionCount: 0
+        };
+      }
+      
+      grouped[normalizedName].totalQuantity += item.totalQuantity;
+      grouped[normalizedName].totalAmount += item.totalAmount;
+      grouped[normalizedName].invoiceCount += item.invoiceCount;
+      grouped[normalizedName].descriptionCount += 1;
+    });
+    
+    // Sort by total amount descending
+    return Object.values(grouped).sort((a, b) => b.totalAmount - a.totalAmount);
+  }, []);
 
   const handleClose = () => {
     setShowPreview(false);
@@ -431,15 +569,32 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
       });
 
       // Sort by sort_order from item_master, then by total amount descending
+      // Items not found in item_master (sort_order = 999) go to the end
       const sortedItems = Object.values(aggregated).sort((a, b) => {
         const sortOrderA = getSortOrderForItem(a.itemName, a.description);
         const sortOrderB = getSortOrderForItem(b.itemName, b.description);
+        
+        // Check if items were found in item_master (sort_order < 999)
+        const foundA = sortOrderA < 999;
+        const foundB = sortOrderB < 999;
+        
+        // Found items come first, missing items go to end
+        if (foundA && !foundB) return -1; // A found, B missing → A first
+        if (!foundA && foundB) return 1;  // A missing, B found → B first
+        
+        // Both found or both missing - sort by sort_order
         if (sortOrderA !== sortOrderB) return sortOrderA - sortOrderB;
+        
         // If same sort_order, sort by total amount descending
         return b.totalAmount - a.totalAmount;
       });
       
       setLineItems(sortedItems);
+      
+      // Create high-level summary data
+      const summary = groupByItemName(sortedItems);
+      setSummaryData(summary);
+      
       setShowPreview(true);
       setShowConfigPopup(false);
     } catch (error) {
@@ -524,6 +679,16 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
     const totalQuantity = lineItems.reduce((sum, item) => sum + item.totalQuantity, 0);
     
     return { totalRevenue, totalItems, totalQuantity };
+  };
+
+  // Get high-level summary statistics
+  const getHighLevelSummaryStats = () => {
+    const totalRevenue = summaryData.reduce((sum, item) => sum + item.totalAmount, 0);
+    const totalItems = summaryData.length;
+    const totalQuantity = summaryData.reduce((sum, item) => sum + item.totalQuantity, 0);
+    const totalVariations = summaryData.reduce((sum, item) => sum + item.descriptionCount, 0);
+    
+    return { totalRevenue, totalItems, totalQuantity, totalVariations };
   };
 
   if (showConfigPopup) {
@@ -756,7 +921,38 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
 
                     {/* Line Items Table */}
                     <div className="flex-1 overflow-hidden">
-                      {pageData.records.length > 0 ? (
+                      {pageData.isHighLevelSummary && pageData.summaryData ? (
+                        // High-level summary page
+                        <div className="overflow-x-auto">
+                          <table className="w-full border-collapse">
+                            <thead>
+                              <tr className="bg-gray-50 border-b-2 border-gray-200">
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '5%' }}>#</th>
+                                <th className="text-left p-3 text-sm font-semibold text-gray-700">Item Name</th>
+                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '12%' }}>Qty</th>
+                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '15%' }}>Invoices</th>
+                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '15%' }}>Variations</th>
+                                <th className="text-right p-3 text-sm font-semibold text-gray-700" style={{ width: '20%' }}>Total Amount (Ksh)</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {pageData.summaryData.map((item, index) => (
+                                <tr key={item.itemName} className={`border-b border-gray-100 ${index % 2 === 0 ? 'bg-white' : ''}`} style={index % 2 === 1 ? { backgroundColor: '#fcfcfd' } : {}}>
+                                  <td className="p-3 text-sm text-gray-600">{index + 1}</td>
+                                  <td className="p-3 text-sm text-gray-900">
+                                    <p className="font-medium">{item.itemName}</p>
+                                  </td>
+                                  <td className="p-3 text-sm text-gray-600 text-right">{item.totalQuantity.toLocaleString()}</td>
+                                  <td className="p-3 text-sm text-gray-600 text-right">{item.invoiceCount.toLocaleString()}</td>
+                                  <td className="p-3 text-sm text-gray-600 text-right">{item.descriptionCount}</td>
+                                  <td className="p-3 text-sm text-right font-medium text-green-600">{formatCurrency(item.totalAmount)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : pageData.records.length > 0 ? (
+                        // Detailed items page
                         <div className="overflow-x-auto">
                           <table className="w-full border-collapse">
                             <thead>
@@ -791,19 +987,44 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
 
                     {/* Summary Cards */}
                     {pageData.showSummary && (
-                      <div className="mt-8 grid grid-cols-3 gap-4 flex-shrink-0">
-                        <div className="bg-gray-50 p-4 rounded-lg">
-                          <p className="text-sm text-gray-600 mb-1">Total Revenue Items</p>
-                          <p className="text-2xl font-semibold text-gray-900">{stats.totalItems}</p>
-                        </div>
-                        <div className="bg-gray-50 p-4 rounded-lg">
-                          <p className="text-sm text-gray-600 mb-1">Total Quantity</p>
-                          <p className="text-2xl font-semibold text-blue-600">{stats.totalQuantity.toLocaleString()}</p>
-                        </div>
-                        <div className="bg-gray-50 p-4 rounded-lg">
-                          <p className="text-sm text-gray-600 mb-1">Total Projected Revenue</p>
-                          <p className="text-2xl font-semibold text-green-600">Ksh. {formatCurrency(stats.totalRevenue)}</p>
-                        </div>
+                      <div className={`mt-8 grid gap-4 flex-shrink-0 ${pageData.isHighLevelSummary ? 'grid-cols-4' : 'grid-cols-3'}`}>
+                        {pageData.isHighLevelSummary ? (
+                          // High-level summary cards
+                          <>
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                              <p className="text-sm text-gray-600 mb-1">Item Categories</p>
+                              <p className="text-2xl font-semibold text-gray-900">{getHighLevelSummaryStats().totalItems}</p>
+                            </div>
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                              <p className="text-sm text-gray-600 mb-1">Total Quantity</p>
+                              <p className="text-2xl font-semibold text-blue-600">{getHighLevelSummaryStats().totalQuantity.toLocaleString()}</p>
+                            </div>
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                              <p className="text-sm text-gray-600 mb-1">Total Variations</p>
+                              <p className="text-2xl font-semibold text-purple-600">{getHighLevelSummaryStats().totalVariations.toLocaleString()}</p>
+                            </div>
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                              <p className="text-sm text-gray-600 mb-1">Total Projected Revenue</p>
+                              <p className="text-2xl font-semibold text-green-600">Ksh. {formatCurrency(getHighLevelSummaryStats().totalRevenue)}</p>
+                            </div>
+                          </>
+                        ) : (
+                          // Detailed summary cards
+                          <>
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                              <p className="text-sm text-gray-600 mb-1">Total Revenue Items</p>
+                              <p className="text-2xl font-semibold text-gray-900">{stats.totalItems}</p>
+                            </div>
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                              <p className="text-sm text-gray-600 mb-1">Total Quantity</p>
+                              <p className="text-2xl font-semibold text-blue-600">{stats.totalQuantity.toLocaleString()}</p>
+                            </div>
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                              <p className="text-sm text-gray-600 mb-1">Total Projected Revenue</p>
+                              <p className="text-2xl font-semibold text-green-600">Ksh. {formatCurrency(stats.totalRevenue)}</p>
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
 

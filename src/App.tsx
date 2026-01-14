@@ -1,8 +1,7 @@
 // src/App.tsx
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Login } from './components/Login';
 import { ParentDashboard } from './components/Parent/ParentDashboard';
-import { ParentHomework } from './components/Parent/ParentHomework';
 import { Sidebar } from './components/Layout/Sidebar';
 import { Header } from './components/Layout/Header';
 import { IconSidebar } from './components/Layout/IconSidebar';
@@ -10,7 +9,6 @@ import { Dashboard } from './components/Dashboard';
 import { Boarding } from './components/Boarding';
 import { Transport } from './components/Transport';
 import { Leads } from './components/Leads';
-import { FinancialHome } from './components/Financial/FinancialHome';
 import { FeeStructure } from './components/Financial/FeeStructure';
 import { Masterlist } from './components/Students/masterlist';
 import { Assessments } from './components/Students/Assessments';
@@ -18,7 +16,8 @@ import { Behaviour } from './components/Students/Behaviour';
 import { Attendance } from './components/Students/Attendance';
 import { MedicalContainer } from './components/Students/Medical/MedicalContainer';
 import { Homework } from './components/Students/Homework';
-import { Invoices } from './components/Financial/Invoices'; // ✅ Works with index.tsx
+import { Invoices } from './components/Financial/Invoices'; // Works with index.tsx
+import { PaymentPlansContainer } from './components/Financial/PaymentPlans/PaymentPlansContainer';
 import { PaymentsReceived } from './components/Financial/PaymentsReceived';
 import { Expenses } from './components/Financial/Expenses';
 import { InventoryList } from './components/Inventory/InventoryList';
@@ -51,9 +50,9 @@ interface UserInfo {
   type: 'admin' | 'parent';
   role?: string | null;
   selectedModules?: any; // Parsed selected_modules from database
-  username?: string | null;
-  description?: string | null;
-  reportAccess?: string[]; // Parsed report_access from database
+  username?: string | null | undefined;
+  description?: string | null | undefined;
+  reportAccess?: string[] | null; // Parsed report_access from database
 }
 
 function App() {
@@ -491,8 +490,8 @@ function App() {
           userEmail={user?.email || 'User'}
           userRole={user?.role || 'User'}
           selectedModules={user?.selectedModules || null}
-          username={user?.username || null}
-          description={user?.description || null}
+          username={user?.username || undefined}
+          description={user?.description || undefined}
         />
       );
     }
@@ -505,8 +504,8 @@ function App() {
           userEmail={user?.email || 'User'}
           userRole={user?.role || 'User'}
           selectedModules={user?.selectedModules || null}
-          username={user?.username || null}
-          description={user?.description || null}
+          username={user?.username || undefined}
+          description={user?.description || undefined}
         />
       );
       case 'boarding': return <Boarding />;
@@ -519,6 +518,7 @@ function App() {
       case 'medical': return <MedicalContainer />;
       case 'homework': return <Homework />;
       case 'invoices': return <Invoices />; // ✅ Fixed to work with index.tsx
+      case 'payment-plans': return <PaymentPlansContainer />;
       case 'fee-structure': return <FeeStructure />;
       case 'payments': return <PaymentsReceived />;
       case 'expenses': return <Expenses />;
@@ -571,8 +571,8 @@ function App() {
               userEmail={user?.email || 'User'}
               userRole={user?.role || 'User'}
               selectedModules={user?.selectedModules || null}
-              username={user?.username || null}
-              description={user?.description || null}
+              username={user?.username || undefined}
+              description={user?.description || undefined}
             />
           );
         }

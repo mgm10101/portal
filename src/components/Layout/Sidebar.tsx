@@ -54,6 +54,7 @@ import {
   Shield,
   HeartPulse
 } from 'lucide-react';
+import { PaymentPlanIcon } from '../Icons/PaymentPlanIcon';
 
 interface SidebarProps {
   activeSection: string;
@@ -181,6 +182,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange
       icon: Wallet,
       children: [
         { id: 'invoices', label: 'Invoices', icon: DollarSign },
+        { id: 'payment-plans', label: 'Payment Plans', icon: CalendarClock },
         { id: 'fee-structure', label: 'Fee Structure', icon: FileText },
         { id: 'payments', label: 'Received', icon: Receipt },
         { id: 'expenses', label: 'Expenses', icon: TrendingDown },

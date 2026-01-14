@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Plus, Search, Filter, Edit, Trash2, Download, Check, X, ChevronDown, RotateCcw, Loader2, Calendar, TrendingUp, TrendingDown, AlertCircle, CalendarDays, BarChart3 } from 'lucide-react';
+import { Plus, Search, Filter, Edit, Trash2, Download, Check, X, ChevronDown, RotateCcw, Loader2, Calendar, TrendingUp, TrendingDown, AlertCircle, CalendarDays, BarChart3, Wallet } from 'lucide-react';
 import { 
-  fetchInvoices, 
   fetchStudents,
   fetchPayments,
   fetchPaymentMethods,
@@ -311,9 +310,7 @@ export const PaymentsReceived: React.FC = () => {
   const [accountSearchTerm, setAccountSearchTerm] = useState('');
   const accountDropdownRef = useRef<HTMLDivElement>(null);
   
-  // Outstanding fees calculation
-  const [outstandingFees, setOutstandingFees] = useState<number>(0);
-  
+    
   // Student search state
   const [allStudents, setAllStudents] = useState<StudentInfo[]>([]);
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
@@ -338,6 +335,11 @@ export const PaymentsReceived: React.FC = () => {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [studentInvoices, setStudentInvoices] = useState<InvoiceHeader[]>([]);
+  
+  // Total received calculation
+  const totalReceived = useMemo(() => {
+    return payments.reduce((sum, payment) => sum + payment.amount, 0);
+  }, [payments]);
   const [loadingPayments, setLoadingPayments] = useState(true);
   const [loadingPaymentMethods, setLoadingPaymentMethods] = useState(true);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
@@ -561,14 +563,6 @@ export const PaymentsReceived: React.FC = () => {
       setReferenceNumber('');
       setNotes('');
       setPaymentDate(new Date().toISOString().split('T')[0]);
-
-      // Refresh outstanding fees
-      const invoices = await fetchInvoices();
-      const nonForwardedInvoices = invoices.filter(i => i.status !== 'Forwarded');
-      const outstanding = nonForwardedInvoices
-        .filter(i => i.status === 'Pending')
-        .reduce((sum, invoice) => sum + invoice.balanceDue, 0);
-      setOutstandingFees(outstanding);
     } catch (error) {
       console.error('Error submitting payment:', error);
       alert('Failed to save payment. Please try again.');
@@ -636,14 +630,6 @@ export const PaymentsReceived: React.FC = () => {
       // Refresh payments list
       const paymentsData = await fetchPayments();
       setPayments(paymentsData);
-
-      // Refresh outstanding fees
-      const invoices = await fetchInvoices();
-      const nonForwardedInvoices = invoices.filter(i => i.status !== 'Forwarded');
-      const outstanding = nonForwardedInvoices
-        .filter(i => i.status === 'Pending')
-        .reduce((sum, invoice) => sum + invoice.balanceDue, 0);
-      setOutstandingFees(outstanding);
     } catch (error) {
       console.error('Error deleting payment:', error);
       alert('Failed to delete payment. Please try again.');
@@ -693,14 +679,6 @@ export const PaymentsReceived: React.FC = () => {
       // Refresh payments list
       const paymentsData = await fetchPayments();
       setPayments(paymentsData);
-
-      // Refresh outstanding fees
-      const invoices = await fetchInvoices();
-      const nonForwardedInvoices = invoices.filter(i => i.status !== 'Forwarded');
-      const outstanding = nonForwardedInvoices
-        .filter(i => i.status === 'Pending')
-        .reduce((sum, invoice) => sum + invoice.balanceDue, 0);
-      setOutstandingFees(outstanding);
     } catch (error: any) {
       console.error('Error voiding payment(s):', error);
       alert(error.message || 'Failed to void payment(s). Please try again.');
@@ -825,25 +803,7 @@ export const PaymentsReceived: React.FC = () => {
   
   const canSubmit = overpayment >= 0;
 
-  // Fetch outstanding fees on mount
-  useEffect(() => {
-    const fetchOutstandingFees = async () => {
-      try {
-        const invoices = await fetchInvoices();
-        // Exclude Forwarded invoices and calculate Outstanding Fees (Pending invoices' balanceDue)
-        const nonForwardedInvoices = invoices.filter(i => i.status !== 'Forwarded');
-        const outstanding = nonForwardedInvoices
-          .filter(i => i.status === 'Pending')
-          .reduce((sum, invoice) => sum + invoice.balanceDue, 0);
-        setOutstandingFees(outstanding);
-      } catch (error) {
-        console.error('Error fetching outstanding fees:', error);
-        setOutstandingFees(0);
-      }
-    };
-    fetchOutstandingFees();
-  }, []);
-
+  
   // Fetch students on mount
   useEffect(() => {
     const loadStudents = async () => {
@@ -1243,11 +1203,11 @@ export const PaymentsReceived: React.FC = () => {
           </div>
           <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center">
-              <AlertCircle className="w-8 h-8 text-red-600 mr-3" />
+              <Wallet className="w-8 h-8 text-green-600 mr-3" />
               <div>
-                <div className="text-sm text-gray-600">Outstanding</div>
-                <div className="text-2xl font-bold text-red-600">
-                  Ksh. {outstandingFees.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <div className="text-sm text-gray-600">Total Received</div>
+                <div className="text-2xl font-bold text-green-600">
+                  Ksh. {totalReceived.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
               </div>
             </div>

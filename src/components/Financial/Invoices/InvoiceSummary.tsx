@@ -14,12 +14,29 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({ invoices }) => {
     // Exclude Forwarded invoices from all calculations
     const nonForwardedInvoices = invoices.filter(i => i.status !== 'Forwarded');
     
-    // Calculate Total Receivables as sum of all non-forwarded invoices' totalAmount
-    const totalReceivables = nonForwardedInvoices.reduce((sum, invoice) => sum + invoice.totalAmount, 0);
+    // Calculate Total Receivables:
+    // - Invoice Total (totalAmount) for Pending, Overdue, and Payment Plan invoices
+    // - Payment Made (paymentMade) for Bad Debt and Withdrawn invoices
+    const totalReceivables = nonForwardedInvoices.reduce((sum, invoice) => {
+        if (invoice.bad_debt || invoice.withdrawn) {
+            // For bad debt and withdrawn: include payment made amount
+            return sum + (invoice.paymentMade || 0);
+        } else {
+            // For active invoices: include invoice total for Pending, Overdue, and Payment Plan
+            if (invoice.status === 'Pending' || invoice.status === 'Overdue' || 
+                invoice.payment_plan === 'on track' || invoice.payment_plan === 'off track') {
+                return sum + invoice.totalAmount;
+            }
+        }
+        return sum;
+    }, 0);
     
-    // Calculate Outstanding Fees (formerly Pending) - sum of balanceDue for Pending invoices (excluding Forwarded)
+    // Calculate Outstanding Fees - sum of balanceDue for Overdue, Pending, and Payment Plan invoices
+    // EXCLUDING bad debt and withdrawn invoices
     const outstandingFees = nonForwardedInvoices
-        .filter(i => i.status === 'Pending')
+        .filter(i => (i.status === 'Pending' || i.status === 'Overdue' || 
+                     i.payment_plan === 'on track' || i.payment_plan === 'off track') 
+                     && !i.bad_debt && !i.withdrawn)
         .reduce((sum, invoice) => sum + invoice.balanceDue, 0);
     
     // Calculate Paid as the total amount already paid across all non-forwarded invoices.
@@ -29,9 +46,9 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({ invoices }) => {
         return sum + paidPortion;
     }, 0);
     
-    // Calculate Overdue - sum of balanceDue for Overdue invoices (excluding Forwarded)
-    const overdueTotal = nonForwardedInvoices
-        .filter(i => i.status === 'Overdue')
+    // Calculate Bad Debt - sum of outstanding balances (balanceDue) for bad debt invoices
+    const badDebtTotal = nonForwardedInvoices
+        .filter(i => i.bad_debt)
         .reduce((sum, invoice) => sum + invoice.balanceDue, 0);
 
     // Format currency helper - returns just the formatted number
@@ -55,7 +72,7 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({ invoices }) => {
         console.log('[InvoiceSummary] Totals', {
             totalReceivables,
             outstandingFees,
-            overdueTotal,
+            badDebtTotal,
             paidTotal,
             statusTotals,
             mismatchCount: mismatch.length,
@@ -99,8 +116,8 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({ invoices }) => {
                 <div className="flex items-center">
                     <AlertCircle className="w-8 h-8 text-red-600 mr-3" />
                     <div>
-                        <div className="text-sm text-gray-600">Overdue</div>
-                        <div className="text-2xl font-bold text-red-600">Ksh {formatCurrency(overdueTotal)}</div>
+                        <div className="text-sm text-gray-600">Bad Debt</div>
+                        <div className="text-2xl font-bold text-red-600">Ksh {formatCurrency(badDebtTotal)}</div>
                     </div>
                 </div>
             </div>
