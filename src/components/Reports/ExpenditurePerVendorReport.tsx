@@ -251,9 +251,9 @@ export const ExpenditurePerVendorReport: React.FC<ExpenditurePerVendorReportProp
     }
   }, [vendors, splitIntoPages, measuredHeights]);
 
-  // Measure actual heights after rendering from the first rendered page
+  // Measure actual heights after rendering from the first rendered page (only once)
   useEffect(() => {
-    if (!showPreview || vendors.length === 0 || pages.length === 0) return;
+    if (!showPreview || vendors.length === 0 || pages.length === 0 || measuredHeights !== null) return;
 
     const measureHeights = () => {
       const firstPageElement = pageRefs.current[0];
@@ -313,7 +313,7 @@ export const ExpenditurePerVendorReport: React.FC<ExpenditurePerVendorReportProp
 
     const timeoutId = setTimeout(measureHeights, 300);
     return () => clearTimeout(timeoutId);
-  }, [showPreview, vendors, pages.length]);
+  }, [showPreview, vendors.length]); // Remove pages.length from dependencies
 
   const handleClose = () => {
     setShowPreview(false);

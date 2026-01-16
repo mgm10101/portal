@@ -15,29 +15,31 @@ export const InvoiceSummary: React.FC<InvoiceSummaryProps> = ({ invoices }) => {
     const nonForwardedInvoices = invoices.filter(i => i.status !== 'Forwarded');
     
     // Calculate Total Receivables:
-    // - Invoice Total (totalAmount) for Pending, Overdue, and Payment Plan invoices
-    // - Payment Made (paymentMade) for Bad Debt and Withdrawn invoices
+    // - All invoice totals (totalAmount) 
+    // - Minus balance due for bad debt and withdrawn invoices (uncollectible portion)
     const totalReceivables = nonForwardedInvoices.reduce((sum, invoice) => {
+        let receivableAmount = invoice.totalAmount || 0;
+        
+        // Subtract uncollectible balances for bad debt and withdrawn invoices
         if (invoice.bad_debt || invoice.withdrawn) {
-            // For bad debt and withdrawn: include payment made amount
-            return sum + (invoice.paymentMade || 0);
-        } else {
-            // For active invoices: include invoice total for Pending, Overdue, and Payment Plan
-            if (invoice.status === 'Pending' || invoice.status === 'Overdue' || 
-                invoice.payment_plan === 'on track' || invoice.payment_plan === 'off track') {
-                return sum + invoice.totalAmount;
-            }
+            receivableAmount -= (invoice.balanceDue || 0);
         }
-        return sum;
+        
+        return sum + receivableAmount;
     }, 0);
     
-    // Calculate Outstanding Fees - sum of balanceDue for Overdue, Pending, and Payment Plan invoices
-    // EXCLUDING bad debt and withdrawn invoices
-    const outstandingFees = nonForwardedInvoices
-        .filter(i => (i.status === 'Pending' || i.status === 'Overdue' || 
-                     i.payment_plan === 'on track' || i.payment_plan === 'off track') 
-                     && !i.bad_debt && !i.withdrawn)
-        .reduce((sum, invoice) => sum + invoice.balanceDue, 0);
+    // Calculate Outstanding Fees - sum of balanceDue for ALL invoices
+    // Minus balance due for bad debt and withdrawn invoices (uncollectible portion)
+    const outstandingFees = nonForwardedInvoices.reduce((sum, invoice) => {
+        let outstandingAmount = invoice.balanceDue || 0;
+        
+        // Subtract uncollectible balances for bad debt and withdrawn invoices
+        if (invoice.bad_debt || invoice.withdrawn) {
+            outstandingAmount -= (invoice.balanceDue || 0); // This becomes 0 for bad debt/withdrawn
+        }
+        
+        return sum + outstandingAmount;
+    }, 0);
     
     // Calculate Paid as the total amount already paid across all non-forwarded invoices.
     // NOTE: Using paymentMade is more reliable than deriving from balanceDue, in case balanceDue is stale.

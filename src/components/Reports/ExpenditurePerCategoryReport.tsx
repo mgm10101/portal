@@ -250,9 +250,9 @@ export const ExpenditurePerCategoryReport: React.FC<ExpenditurePerCategoryReport
     }
   }, [categories, splitIntoPages, measuredHeights]);
 
-  // Measure actual heights after rendering from the first rendered page
+  // Measure actual heights after rendering from the first rendered page (only once)
   useEffect(() => {
-    if (!showPreview || categories.length === 0 || pages.length === 0) return;
+    if (!showPreview || categories.length === 0 || pages.length === 0 || measuredHeights !== null) return;
 
     const measureHeights = () => {
       const firstPageElement = pageRefs.current[0];
@@ -312,7 +312,7 @@ export const ExpenditurePerCategoryReport: React.FC<ExpenditurePerCategoryReport
 
     const timeoutId = setTimeout(measureHeights, 300);
     return () => clearTimeout(timeoutId);
-  }, [showPreview, categories, pages.length]);
+  }, [showPreview, categories.length]); // Remove pages.length from dependencies
 
   const handleClose = () => {
     setShowPreview(false);

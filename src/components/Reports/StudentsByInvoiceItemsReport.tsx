@@ -103,7 +103,6 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
     
     for (let i = 0; i < records.length; i++) {
       const record = records[i];
-      const isLastRecord = i === records.length - 1;
       
       // Get actual height for this specific row
       let actualRowHeight = ROW_HEIGHT;
@@ -126,72 +125,44 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
         wouldExceed: newCumulativeHeight > availableHeightWithoutSummary
       });
       
-      if (isLastRecord) {
-        const wouldFitWithSummary = (newCumulativeHeight + summaryHeight) <= availableHeightWithSummary;
-        
-        if (wouldFitWithSummary) {
-          currentPageRecords.push(record);
-          pages.push({
-            records: [...currentPageRecords],
-            pageNumber: currentPageNumber,
-            totalPages: 0,
-            showSummary: true
-          });
-        } else {
-          if (newCumulativeHeight <= availableHeightWithoutSummary) {
-            currentPageRecords.push(record);
-            pages.push({
-              records: [...currentPageRecords],
-              pageNumber: currentPageNumber,
-              totalPages: 0,
-              showSummary: false
-            });
-            pages.push({
-              records: [],
-              pageNumber: currentPageNumber + 1,
-              totalPages: 0,
-              showSummary: true
-            });
-          } else {
-            pages.push({
-              records: [...currentPageRecords],
-              pageNumber: currentPageNumber,
-              totalPages: 0,
-              showSummary: false
-            });
-            pages.push({
-              records: [record],
-              pageNumber: currentPageNumber + 1,
-              totalPages: 0,
-              showSummary: true
-            });
-          }
-        }
+      // Check if adding this record would exceed the page limit
+      if (newCumulativeHeight > availableHeightWithoutSummary) {
+        // Current page is full, save it and start new page
+        pages.push({
+          records: [...currentPageRecords],
+          pageNumber: currentPageNumber,
+          totalPages: 0,
+          showSummary: false
+        });
+        currentPageRecords = [record];
+        currentCumulativeHeight = actualRowHeight;
+        currentPageNumber++;
       } else {
-        if (newCumulativeHeight > availableHeightWithoutSummary) {
-          pages.push({
-            records: [...currentPageRecords],
-            pageNumber: currentPageNumber,
-            totalPages: 0,
-            showSummary: false
-          });
-          currentPageRecords = [record];
-          currentCumulativeHeight = actualRowHeight;
-          currentPageNumber++;
-        } else {
-          currentPageRecords.push(record);
-          currentCumulativeHeight = newCumulativeHeight;
-        }
+        currentPageRecords.push(record);
+        currentCumulativeHeight = newCumulativeHeight;
       }
     }
     
-    if (currentPageRecords.length > 0 && pages.length === 0) {
+    // Handle the last page with remaining records
+    if (currentPageRecords.length > 0) {
+      const wouldFitWithSummary = (currentCumulativeHeight + summaryHeight) <= availableHeightWithSummary;
+      
       pages.push({
         records: [...currentPageRecords],
-        pageNumber: 1,
-        totalPages: 1,
-        showSummary: true
+        pageNumber: currentPageNumber,
+        totalPages: 0,
+        showSummary: wouldFitWithSummary
       });
+      
+      // If summary doesn't fit, add a separate summary page
+      if (!wouldFitWithSummary) {
+        pages.push({
+          records: [],
+          pageNumber: currentPageNumber + 1,
+          totalPages: 0,
+          showSummary: true
+        });
+      }
     }
     
     const totalPages = pages.length;
@@ -349,9 +320,9 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
     console.log('Current selectedItem:', selectedItem);
   }, [items, selectedItem]);
 
-  // Measure actual heights after rendering from the first rendered page
+  // Measure actual heights after rendering from the first rendered page (only once)
   useEffect(() => {
-    if (!showPreview || students.length === 0 || pages.length === 0) return;
+    if (!showPreview || students.length === 0 || pages.length === 0 || measuredHeights !== null) return;
 
     const measureHeights = () => {
       const firstPageElement = pageRefs.current[0];
@@ -398,33 +369,21 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
       const summaryElement = firstPageElement.querySelector('.grid.grid-cols-3.gap-4') as HTMLElement;
       const summaryHeight = summaryElement ? summaryElement.offsetHeight : SUMMARY_HEIGHT;
 
-      setMeasuredHeights(prev => {
-        const newHeights = {
-          headerHeight,
-          footerHeight,
-          summaryHeight,
-          tableHeaderHeight,
-          rowHeights,
-          maxRowHeight,
-          avgRowHeight
-        };
-        
-        if (!prev || 
-            prev.headerHeight !== headerHeight ||
-            prev.footerHeight !== footerHeight ||
-            prev.summaryHeight !== summaryHeight ||
-            prev.tableHeaderHeight !== tableHeaderHeight ||
-            prev.rowHeights.length !== rowHeights.length ||
-            prev.maxRowHeight !== maxRowHeight) {
-          return newHeights;
-        }
-        return prev;
+      // Only set heights once to prevent infinite loop
+      setMeasuredHeights({
+        headerHeight,
+        footerHeight,
+        summaryHeight,
+        tableHeaderHeight,
+        rowHeights,
+        maxRowHeight,
+        avgRowHeight
       });
     };
 
     const timeoutId = setTimeout(measureHeights, 300);
     return () => clearTimeout(timeoutId);
-  }, [showPreview, students, pages.length, calculateAvailableContentHeight]);
+  }, [showPreview, students.length]); // Remove pages.length from dependencies
 
   // Update pages when students or measuredHeights changes
   useEffect(() => {
@@ -457,6 +416,7 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
     setLoading(true);
     try {
       // First fetch invoices with students
+      // Use exclusion-based filtering: Get ALL invoices, then exclude specific types
       let invoiceQuery = supabase
         .from('invoices')
         .select(`
@@ -469,7 +429,10 @@ export const StudentsByInvoiceItemsReport: React.FC<StudentsByInvoiceItemsReport
         `)
         .gte('invoice_date', dateFrom)
         .lte('invoice_date', dateTo)
-        .neq('status', 'Voided');
+        .neq('status', 'Voided')      // Exclude voided invoices
+        .neq('status', 'Forwarded')    // Exclude forwarded invoices
+        .neq('withdrawn', true)         // Exclude withdrawn invoices
+        .neq('bad_debt', true);        // Exclude bad debt invoices
 
       const { data: invoicesData, error: invoicesError } = await invoiceQuery;
       if (invoicesError) throw invoicesError;

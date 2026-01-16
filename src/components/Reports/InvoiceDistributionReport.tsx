@@ -241,9 +241,9 @@ export const InvoiceDistributionReport: React.FC<InvoiceDistributionReportProps>
     }
   }, [distribution, splitIntoPages, measuredHeights]);
 
-  // Measure actual heights after rendering from the first rendered page
+  // Measure actual heights after rendering from the first rendered page (only once)
   useEffect(() => {
-    if (!showPreview || distribution.length === 0 || pages.length === 0) return;
+    if (!showPreview || distribution.length === 0 || pages.length === 0 || measuredHeights !== null) return;
 
     const measureHeights = () => {
       const firstPageElement = pageRefs.current[0];
@@ -303,7 +303,7 @@ export const InvoiceDistributionReport: React.FC<InvoiceDistributionReportProps>
 
     const timeoutId = setTimeout(measureHeights, 300);
     return () => clearTimeout(timeoutId);
-  }, [showPreview, distribution, pages.length]);
+  }, [showPreview, distribution.length]); // Remove pages.length from dependencies
 
   const handleClose = () => {
     setShowPreview(false);

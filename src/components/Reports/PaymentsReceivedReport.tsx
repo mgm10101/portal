@@ -287,9 +287,9 @@ export const PaymentsReceivedReport: React.FC<PaymentsReceivedReportProps> = ({ 
     fetchInvoiceSettings();
   }, []);
 
-  // Measure actual heights after rendering from the first rendered page
+  // Measure actual heights after rendering from the first rendered page (only once)
   useEffect(() => {
-    if (!showPreview || payments.length === 0 || pages.length === 0) return;
+    if (!showPreview || payments.length === 0 || pages.length === 0 || measuredHeights !== null) return;
 
     const measureHeights = () => {
       const firstPageElement = pageRefs.current[0];
@@ -349,7 +349,7 @@ export const PaymentsReceivedReport: React.FC<PaymentsReceivedReportProps> = ({ 
 
     const timeoutId = setTimeout(measureHeights, 300);
     return () => clearTimeout(timeoutId);
-  }, [showPreview, payments, pages.length]);
+  }, [showPreview, payments.length]); // Remove pages.length from dependencies
 
   // Update pages when payments or measuredHeights changes
   useEffect(() => {

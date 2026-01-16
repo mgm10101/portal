@@ -302,9 +302,9 @@ export const ExpenseAnalysisReport: React.FC<ExpenseAnalysisReportProps> = ({ on
     }
   }, [expenses, splitIntoPages, measuredHeights]);
 
-  // Measure actual heights after rendering from the first rendered page
+  // Measure actual heights after rendering from the first rendered page (only once)
   useEffect(() => {
-    if (!showPreview || expenses.length === 0 || pages.length === 0) return;
+    if (!showPreview || expenses.length === 0 || pages.length === 0 || measuredHeights !== null) return;
 
     const measureHeights = () => {
       const firstPageElement = pageRefs.current[0];
@@ -364,7 +364,7 @@ export const ExpenseAnalysisReport: React.FC<ExpenseAnalysisReportProps> = ({ on
 
     const timeoutId = setTimeout(measureHeights, 300);
     return () => clearTimeout(timeoutId);
-  }, [showPreview, expenses, pages.length]);
+  }, [showPreview, expenses.length]); // Remove pages.length from dependencies
 
   const handleClose = () => {
     setShowPreview(false);

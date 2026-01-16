@@ -385,9 +385,9 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
     }
   }, [lineItems, summaryData, splitIntoPages, measuredHeights]);
 
-  // Measure actual heights after rendering from the first rendered page
+  // Measure actual heights after rendering from the first rendered page (only once)
   useEffect(() => {
-    if (!showPreview || lineItems.length === 0 || pages.length === 0) return;
+    if (!showPreview || lineItems.length === 0 || pages.length === 0 || measuredHeights !== null) return;
 
     const measureHeights = () => {
       const firstPageElement = pageRefs.current[0];
@@ -447,7 +447,7 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
 
     const timeoutId = setTimeout(measureHeights, 300);
     return () => clearTimeout(timeoutId);
-  }, [showPreview, lineItems, pages.length]);
+  }, [showPreview, lineItems.length]); // Remove pages.length from dependencies
 
   // Helper function to get sort order for an item
   const getSortOrderForItem = useCallback((itemName: string, description: string | null): number => {
@@ -506,12 +506,16 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
     setLoading(true);
     try {
       // First, get invoices in the date range
+      // Use exclusion-based filtering: Get ALL invoices, then exclude specific types
       let invoiceQuery = supabase
         .from('invoices')
         .select('invoice_number, students!inner(class_name)')
         .gte('invoice_date', dateFrom)
         .lte('invoice_date', dateTo)
-        .neq('status', 'Voided');
+        .neq('status', 'Voided')      // Exclude voided invoices
+        .neq('status', 'Forwarded')    // Exclude forwarded invoices
+        .neq('withdrawn', true)         // Exclude withdrawn invoices
+        .neq('bad_debt', true);        // Exclude bad debt invoices
 
       if (selectedClass !== 'all') {
         invoiceQuery = invoiceQuery.eq('students.class_name', selectedClass);
