@@ -1,21 +1,51 @@
-import React, { useState } from 'react';
-import { Plus, Search, Filter, DollarSign, Calendar, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, Search, Filter, DollarSign, Calendar, CheckCircle, Users } from 'lucide-react';
 
 export const Payroll: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [selectedPayroll, setSelectedPayroll] = useState<any>(null);
+  const [periodType, setPeriodType] = useState('monthly');
+  const [periodValue, setPeriodValue] = useState('2024-02');
+  const [isHovering, setIsHovering] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Keyboard navigation for scrolling
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isHovering || !scrollContainerRef.current) return;
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        scrollContainerRef.current.scrollBy({
+          top: -100,
+          behavior: 'smooth'
+        });
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        scrollContainerRef.current.scrollBy({
+          top: 100,
+          behavior: 'smooth'
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isHovering]);
 
   const payrollRecords = [
     {
       id: 1,
       employeeId: 'EMP001',
       employeeName: 'Dr. Sarah Johnson',
+      designation: 'Senior Science Teacher',
       department: 'Science Department',
-      baseSalary: 75000,
-      allowances: 5000,
+      grossSalary: 80000,
       deductions: 8000,
       netSalary: 72000,
-      payPeriod: '2024-02',
+      payPeriodType: 'Monthly',
+      payPeriodStart: '2024-02-01',
+      payPeriodEnd: '2024-02-29',
       payDate: '2024-02-28',
       status: 'Paid',
       paymentMethod: 'Bank Transfer'
@@ -24,12 +54,14 @@ export const Payroll: React.FC = () => {
       id: 2,
       employeeId: 'EMP002',
       employeeName: 'Michael Thompson',
+      designation: 'Mathematics Teacher',
       department: 'Mathematics Department',
-      baseSalary: 65000,
-      allowances: 3000,
+      grossSalary: 68000,
       deductions: 6500,
       netSalary: 61500,
-      payPeriod: '2024-02',
+      payPeriodType: 'Monthly',
+      payPeriodStart: '2024-02-01',
+      payPeriodEnd: '2024-02-29',
       payDate: '2024-02-28',
       status: 'Paid',
       paymentMethod: 'Bank Transfer'
@@ -38,12 +70,14 @@ export const Payroll: React.FC = () => {
       id: 3,
       employeeId: 'EMP003',
       employeeName: 'Emily Rodriguez',
+      designation: 'Administrative Officer',
       department: 'Administration',
-      baseSalary: 45000,
-      allowances: 2000,
+      grossSalary: 47000,
       deductions: 4500,
       netSalary: 42500,
-      payPeriod: '2024-03',
+      payPeriodType: 'Monthly',
+      payPeriodStart: '2024-03-01',
+      payPeriodEnd: '2024-03-31',
       payDate: '2024-03-31',
       status: 'Pending',
       paymentMethod: 'Bank Transfer'
@@ -52,22 +86,25 @@ export const Payroll: React.FC = () => {
 
   const PayrollForm = () => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-gray-800">
-            {selectedPayroll ? 'Edit Payroll' : 'Process Payroll'}
-          </h2>
-          <button
-            onClick={() => {
-              setShowForm(false);
-              setSelectedPayroll(null);
-            }}
-            className="text-gray-500 hover:text-gray-700"
-          >
-            ×
-          </button>
-        </div>
-
+      <style>
+        {`
+          @media (min-width: 768px) {
+            .scrollbar-hide::-webkit-scrollbar {
+              display: none;
+            }
+            .scrollbar-hide {
+              -ms-overflow-style: none;
+              scrollbar-width: none;
+            }
+          }
+        `}
+      </style>
+      <div 
+        ref={scrollContainerRef}
+        className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto scrollbar-hide"
+        onMouseEnter={() => setIsHovering(true)}
+        onMouseLeave={() => setIsHovering(false)}
+      >
         <form className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -83,26 +120,18 @@ export const Payroll: React.FC = () => {
               <input
                 type="month"
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                defaultValue={selectedPayroll?.payPeriod}
+                defaultValue={selectedPayroll?.payPeriodStart}
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Base Salary</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Gross Salary</label>
               <input
                 type="number"
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                defaultValue={selectedPayroll?.baseSalary}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Allowances</label>
-              <input
-                type="number"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                defaultValue={selectedPayroll?.allowances}
+                defaultValue={selectedPayroll?.grossSalary}
               />
             </div>
             <div>
@@ -171,39 +200,101 @@ export const Payroll: React.FC = () => {
       <div className="max-w-7xl mx-auto">
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-3 mb-6 md:mb-3">
-          <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
+          {/* Period Selector Card */}
+          <div className="bg-white p-3 md:p-2 rounded-lg shadow-sm border border-gray-200">
+            <div className="space-y-1.5">
+              <div className="text-sm font-semibold text-black">
+                Period Ending
+              </div>
+              {(periodType === 'daily' || periodType === 'weekly' || periodType === 'monthly' || periodType === 'fortnightly' || periodType === 'quarterly' || periodType === 'annually') && (
+                <>
+                  {periodType === 'daily' && (
+                    <input 
+                      type="date" 
+                      value={periodValue}
+                      onChange={(e) => setPeriodValue(e.target.value)}
+                      className="w-full p-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                    />
+                  )}
+                  {periodType === 'weekly' && (
+                    <input 
+                      type="week" 
+                      value={periodValue}
+                      onChange={(e) => setPeriodValue(e.target.value)}
+                      className="w-full p-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                    />
+                  )}
+                  {(periodType === 'monthly' || periodType === 'fortnightly') && (
+                    <input 
+                      type="month" 
+                      value={periodValue}
+                      onChange={(e) => setPeriodValue(e.target.value)}
+                      className="w-full p-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                    />
+                  )}
+                  {periodType === 'quarterly' && (
+                    <select 
+                      value={periodValue}
+                      onChange={(e) => setPeriodValue(e.target.value)}
+                      className="w-full p-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                    >
+                      <option value="2024-Q1">Q1 2024</option>
+                      <option value="2024-Q2">Q2 2024</option>
+                      <option value="2024-Q3">Q3 2024</option>
+                      <option value="2024-Q4">Q4 2024</option>
+                    </select>
+                  )}
+                  {periodType === 'annually' && (
+                    <input 
+                      type="number" 
+                      value={periodValue}
+                      onChange={(e) => setPeriodValue(e.target.value)}
+                      placeholder="2024"
+                      min="2020"
+                      max="2030"
+                      className="w-full p-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                    />
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+          <div className="bg-white p-3 md:p-2 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center">
               <DollarSign className="w-8 h-8 text-green-600 mr-3" />
               <div>
-                <div className="text-sm text-gray-600">Total Payroll</div>
-                <div className="text-2xl font-bold text-gray-800">$176,000</div>
+                <div className="text-sm font-semibold text-gray-600">Total Payroll</div>
+                <div className="text-2xl font-bold text-green-600">Ksh 176,000</div>
+                <div className="flex items-center text-xs text-gray-600 mt-1">
+                  <Users className="w-2.5 h-2.5 mr-2" />
+                  <span>Staff Members: 3</span>
+                </div>
               </div>
             </div>
           </div>
-          <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
+          <div className="bg-white p-3 md:p-2 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center">
               <CheckCircle className="w-8 h-8 text-blue-600 mr-3" />
               <div>
-                <div className="text-sm text-gray-600">Paid This Month</div>
-                <div className="text-2xl font-bold text-blue-600">2</div>
+                <div className="text-sm font-semibold text-gray-600">Paid This Month</div>
+                <div className="text-2xl font-bold text-blue-600">Ksh 133,500</div>
+                <div className="flex items-center text-xs text-gray-600 mt-1">
+                  <Users className="w-2.5 h-2.5 mr-2" />
+                  <span>Staff Members: 2</span>
+                </div>
               </div>
             </div>
           </div>
-          <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
+          <div className="bg-white p-3 md:p-2 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center">
               <Calendar className="w-8 h-8 text-yellow-600 mr-3" />
               <div>
-                <div className="text-sm text-gray-600">Pending</div>
-                <div className="text-2xl font-bold text-yellow-600">1</div>
-              </div>
-            </div>
-          </div>
-          <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
-            <div className="flex items-center">
-              <DollarSign className="w-8 h-8 text-purple-600 mr-3" />
-              <div>
-                <div className="text-sm text-gray-600">Avg Salary</div>
-                <div className="text-2xl font-bold text-purple-600">$58,667</div>
+                <div className="text-sm font-semibold text-gray-600">Pending</div>
+                <div className="text-2xl font-bold text-yellow-600">Ksh 42,500</div>
+                <div className="flex items-center text-xs text-gray-600 mt-1">
+                  <Users className="w-2.5 h-2.5 mr-2" />
+                  <span>Staff Members: 1</span>
+                </div>
               </div>
             </div>
           </div>
@@ -238,19 +329,16 @@ export const Payroll: React.FC = () => {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50">
+              <thead className="bg-gray-100">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Employee
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Department
+                    Designation
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Base Salary
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Allowances
+                    Gross Salary
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Deductions
@@ -275,23 +363,28 @@ export const Payroll: React.FC = () => {
                         <div className="text-sm text-gray-500">{record.employeeId}</div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {record.department}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      ${record.baseSalary.toLocaleString()}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900">{record.designation}</div>
+                        <div className="text-sm text-gray-500">{record.department}</div>
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600">
-                      +${record.allowances.toLocaleString()}
+                      Ksh {record.grossSalary.toLocaleString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600">
-                      -${record.deductions.toLocaleString()}
+                      -Ksh {record.deductions.toLocaleString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
-                      ${record.netSalary.toLocaleString()}
+                      Ksh {record.netSalary.toLocaleString()}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {record.payPeriod}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900">{record.payPeriodType}</div>
+                        <div className="text-sm text-gray-500">
+                          {new Date(record.payPeriodStart).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} &nbsp;–&nbsp; {new Date(record.payPeriodEnd).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })}
+                        </div>
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${

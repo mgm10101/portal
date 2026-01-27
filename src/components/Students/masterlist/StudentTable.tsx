@@ -144,7 +144,7 @@ export const StudentTable: React.FC<StudentTableProps> = ({
         onMouseLeave={() => setIsHoveringTable(false)}
       >
         <table className="w-full">
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-100">
             <tr>
               {/* Checkbox column header */}
               <th className="pl-3 pr-2 py-3 text-left w-10">
@@ -191,11 +191,12 @@ export const StudentTable: React.FC<StudentTableProps> = ({
                     type="checkbox"
                     checked={selectedStudents.has(student.admission_number)}
                     onChange={() => toggleSelection(student.admission_number)}
-                    className={`w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-2 focus:ring-blue-500 transition-opacity cursor-pointer ${
+                    className={`w-4 h-4 text-blue-600 rounded border-gray-300 cursor-pointer ${
                       hoveredRow === student.admission_number || hasSelections
                         ? 'opacity-100'
                         : 'opacity-0'
                     }`}
+                    style={{ outline: 'none' }}
                   />
                 </td>
                 <td className="px-2 py-4 whitespace-nowrap">

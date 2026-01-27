@@ -303,23 +303,12 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
   useEffect(() => {
     const today = new Date();
     
-    // Get today's date components
+    // Get current year for due date filtering (to match Total Receivables logic)
     const currentYear = today.getFullYear();
-    const currentMonth = today.getMonth(); // 0-11
-    const currentDay = today.getDate();
     
-    // Calculate one month ago
-    let targetYear = currentYear;
-    let targetMonth = currentMonth - 1;
-    
-    // Handle year rollover
-    if (targetMonth < 0) {
-      targetMonth = 11; // December
-      targetYear = currentYear - 1;
-    }
-    
-    // Create the date one month ago
-    const oneMonthAgo = new Date(targetYear, targetMonth, currentDay);
+    // Set date range to cover the entire current year (Jan 1 to Dec 31)
+    const yearStart = new Date(currentYear, 0, 1); // January 1st
+    const yearEnd = new Date(currentYear, 11, 31); // December 31st
     
     // Format dates as YYYY-MM-DD in local timezone
     const formatDateLocal = (date: Date) => {
@@ -329,8 +318,8 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
       return `${year}-${month}-${day}`;
     };
     
-    setDateTo(formatDateLocal(today));
-    setDateFrom(formatDateLocal(oneMonthAgo));
+    setDateTo(formatDateLocal(yearEnd));
+    setDateFrom(formatDateLocal(yearStart));
 
     async function fetchDropdownData() {
       try {
@@ -510,8 +499,8 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
       let invoiceQuery = supabase
         .from('invoices')
         .select('invoice_number, students!inner(class_name)')
-        .gte('invoice_date', dateFrom)
-        .lte('invoice_date', dateTo)
+        .gte('due_date', dateFrom)        // Filter by due_date instead of invoice_date
+        .lte('due_date', dateTo)          // Filter by due_date instead of invoice_date
         .neq('status', 'Voided')      // Exclude voided invoices
         .neq('status', 'Forwarded')    // Exclude forwarded invoices
         .neq('withdrawn', true)         // Exclude withdrawn invoices
@@ -528,6 +517,7 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
       console.log('🔍 [DEBUG] Class filter - Selected Class:', selectedClass);
       console.log('🔍 [DEBUG] Class filter - Invoices fetched:', invoices?.length);
       console.log('🔍 [DEBUG] Class filter - Sample invoice data:', invoices?.[0]);
+      console.log('🔍 [DEBUG] Current year filtering: 2026');
       
       if (!invoices || invoices.length === 0) {
         setLineItems([]);
@@ -723,7 +713,7 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Invoice Date From <span className="text-red-500">*</span>
+                    Due Date From <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="date"
@@ -734,7 +724,7 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Invoice Date To <span className="text-red-500">*</span>
+                    Due Date To <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="date"
@@ -883,7 +873,7 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
                         <div>
                           <h1 className="text-3xl font-normal text-gray-900 mb-2">Projected Revenue by Source</h1>
                           <div className="text-sm text-gray-600 space-y-1">
-                            <p><strong>Invoice Date Range:</strong> {formatDate(dateFrom)} to {formatDate(dateTo)}</p>
+                            <p><strong>Due Date Range:</strong> {formatDate(dateFrom)} to {formatDate(dateTo)}</p>
                             <p><strong>Class:</strong> {selectedClass === 'all' ? 'All Classes' : selectedClass}</p>
                             <p><strong>Generated:</strong> {formatDateTime(new Date().toISOString())}</p>
                           </div>
@@ -991,17 +981,13 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
 
                     {/* Summary Cards */}
                     {pageData.showSummary && (
-                      <div className={`mt-8 grid gap-4 flex-shrink-0 ${pageData.isHighLevelSummary ? 'grid-cols-4' : 'grid-cols-3'}`}>
+                      <div className={`mt-8 grid gap-4 flex-shrink-0 ${pageData.isHighLevelSummary ? 'grid-cols-3' : 'grid-cols-3'}`}>
                         {pageData.isHighLevelSummary ? (
                           // High-level summary cards
                           <>
                             <div className="bg-gray-50 p-4 rounded-lg">
                               <p className="text-sm text-gray-600 mb-1">Item Categories</p>
                               <p className="text-2xl font-semibold text-gray-900">{getHighLevelSummaryStats().totalItems}</p>
-                            </div>
-                            <div className="bg-gray-50 p-4 rounded-lg">
-                              <p className="text-sm text-gray-600 mb-1">Total Quantity</p>
-                              <p className="text-2xl font-semibold text-blue-600">{getHighLevelSummaryStats().totalQuantity.toLocaleString()}</p>
                             </div>
                             <div className="bg-gray-50 p-4 rounded-lg">
                               <p className="text-sm text-gray-600 mb-1">Total Variations</p>
@@ -1020,12 +1006,12 @@ export const ProjectedRevenueReport: React.FC<ProjectedRevenueReportProps> = ({ 
                               <p className="text-2xl font-semibold text-gray-900">{stats.totalItems}</p>
                             </div>
                             <div className="bg-gray-50 p-4 rounded-lg">
-                              <p className="text-sm text-gray-600 mb-1">Total Quantity</p>
-                              <p className="text-2xl font-semibold text-blue-600">{stats.totalQuantity.toLocaleString()}</p>
-                            </div>
-                            <div className="bg-gray-50 p-4 rounded-lg">
                               <p className="text-sm text-gray-600 mb-1">Total Projected Revenue</p>
                               <p className="text-2xl font-semibold text-green-600">Ksh. {formatCurrency(stats.totalRevenue)}</p>
+                            </div>
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                              <p className="text-sm text-gray-600 mb-1">Average Projected Revenue</p>
+                              <p className="text-2xl font-semibold text-blue-600">Ksh. {formatCurrency(stats.totalItems > 0 ? stats.totalRevenue / stats.totalItems : 0)}</p>
                             </div>
                           </>
                         )}

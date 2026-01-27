@@ -821,8 +821,8 @@ export const StudentsByClassReport: React.FC<StudentsByClassReportProps> = ({ on
                         <div>
                           <h1 className="text-3xl font-normal text-gray-900 mb-2">Students by Class</h1>
                           <div className="text-sm text-gray-600 space-y-1">
-                            <p><strong>Class:</strong> {pageData.currentClass}{pageData.currentStream ? ` - ${pageData.currentStream}` : ''}{pageData.isClassContinuation ? ' (continued)' : ''}</p>
-                            <p><strong>Filter:</strong> {getClassNameById(selectedClass)}{selectedStream !== 'all' ? `, ${getStreamNameById(selectedStream)}` : ''}</p>
+                            <p><strong>Class:</strong> {pageData.currentClass}{pageData.isClassContinuation ? ' (continued)' : ''}</p>
+                            <p><strong>Stream:</strong> {selectedStream !== 'all' ? getStreamNameById(selectedStream) : (pageData.currentStream || 'None')}</p>
                             <p><strong>Generated:</strong> {formatDateTime(new Date().toISOString())}</p>
                           </div>
                         </div>

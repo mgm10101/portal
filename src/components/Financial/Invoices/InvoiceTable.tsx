@@ -229,7 +229,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onView, on
             `}</style>
             <div className="overflow-x-auto table-scroll-container">
                 <table className="w-full">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-gray-100">
                         <tr>
                             {/* Checkbox column header (borrowed from students masterlist) */}
                             <th className="pl-3 pr-2 py-3 text-left w-10">
@@ -276,7 +276,7 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onView, on
                                         type="checkbox"
                                         checked={selectedInvoices.has(invoice.invoice_number)}
                                         onChange={() => toggleSelection(invoice.invoice_number)}
-                                        className={`w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-2 focus:ring-blue-500 transition-opacity cursor-pointer ${
+                                        className={`w-4 h-4 text-blue-600 rounded border-gray-300 cursor-pointer ${
                                             hoveredRow === invoice.invoice_number || hasSelections
                                                 ? 'opacity-100'
                                                 : 'opacity-0'
@@ -313,16 +313,18 @@ export const InvoiceTable: React.FC<InvoiceTableProps> = ({ invoices, onView, on
                                     <div className="flex space-x-3 items-center">
                                         <button
                                             onClick={() => {
-                                                if (invoice.status === 'Forwarded') return;
+                                                if (invoice.status === 'Forwarded' || invoice.status === 'Paid') return;
                                                 setInvoiceToEdit(invoice);
                                             }}
-                                            disabled={isDeleting || invoice.status === 'Forwarded'}
+                                            disabled={isDeleting || invoice.status === 'Forwarded' || invoice.status === 'Paid'}
                                             className={`transition-colors ${
-                                                isDeleting || invoice.status === 'Forwarded'
+                                                isDeleting || invoice.status === 'Forwarded' || invoice.status === 'Paid'
                                                     ? 'text-green-300 cursor-not-allowed'
                                                     : 'text-green-600 hover:text-green-700'
                                             }`}
-                                            title={invoice.status === 'Forwarded' ? 'Forwarded invoices cannot be edited' : 'Edit Invoice'}
+                                            title={invoice.status === 'Forwarded' ? 'Forwarded invoices cannot be edited' : 
+                                                   invoice.status === 'Paid' ? 'Paid invoices cannot be edited' : 
+                                                   'Edit Invoice'}
                                         >
                                             <Edit className="w-4 h-4" />
                                         </button>

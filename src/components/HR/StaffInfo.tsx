@@ -456,7 +456,7 @@ export const StaffInfo: React.FC = () => {
           )}
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50">
+              <thead className="bg-gray-100">
                 <tr>
                   <th className="pl-3 pr-0 py-3 text-left w-10">
                     {/* Empty header for checkbox column */}

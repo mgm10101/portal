@@ -1288,7 +1288,7 @@ export const PaymentsReceived: React.FC = () => {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50">
+              <thead className="bg-gray-100">
                 <tr>
                   <th className="pl-3 pr-2 py-3 text-left w-10">
                     {/* Empty header for checkbox column */}
@@ -1351,7 +1351,7 @@ export const PaymentsReceived: React.FC = () => {
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => toggleSelection(payment.id)}
-                            className={`w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-2 focus:ring-blue-500 transition-opacity cursor-pointer ${
+                            className={`w-4 h-4 text-blue-600 rounded border-gray-300 cursor-pointer outline-none ${
                               isHovered || hasSelections
                                 ? 'opacity-100'
                                 : 'opacity-0'

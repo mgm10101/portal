@@ -1648,10 +1648,10 @@ export const Expenses: React.FC = () => {
           </div>
           <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center">
-              <BarChart3 className="w-8 h-8 text-emerald-600 mr-3" />
+              <BarChart3 className="w-8 h-8 text-slate-600 mr-3" />
               <div>
                 <div className="text-sm text-gray-600">This Week</div>
-                <div className="text-2xl font-bold text-emerald-600">
+                <div className="text-2xl font-bold text-slate-600">
                   Ksh. {(() => {
                     const today = new Date();
                     const weekStart = new Date(today);
@@ -1671,10 +1671,10 @@ export const Expenses: React.FC = () => {
           </div>
           <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center">
-              <CalendarDays className="w-8 h-8 text-indigo-600 mr-3" />
+              <CalendarDays className="w-8 h-8 text-slate-600 mr-3" />
               <div>
                 <div className="text-sm text-gray-600">This Month</div>
-                <div className="text-2xl font-bold text-indigo-600">
+                <div className="text-2xl font-bold text-slate-600">
                   Ksh. {(() => {
                     const today = new Date();
                     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -1692,10 +1692,10 @@ export const Expenses: React.FC = () => {
           </div>
           <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center">
-              <PieChart className="w-8 h-8 text-blue-600 mr-3" />
+              <PieChart className="w-8 h-8 text-slate-600 mr-3" />
               <div>
                 <div className="text-sm text-gray-600">Top Category</div>
-                <div className="text-lg font-bold text-blue-600">
+                <div className="text-lg font-bold text-slate-600">
                   {(() => {
                     const categoryTotals: Record<string, number> = {};
                     expenses.forEach(e => {
@@ -1797,7 +1797,7 @@ export const Expenses: React.FC = () => {
           )}
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50">
+              <thead className="bg-gray-100">
                 <tr>
                   <th className="pl-3 pr-2 py-3 text-left w-10">
                     {/* Empty header for checkbox column */}
@@ -1812,7 +1812,7 @@ export const Expenses: React.FC = () => {
                     Amount
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Paid Through
+                    Account
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Vendor
@@ -1877,7 +1877,7 @@ export const Expenses: React.FC = () => {
                               return newSet;
                             });
                           }}
-                          className={`w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-2 focus:ring-blue-500 transition-opacity cursor-pointer ${
+                          className={`w-4 h-4 text-blue-600 rounded border-gray-300 cursor-pointer ${
                             isHovered || hasSelections
                               ? 'opacity-100'
                               : 'opacity-0'

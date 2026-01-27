@@ -378,12 +378,12 @@ const InvoiceDisplay: React.FC<{ data: InvoiceData }> = ({ data }) => {
                 </td>
               </tr>
             ))}
-            <tr className="border-b border-gray-300 bg-gray-50 font-bold">
-              <td colSpan={3} className="bg-gray-50"></td>
-              <td className="py-2 text-left bg-gray-50" style={{ paddingLeft: '0px', paddingRight: '0px' }}>
+            <tr className="border-b border-gray-300 bg-gray-100 font-bold">
+              <td colSpan={3} className="bg-gray-100"></td>
+              <td className="py-2 text-left bg-gray-100" style={{ paddingLeft: '0px', paddingRight: '0px' }}>
                 <span style={{ display: 'inline-block', transform: 'translateX(-80px)' }}>Sub Total</span>
               </td>
-              <td className="py-2 px-4 text-right bg-gray-50">{Number(subTotal).toLocaleString()}</td>
+              <td className="py-2 px-4 text-right bg-gray-100">{Number(subTotal).toLocaleString()}</td>
             </tr>
           </tbody>
         </table>

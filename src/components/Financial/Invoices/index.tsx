@@ -520,12 +520,18 @@ export const Invoices: React.FC = () => {
               <button
                 onClick={() => {
                   if (!displayedInvoiceHeader) return;
+                  if (displayedInvoiceHeader.status === 'Forwarded' || displayedInvoiceHeader.status === 'Paid') return;
                   setInvoiceToEdit(displayedInvoiceHeader);
                 }}
-                disabled={!displayedInvoiceHeader || exportingPdf || printingPdf}
+                disabled={!displayedInvoiceHeader || exportingPdf || printingPdf || displayedInvoiceHeader.status === 'Forwarded' || displayedInvoiceHeader.status === 'Paid'}
                 className={`bg-gray-500 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 ${
-                  !displayedInvoiceHeader || exportingPdf || printingPdf ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-600'
+                  !displayedInvoiceHeader || exportingPdf || printingPdf || displayedInvoiceHeader.status === 'Forwarded' || displayedInvoiceHeader.status === 'Paid'
+                    ? 'opacity-50 cursor-not-allowed' 
+                    : 'hover:bg-gray-600'
                 }`}
+                title={displayedInvoiceHeader?.status === 'Forwarded' ? 'Forwarded invoices cannot be edited' : 
+                       displayedInvoiceHeader?.status === 'Paid' ? 'Paid invoices cannot be edited' : 
+                       'Edit Invoice'}
               >
                 <Edit className="w-4 h-4" />
                 Edit

@@ -490,7 +490,7 @@ export const FeeStructure: React.FC = () => {
                     <h2 className="text-lg font-bold text-gray-900 mb-3 uppercase">{term.name}</h2>
                     <table className="w-full border-collapse mb-4">
                       <thead>
-                        <tr className="bg-gray-50">
+                        <tr className="bg-gray-100">
                           <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">Description</th>
                           <th className="px-4 py-2 text-right text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">Amount (KES)</th>
                         </tr>
@@ -528,7 +528,7 @@ export const FeeStructure: React.FC = () => {
                   <h2 className="text-lg font-bold text-gray-900 mb-4 uppercase">Transport</h2>
                   <table className="w-full border-collapse">
                     <thead>
-                      <tr className="bg-gray-50">
+                      <tr className="bg-gray-100">
                         <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">Zone</th>
                         <th className="px-4 py-2 text-right text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">One Way (KES)</th>
                         <th className="px-4 py-2 text-right text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">Two Way (KES)</th>
@@ -563,7 +563,7 @@ export const FeeStructure: React.FC = () => {
                   <h2 className="text-lg font-bold text-gray-900 mb-4 uppercase">Boarding</h2>
                   <table className="w-full border-collapse">
                     <thead>
-                      <tr className="bg-gray-50">
+                      <tr className="bg-gray-100">
                         <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">Type</th>
                         <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">Description</th>
                         <th className="px-4 py-2 text-right text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">Amount (KES)</th>
@@ -596,7 +596,7 @@ export const FeeStructure: React.FC = () => {
                   <h2 className="text-lg font-bold text-gray-900 mb-4 uppercase">Optional:</h2>
                   <table className="w-full border-collapse">
                     <thead>
-                      <tr className="bg-gray-50">
+                      <tr className="bg-gray-100">
                         <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">Description</th>
                         <th className="px-4 py-2 text-right text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">Amount (KES)</th>
                       </tr>
@@ -708,7 +708,7 @@ export const FeeStructure: React.FC = () => {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50">
+              <thead className="bg-gray-100">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Class

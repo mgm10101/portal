@@ -51,7 +51,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSectionChange }) => {
         const nonForwardedInvoices = invoices.filter(i => i.status !== 'Forwarded');
         
         // Calculate Total Receivables as sum of all non-forwarded invoices' totalAmount
-        const totalRec = nonForwardedInvoices.reduce((sum, invoice) => sum + invoice.totalAmount, 0);
+        // Only include invoices with due date within current year
+        const currentYear = new Date().getFullYear();
+        const totalRec = nonForwardedInvoices
+          .filter(invoice => {
+            if (!invoice.due_date) return false; // Exclude invoices without due date
+            const dueYear = new Date(invoice.due_date).getFullYear();
+            return dueYear === currentYear;
+          })
+          .reduce((sum, invoice) => sum + invoice.totalAmount, 0);
         setTotalReceivables(totalRec);
         
         // Calculate Outstanding Fees (Pending invoices' balanceDue, excluding Forwarded)

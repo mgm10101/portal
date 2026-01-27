@@ -1762,7 +1762,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({ onUserUpdate }) 
 
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50">
+              <thead className="bg-gray-100">
                 <tr>
                   {/* Checkbox column header */}
                   <th className="pl-3 pr-2 py-3 text-left w-10">

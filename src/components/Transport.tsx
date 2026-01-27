@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Search, Filter, Bus, Users, MapPin, Wrench, CheckCircle, Calendar, Edit, Trash2, AlertCircle, Clock, FileCheck, Route, Car, Sun, Moon, X } from 'lucide-react';
+import { Plus, Search, Filter, Bus, Users, MapPin, Wrench, CheckCircle, Edit, Trash2, AlertCircle, FileCheck, Route, Car, Sun, Moon, X, AlertTriangle } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../supabaseClient';
 import { fetchClasses } from '../api/tables';
@@ -140,7 +140,7 @@ interface TransportFilterState {
 
 export const Transport: React.FC = () => {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'students' | 'trips' | 'vehicles' | 'maintenance' | 'compliance' | 'regulations' | 'zones'>('students');
+  const [activeTab, setActiveTab] = useState<'students' | 'trips' | 'vehicles' | 'maintenance' | 'compliance' | 'regulations' | 'zones' | 'incident-logs'>('students');
   const [showForm, setShowForm] = useState(false);
   const [formType, setFormType] = useState<'trip' | 'vehicle' | 'maintenance' | 'compliance' | 'regulation'>('trip');
   
@@ -309,7 +309,7 @@ export const Transport: React.FC = () => {
       const { data, error } = await supabase
         .from('transport_types')
         .select('id, name, sort_order')
-        .order('sort_order', { ascending: true, nullsLast: true })
+        .order('sort_order', { ascending: true })
         .order('id', { ascending: true });
       
       if (error) {
@@ -417,7 +417,7 @@ export const Transport: React.FC = () => {
     });
   }, [transportZones, allZoneAreas, zoneSearchTerm]);
 
-  const { data: transportTypes = [], isLoading: isLoadingTypes } = useQuery({
+  const { data: transportTypes = [] } = useQuery({
     queryKey: ['transport_types'],
     queryFn: fetchTransportTypes,
     retry: false,
@@ -768,7 +768,6 @@ export const Transport: React.FC = () => {
     const daysUntil = Math.ceil((nextDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     return daysUntil <= 30 && daysUntil >= 0;
   }).length;
-  const nonCompliantVehicles = vehicles.filter(v => v.complianceStatus === 'non-compliant').length;
 
   const TripForm = () => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -959,12 +958,13 @@ export const Transport: React.FC = () => {
                 { id: 'vehicles', label: 'Vehicles', icon: Car },
                 { id: 'maintenance', label: 'Maintenance', icon: Wrench },
                 { id: 'compliance', label: 'Compliance', icon: FileCheck },
-                { id: 'regulations', label: 'Regulations', icon: CheckCircle }
+                { id: 'regulations', label: 'Regulations', icon: CheckCircle },
+                { id: 'incident-logs', label: 'Incident Logs', icon: AlertTriangle }
               ].map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center space-x-2 px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  className={`flex-1 flex items-center justify-center space-x-2 px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                     activeTab === tab.id
                       ? 'border-blue-500 text-blue-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -1028,7 +1028,7 @@ export const Transport: React.FC = () => {
               {/* Students Table */}
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-100">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Student
@@ -1241,25 +1241,32 @@ export const Transport: React.FC = () => {
 
           {activeTab === 'trips' && (
             <div>
-              <div className="flex justify-between items-center mb-4">
+              {/* Search, Filter, and Add Trip Button */}
+              <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6">
                 <div className="flex items-center space-x-2">
-                  <Search className="w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search trips..."
-                    className="border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search trips..."
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <button className="flex-shrink-0 flex items-center justify-center p-2 md:px-4 md:py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                    <Filter className="w-4 h-4 md:mr-2" />
+                    <span className="hidden md:inline">Filters</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setFormType('trip');
+                      setShowForm(true);
+                    }}
+                    className="flex-shrink-0 bg-blue-600 text-white p-2 md:px-4 md:py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center"
+                  >
+                    <Plus className="w-5 h-5 md:mr-2" />
+                    <span className="hidden md:inline">Add Trip</span>
+                  </button>
                 </div>
-                <button
-                  onClick={() => {
-                    setFormType('trip');
-                    setShowForm(true);
-                  }}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Schedule Trip</span>
-                </button>
               </div>
 
               <div className="space-y-4">
@@ -1333,30 +1340,37 @@ export const Transport: React.FC = () => {
 
           {activeTab === 'vehicles' && (
             <div>
-              <div className="flex justify-between items-center mb-4">
+              {/* Search, Filter, and Add Vehicle Button */}
+              <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6">
                 <div className="flex items-center space-x-2">
-                  <Search className="w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search vehicles..."
-                    className="border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search vehicles..."
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <button className="flex-shrink-0 flex items-center justify-center p-2 md:px-4 md:py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                    <Filter className="w-4 h-4 md:mr-2" />
+                    <span className="hidden md:inline">Filters</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setFormType('vehicle');
+                      setShowForm(true);
+                    }}
+                    className="flex-shrink-0 bg-blue-600 text-white p-2 md:px-4 md:py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center"
+                  >
+                    <Plus className="w-5 h-5 md:mr-2" />
+                    <span className="hidden md:inline">Add Vehicle</span>
+                  </button>
                 </div>
-                <button
-                  onClick={() => {
-                    setFormType('vehicle');
-                    setShowForm(true);
-                  }}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add Vehicle</span>
-                </button>
               </div>
 
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-100">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vehicle</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fleet</th>
@@ -1417,30 +1431,37 @@ export const Transport: React.FC = () => {
 
           {activeTab === 'maintenance' && (
             <div>
-              <div className="flex justify-between items-center mb-4">
+              {/* Search, Filter, and Add Maintenance Button */}
+              <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6">
                 <div className="flex items-center space-x-2">
-                  <Search className="w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search maintenance records..."
-                    className="border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search maintenance records..."
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <button className="flex-shrink-0 flex items-center justify-center p-2 md:px-4 md:py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                    <Filter className="w-4 h-4 md:mr-2" />
+                    <span className="hidden md:inline">Filters</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setFormType('maintenance');
+                      setShowForm(true);
+                    }}
+                    className="flex-shrink-0 bg-blue-600 text-white p-2 md:px-4 md:py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center"
+                  >
+                    <Plus className="w-5 h-5 md:mr-2" />
+                    <span className="hidden md:inline">Record Maintenance</span>
+                  </button>
                 </div>
-                <button
-                  onClick={() => {
-                    setFormType('maintenance');
-                    setShowForm(true);
-                  }}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Record Maintenance</span>
-                </button>
               </div>
 
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-100">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vehicle</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
@@ -1499,30 +1520,37 @@ export const Transport: React.FC = () => {
 
           {activeTab === 'compliance' && (
             <div>
-              <div className="flex justify-between items-center mb-4">
+              {/* Search, Filter, and Add Compliance Button */}
+              <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6">
                 <div className="flex items-center space-x-2">
-                  <Search className="w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search compliance records..."
-                    className="border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
+                  <div className="relative w-full">
+                    <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search compliance records..."
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <button className="flex-shrink-0 flex items-center justify-center p-2 md:px-4 md:py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                    <Filter className="w-4 h-4 md:mr-2" />
+                    <span className="hidden md:inline">Filters</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setFormType('compliance');
+                      setShowForm(true);
+                    }}
+                    className="flex-shrink-0 bg-blue-600 text-white p-2 md:px-4 md:py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center"
+                  >
+                    <Plus className="w-5 h-5 md:mr-2" />
+                    <span className="hidden md:inline">Add Compliance</span>
+                  </button>
                 </div>
-                <button
-                  onClick={() => {
-                    setFormType('compliance');
-                    setShowForm(true);
-                  }}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add Compliance Check</span>
-                </button>
               </div>
 
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-100">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vehicle</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Regulation</th>
@@ -1568,25 +1596,32 @@ export const Transport: React.FC = () => {
 
           {activeTab === 'regulations' && (
             <div>
-              <div className="flex justify-between items-center mb-4">
+              {/* Search, Filter, and Add Regulation Button */}
+              <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6">
                 <div className="flex items-center space-x-2">
-                  <Search className="w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search regulations..."
-                    className="border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search regulations..."
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <button className="flex-shrink-0 flex items-center justify-center p-2 md:px-4 md:py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                    <Filter className="w-4 h-4 md:mr-2" />
+                    <span className="hidden md:inline">Filters</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setFormType('regulation');
+                      setShowForm(true);
+                    }}
+                    className="flex-shrink-0 bg-blue-600 text-white p-2 md:px-4 md:py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center"
+                  >
+                    <Plus className="w-5 h-5 md:mr-2" />
+                    <span className="hidden md:inline">Add Regulation</span>
+                  </button>
                 </div>
-                <button
-                  onClick={() => {
-                    setFormType('regulation');
-                    setShowForm(true);
-                  }}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add Regulation</span>
-                </button>
               </div>
 
               <div className="space-y-4">
@@ -1631,6 +1666,118 @@ export const Transport: React.FC = () => {
               </div>
             </div>
           )}
+
+          {activeTab === 'incident-logs' && (
+            <div>
+              {/* Search, Filter, and Add Incident Button */}
+              <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6">
+                <div className="flex items-center space-x-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search incident logs..."
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                  <button className="flex-shrink-0 flex items-center justify-center p-2 md:px-4 md:py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+                    <Filter className="w-4 h-4 md:mr-2" />
+                    <span className="hidden md:inline">Filters</span>
+                  </button>
+                  <button
+                    className="flex-shrink-0 bg-blue-600 text-white p-2 md:px-4 md:py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center"
+                  >
+                    <Plus className="w-5 h-5 md:mr-2" />
+                    <span className="hidden md:inline">Log Incident</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Incident Type</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vehicle</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reported Date</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reported By</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    <tr className="hover:bg-gray-50">
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Delay</td>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Vehicle A-123</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">Bus experienced mechanical issues causing 30-minute delay to morning pickup route. All students were safely transported.</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">Jan 24, 2026 at 7:45 AM</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">John Driver</td>
+                      <td className="px-6 py-4">
+                        <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                          Resolved
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center space-x-2">
+                          <button className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg">
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button className="p-2 text-red-600 hover:bg-red-50 rounded-lg">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr className="hover:bg-gray-50">
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Student Issue</td>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Vehicle B-456</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">Student was not dropped off at scheduled stop due to route confusion. Parent contacted and student safely returned home.</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">Jan 23, 2026 at 4:30 PM</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">Sarah Driver</td>
+                      <td className="px-6 py-4">
+                        <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                          Resolved
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center space-x-2">
+                          <button className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg">
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button className="p-2 text-red-600 hover:bg-red-50 rounded-lg">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr className="hover:bg-gray-50">
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Accident</td>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">Vehicle C-789</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">Minor traffic accident at intersection. No injuries reported. Students transferred to backup vehicle.</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">Jan 22, 2026 at 8:15 AM</td>
+                      <td className="px-6 py-4 text-sm text-gray-600">Mike Driver</td>
+                      <td className="px-6 py-4">
+                        <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                          Resolved
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center space-x-2">
+                          <button className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg">
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button className="p-2 text-red-600 hover:bg-red-50 rounded-lg">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
 
         {showForm && formType === 'trip' && <TripForm />}
@@ -1652,13 +1799,17 @@ export const Transport: React.FC = () => {
         {showTransportTypesModal && (
           <OptionsModal
             title="Transport Types"
-            items={transportTypes}
+            items={transportTypes.map(type => ({
+              id: type.id,
+              name: type.name,
+              sort_order: type.sort_order || undefined
+            }))}
             onAdd={async (name: string) => {
               // Get the max sort_order and add 1
               const { data: maxData } = await supabase
                 .from('transport_types')
                 .select('sort_order')
-                .order('sort_order', { ascending: false, nullsFirst: false })
+                .order('sort_order', { ascending: false })
                 .limit(1);
               
               const nextOrder = maxData && maxData.length > 0 && maxData[0].sort_order !== null 

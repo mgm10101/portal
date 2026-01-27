@@ -672,7 +672,7 @@ export const VoidedRecordsReport: React.FC<VoidedRecordsReportProps> = ({ onClos
                         <div className="overflow-x-auto">
                           <table className="w-full border-collapse">
                             <thead>
-                              <tr className="bg-gray-50 border-b-2 border-gray-200">
+                              <tr className="bg-gray-100 border-b-2 border-gray-200">
                                 {recordType === 'expenses' ? (
                                   <>
                                     <th className="text-left p-3 text-sm font-semibold text-gray-700" style={{ width: '12%' }}>Date</th>

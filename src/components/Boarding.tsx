@@ -2538,7 +2538,7 @@ export const Boarding: React.FC = () => {
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-100">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Room</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Occupancy</th>
@@ -2820,7 +2820,7 @@ export const Boarding: React.FC = () => {
 
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-100">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Room</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Occupancy</th>
@@ -2906,7 +2906,7 @@ export const Boarding: React.FC = () => {
 
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-100">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Student</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Room</th>
@@ -2980,7 +2980,7 @@ export const Boarding: React.FC = () => {
 
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-100">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Issue</th>
@@ -3057,7 +3057,7 @@ export const Boarding: React.FC = () => {
 
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-100">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Visitor</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Student</th>
