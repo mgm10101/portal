@@ -1,199 +1,287 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Search, Filter, DollarSign, Calendar, CheckCircle, Users } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { DollarSign, Users, CheckCircle, Calendar, Search, Filter, Plus } from 'lucide-react';
+
+// Move payroll records outside component to prevent recreation on every render
+const PAYROLL_RECORDS = [
+  {
+    id: 1,
+    employeeId: 'EMP001',
+    employeeName: 'Dr. Sarah Johnson',
+    designation: 'Senior Science Teacher',
+    department: 'Science Department',
+    grossSalary: 80000,
+    deductions: 8000,
+    netSalary: 72000,
+    payPeriodType: 'Monthly',
+    payPeriodStart: '2024-02-01',
+    payPeriodEnd: '2024-02-29',
+    payDate: '2024-02-28',
+    status: 'Paid',
+    paymentMethod: 'Bank Transfer'
+  },
+  {
+    id: 2,
+    employeeId: 'EMP002',
+    employeeName: 'Michael Thompson',
+    designation: 'Mathematics Teacher',
+    department: 'Mathematics Department',
+    grossSalary: 68000,
+    deductions: 6500,
+    netSalary: 61500,
+    payPeriodType: 'Monthly',
+    payPeriodStart: '2024-02-01',
+    payPeriodEnd: '2024-02-29',
+    payDate: '2024-02-28',
+    status: 'Paid',
+    paymentMethod: 'Bank Transfer'
+  },
+  {
+    id: 3,
+    employeeId: 'EMP003',
+    employeeName: 'Emily Rodriguez',
+    designation: 'Administrative Officer',
+    department: 'Administration',
+    grossSalary: 47000,
+    deductions: 4500,
+    netSalary: 42500,
+    payPeriodType: 'Monthly',
+    payPeriodStart: '2024-03-01',
+    payPeriodEnd: '2024-03-31',
+    payDate: '2024-03-31',
+    status: 'Pending',
+    paymentMethod: 'Bank Transfer'
+  }
+];
 
 export const Payroll: React.FC = () => {
-  const [showForm, setShowForm] = useState(false);
-  const [selectedPayroll, setSelectedPayroll] = useState<any>(null);
-  const [periodType, setPeriodType] = useState('monthly');
-  const [periodValue, setPeriodValue] = useState('2024-02');
-  const [isHovering, setIsHovering] = useState(false);
+  console.log('🔥🔥🔥 Payroll COMPONENT RENDERING - TIMESTAMP:', Date.now());
+  console.log('🔥🔥🔥 Payroll RENDER STACK TRACE:');
+  console.trace();
+  
+  const [showForm, setShowForm] = useState<boolean>(() => {
+    console.log('🔥🔥🔥 showForm STATE INITIALIZING');
+    return false;
+  });
+  console.log('🔥🔥🔥 showForm:', showForm);
+  
+  const [selectedPayroll, setSelectedPayroll] = useState<any | null>(() => {
+    console.log('🔥🔥🔥 selectedPayroll STATE INITIALIZING');
+    return null;
+  });
+  console.log('🔥🔥🔥 selectedPayroll:', selectedPayroll);
+  
+  const [periodValue, setPeriodValue] = useState<string>(() => {
+    console.log('🔥🔥🔥 periodValue STATE INITIALIZING');
+    return '2024-02';
+  });
+  console.log('🔥🔥🔥 periodValue:', periodValue);
+  
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [activeTab, setActiveTab] = useState<'process-payroll' | 'configure-deductions'>(() => {
+    console.log('🔥🔥🔥 activeTab STATE INITIALIZING');
+    return 'process-payroll';
+  });
+  console.log('🔥🔥🔥 activeTab:', activeTab);
 
-  // Keyboard navigation for scrolling
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isHovering || !scrollContainerRef.current) return;
+  const payrollRecords = PAYROLL_RECORDS;
 
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        scrollContainerRef.current.scrollBy({
-          top: -100,
-          behavior: 'smooth'
-        });
-      } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        scrollContainerRef.current.scrollBy({
-          top: 100,
-          behavior: 'smooth'
-        });
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isHovering]);
-
-  const payrollRecords = [
-    {
-      id: 1,
-      employeeId: 'EMP001',
-      employeeName: 'Dr. Sarah Johnson',
-      designation: 'Senior Science Teacher',
-      department: 'Science Department',
-      grossSalary: 80000,
-      deductions: 8000,
-      netSalary: 72000,
-      payPeriodType: 'Monthly',
-      payPeriodStart: '2024-02-01',
-      payPeriodEnd: '2024-02-29',
-      payDate: '2024-02-28',
-      status: 'Paid',
-      paymentMethod: 'Bank Transfer'
-    },
-    {
-      id: 2,
-      employeeId: 'EMP002',
-      employeeName: 'Michael Thompson',
-      designation: 'Mathematics Teacher',
-      department: 'Mathematics Department',
-      grossSalary: 68000,
-      deductions: 6500,
-      netSalary: 61500,
-      payPeriodType: 'Monthly',
-      payPeriodStart: '2024-02-01',
-      payPeriodEnd: '2024-02-29',
-      payDate: '2024-02-28',
-      status: 'Paid',
-      paymentMethod: 'Bank Transfer'
-    },
-    {
-      id: 3,
-      employeeId: 'EMP003',
-      employeeName: 'Emily Rodriguez',
-      designation: 'Administrative Officer',
-      department: 'Administration',
-      grossSalary: 47000,
-      deductions: 4500,
-      netSalary: 42500,
-      payPeriodType: 'Monthly',
-      payPeriodStart: '2024-03-01',
-      payPeriodEnd: '2024-03-31',
-      payDate: '2024-03-31',
-      status: 'Pending',
-      paymentMethod: 'Bank Transfer'
-    }
-  ];
-
-  const PayrollForm = () => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <style>
-        {`
-          @media (min-width: 768px) {
-            .scrollbar-hide::-webkit-scrollbar {
-              display: none;
+  const PayrollForm = () => {
+    console.log('🔥🔥🔥 PayrollForm FUNCTION CALLED - TIMESTAMP:', Date.now());
+    console.log('🔥🔥🔥 PayrollForm showForm:', showForm);
+    console.log('🔥🔥🔥 PayrollForm activeTab:', activeTab);
+    
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <style>
+          {`
+            @media (min-width: 768px) {
+              .scrollbar-hide::-webkit-scrollbar {
+                display: none;
+              }
+              .scrollbar-hide {
+                -ms-overflow-style: none;
+                scrollbar-width: none;
+              }
             }
-            .scrollbar-hide {
-              -ms-overflow-style: none;
-              scrollbar-width: none;
-            }
-          }
-        `}
-      </style>
-      <div 
-        ref={scrollContainerRef}
-        className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto scrollbar-hide"
-        onMouseEnter={() => setIsHovering(true)}
-        onMouseLeave={() => setIsHovering(false)}
-      >
-        <form className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Employee</label>
-              <select className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                <option>Dr. Sarah Johnson (EMP001)</option>
-                <option>Michael Thompson (EMP002)</option>
-                <option>Emily Rodriguez (EMP003)</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Pay Period</label>
-              <input
-                type="month"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                defaultValue={selectedPayroll?.payPeriodStart}
-              />
-            </div>
+          `}
+        </style>
+        <div
+          ref={scrollContainerRef}
+          className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto scrollbar-hide"
+          onMouseEnter={() => {}}
+          onMouseLeave={() => {}}
+        >
+          {/* Tabs */}
+          <div className="border-b border-gray-200 mb-6">
+            <nav className="flex">
+              <button
+                onClick={() => {
+                  console.log('🔥🔥🔥 TAB CLICK - Process Payroll');
+                  setActiveTab('process-payroll');
+                }}
+                className={`flex-1 py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'process-payroll'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Process Payroll
+              </button>
+              <button
+                onClick={() => {
+                  console.log('🔥🔥🔥 TAB CLICK - Configure Deductions');
+                  setActiveTab('configure-deductions');
+                }}
+                className={`flex-1 py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'configure-deductions'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Configure Statutory Deductions
+              </button>
+            </nav>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Gross Salary</label>
-              <input
-                type="number"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                defaultValue={selectedPayroll?.grossSalary}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Deductions</label>
-              <input
-                type="number"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                defaultValue={selectedPayroll?.deductions}
-              />
-            </div>
-          </div>
+          {/* Tab Content */}
+          {activeTab === 'process-payroll' && (
+            <form className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Employee</label>
+                  <select 
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    onChange={(e) => console.log('🏭 PROCESS PAYROLL - Employee select changed:', e.target.value)}
+                    onFocus={() => console.log('🏭 PROCESS PAYROLL - Employee select focused')}
+                    onBlur={() => console.log('🏭 PROCESS PAYROLL - Employee select blurred')}
+                  >
+                    <option>Dr. Sarah Johnson (EMP001)</option>
+                    <option>Michael Thompson (EMP002)</option>
+                    <option>Emily Rodriguez (EMP003)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Pay Period</label>
+                  <input
+                    type="month"
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    defaultValue={selectedPayroll?.payPeriodStart}
+                    onChange={(e) => console.log('🏭 PROCESS PAYROLL - Pay period changed:', e.target.value)}
+                    onFocus={() => console.log('🏭 PROCESS PAYROLL - Pay period focused')}
+                    onBlur={() => console.log('🏭 PROCESS PAYROLL - Pay period blurred')}
+                  />
+                </div>
+              </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Pay Date</label>
-              <input
-                type="date"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                defaultValue={selectedPayroll?.payDate}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
-              <select className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                <option>Bank Transfer</option>
-                <option>Cash</option>
-                <option>Cheque</option>
-              </select>
-            </div>
-          </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Gross Salary</label>
+                  <input
+                    type="number"
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    defaultValue={selectedPayroll?.grossSalary}
+                    onChange={(e) => console.log('🏭 PROCESS PAYROLL - Gross Salary changed:', e.target.value)}
+                    onFocus={() => console.log('🏭 PROCESS PAYROLL - Gross Salary focused')}
+                    onBlur={() => console.log('🏭 PROCESS PAYROLL - Gross Salary blurred')}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Deductions</label>
+                  <input
+                    type="number"
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    defaultValue={selectedPayroll?.deductions}
+                    onChange={(e) => console.log('🏭 PROCESS PAYROLL - Deductions changed:', e.target.value)}
+                    onFocus={() => console.log('🏭 PROCESS PAYROLL - Deductions focused')}
+                    onBlur={() => console.log('🏭 PROCESS PAYROLL - Deductions blurred')}
+                  />
+                </div>
+              </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-            <textarea
-              rows={3}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Additional notes about payroll..."
-            ></textarea>
-          </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Pay Date</label>
+                  <input
+                    type="date"
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    defaultValue={selectedPayroll?.payDate}
+                    onChange={(e) => console.log('🏭 PROCESS PAYROLL - Pay date changed:', e.target.value)}
+                    onFocus={() => console.log('🏭 PROCESS PAYROLL - Pay date focused')}
+                    onBlur={() => console.log('🏭 PROCESS PAYROLL - Pay date blurred')}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
+                  <select 
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    onChange={(e) => console.log('🏭 PROCESS PAYROLL - Payment method changed:', e.target.value)}
+                    onFocus={() => console.log('🏭 PROCESS PAYROLL - Payment method focused')}
+                    onBlur={() => console.log('🏭 PROCESS PAYROLL - Payment method blurred')}
+                  >
+                    <option>Bank Transfer</option>
+                    <option>Cash</option>
+                    <option>Cheque</option>
+                  </select>
+                </div>
+              </div>
 
-          <div className="flex justify-end space-x-3 pt-4">
-            <button
-              type="button"
-              onClick={() => {
-                setShowForm(false);
-                setSelectedPayroll(null);
-              }}
-              className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              {selectedPayroll ? 'Update' : 'Process'} Payroll
-            </button>
-          </div>
-        </form>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                <textarea
+                  rows={3}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Additional notes about payroll..."
+                  onChange={(e) => console.log('🏭 PROCESS PAYROLL - Notes changed:', e.target.value)}
+                  onFocus={() => console.log('🏭 PROCESS PAYROLL - Notes focused')}
+                  onBlur={() => console.log('🏭 PROCESS PAYROLL - Notes blurred')}
+                ></textarea>
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowForm(false);
+                    setSelectedPayroll(null);
+                  }}
+                  className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  {selectedPayroll ? 'Update' : 'Process'} Payroll
+                </button>
+              </div>
+            </form>
+          )}
+
+          {activeTab === 'configure-deductions' && (
+            <div className="p-6 bg-white rounded-lg border border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Configure Statutory Deductions</h3>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-blue-800 font-medium">🔥 DEBUG: StatutoryDeductionsTab has been removed</p>
+                <p className="text-blue-600 text-sm mt-2">The problematic component that was causing re-renders and focus loss has been completely deleted.</p>
+                <p className="text-blue-600 text-sm mt-1">This tab should now render without any focus issues.</p>
+              </div>
+              <div className="mt-4">
+                <input
+                  type="text"
+                  placeholder="Test typing here - should maintain focus"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  onChange={(e) => console.log('🔥 DEBUG: Typing in test input:', e.target.value)}
+                  onFocus={() => console.log('🔥 DEBUG: Test input focused')}
+                  onBlur={() => console.log('🔥 DEBUG: Test input blurred')}
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="p-6 md:p-3 bg-gray-50 min-h-screen">
@@ -206,57 +294,12 @@ export const Payroll: React.FC = () => {
               <div className="text-sm font-semibold text-black">
                 Period Ending
               </div>
-              {(periodType === 'daily' || periodType === 'weekly' || periodType === 'monthly' || periodType === 'fortnightly' || periodType === 'quarterly' || periodType === 'annually') && (
-                <>
-                  {periodType === 'daily' && (
-                    <input 
-                      type="date" 
-                      value={periodValue}
-                      onChange={(e) => setPeriodValue(e.target.value)}
-                      className="w-full p-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent [&::-webkit-calendar-picker-indicator]:cursor-pointer"
-                    />
-                  )}
-                  {periodType === 'weekly' && (
-                    <input 
-                      type="week" 
-                      value={periodValue}
-                      onChange={(e) => setPeriodValue(e.target.value)}
-                      className="w-full p-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent [&::-webkit-calendar-picker-indicator]:cursor-pointer"
-                    />
-                  )}
-                  {(periodType === 'monthly' || periodType === 'fortnightly') && (
-                    <input 
-                      type="month" 
-                      value={periodValue}
-                      onChange={(e) => setPeriodValue(e.target.value)}
-                      className="w-full p-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent [&::-webkit-calendar-picker-indicator]:cursor-pointer"
-                    />
-                  )}
-                  {periodType === 'quarterly' && (
-                    <select 
-                      value={periodValue}
-                      onChange={(e) => setPeriodValue(e.target.value)}
-                      className="w-full p-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent [&::-webkit-calendar-picker-indicator]:cursor-pointer"
-                    >
-                      <option value="2024-Q1">Q1 2024</option>
-                      <option value="2024-Q2">Q2 2024</option>
-                      <option value="2024-Q3">Q3 2024</option>
-                      <option value="2024-Q4">Q4 2024</option>
-                    </select>
-                  )}
-                  {periodType === 'annually' && (
-                    <input 
-                      type="number" 
-                      value={periodValue}
-                      onChange={(e) => setPeriodValue(e.target.value)}
-                      placeholder="2024"
-                      min="2020"
-                      max="2030"
-                      className="w-full p-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent [&::-webkit-calendar-picker-indicator]:cursor-pointer"
-                    />
-                  )}
-                </>
-              )}
+              <input 
+                type="month" 
+                value={periodValue}
+                onChange={(e) => setPeriodValue(e.target.value)}
+                className="w-full p-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+              />
             </div>
           </div>
           <div className="bg-white p-3 md:p-2 rounded-lg shadow-sm border border-gray-200">
@@ -316,7 +359,12 @@ export const Payroll: React.FC = () => {
               <span className="hidden md:inline">Filter by Period</span>
             </button>
             <button
-              onClick={() => setShowForm(true)}
+              onClick={() => {
+                console.log('🔥🔥🔥 PROCESS PAYROLL BUTTON CLICKED - TIMESTAMP:', Date.now());
+                console.log('🔥🔥🔥 BEFORE setShowForm(true) - showForm:', showForm);
+                setShowForm(true);
+                console.log('🔥🔥🔥 AFTER setShowForm(true) - showForm:', showForm);
+              }}
               className="flex-shrink-0 bg-blue-600 text-white p-2 md:px-4 md:py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center"
             >
               <Plus className="w-5 h-5 md:mr-2" />

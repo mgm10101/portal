@@ -14,27 +14,26 @@ export const AddFieldModal: React.FC<AddFieldModalProps> = ({
   onFieldCreated,
 }) => {
   const [customFieldName, setCustomFieldName] = useState('');
-  // Initialize state with the new, combined type
-  const [customFieldType, setCustomFieldType] = useState('Text/Number'); 
-  const [dropdownOptions, setDropdownOptions] = useState('');
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+ const [customFieldType, setCustomFieldType] = useState('Text/Number'); 
+ const [dropdownOptions, setDropdownOptions] = useState('');
+ const [error, setError] = useState('');
+ const [isLoading, setIsLoading] = useState(false);
 
-  // MODIFICATION 4: Update slotMap - remove 'Number' slot and consolidate all slots under 'Text'
-  const slotMap: Record<string, string[]> = {
-    Text: ['custom_text1', 'custom_text2', 'custom_text3', 'custom_text4', 'custom_text5', 'custom_num1', 'custom_num2', 'custom_num3'],
-  };
+  // MODIFICATION 4: Update slotMap - use all text columns including the new student_custom_text6-10
+  const slotMap: Record<string, string[]> = {
+    Text: ['custom_text1', 'custom_text2', 'custom_text3', 'custom_text4', 'custom_text5', 'student_custom_text6', 'student_custom_text7', 'student_custom_text8', 'student_custom_text9', 'student_custom_text10'],
+  };
 
-  // MODIFICATION 3: Simplify normalizeType
-  const normalizeType = (type: string): 'Text' => {
-    // Map both Text/Number and Dropdown fields to use the consolidated 'Text' slots.
-    return 'Text'; 
-  };
+  // MODIFICATION 3: Simplify normalizeType
+  const normalizeType = (): 'Text' => {
+    // Always return 'Text' since all fields use text slots
+    return 'Text'; 
+  };
 
   const handleSubmit = async () => {
     setIsLoading(true);
     // Normalized type is now always 'Text'
-    const normalizedType = normalizeType(customFieldType); 
+    const normalizedType = normalizeType(); 
 
     const { data: existingFields } = await supabase
       .from('custom_fields')

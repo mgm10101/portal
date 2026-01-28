@@ -23,7 +23,7 @@ export interface StaffMember {
   emergency_contact_2_phone: string | null;
   emergency_contact_2_relationship: string | null;
   date_hired: string | null;
-  status: 'Active' | 'On Leave' | 'Suspended' | 'Terminated' | 'Retired';
+  status: 'Active' | 'On Leave' | 'Suspended' | 'Terminated' | 'Retired' | 'Resigned';
   date_of_termination: string | null;
   date_of_retirement: string | null;
   qualifications: string | null;

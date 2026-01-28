@@ -1,4 +1,4 @@
-// src/components/HR/staffCustomFields/AddFieldModal.tsx
+// src/components/HR/statutoryDetails/AddFieldModal.tsx
 
 import React, { useState } from 'react';
 import { supabase } from '../../../supabaseClient';
@@ -13,14 +13,14 @@ export const AddFieldModal: React.FC<AddFieldModalProps> = ({
   onClose,
   onFieldCreated,
 }) => {
-  const [customFieldName, setCustomFieldName] = useState('');
-  const [customFieldType, setCustomFieldType] = useState('Text/Number'); 
+  const [statutoryFieldName, setStatutoryFieldName] = useState('');
+  const [statutoryFieldType, setStatutoryFieldType] = useState('Text/Number'); 
   const [dropdownOptions, setDropdownOptions] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const slotMap: Record<string, string[]> = {
-    Text: ['staff_custom_text1', 'staff_custom_text2', 'staff_custom_text3', 'staff_custom_text4', 'staff_custom_text5', 'staff_custom_text6', 'staff_custom_text7', 'staff_custom_text8', 'staff_custom_text9', 'staff_custom_text10'],
+    Text: ['statutory_text1', 'statutory_text2', 'statutory_text3', 'statutory_text4', 'statutory_text5', 'statutory_text6', 'statutory_text7', 'statutory_text8', 'statutory_text9', 'statutory_text10'],
   };
 
   const normalizeType = (type: string): 'Text' => {
@@ -29,10 +29,10 @@ export const AddFieldModal: React.FC<AddFieldModalProps> = ({
 
   const handleSubmit = async () => {
     setIsLoading(true);
-    const normalizedType = normalizeType(customFieldType); 
+    const normalizedType = normalizeType(statutoryFieldType); 
 
     const { data: existingFields } = await supabase
-      .from('staff_custom_fields')
+      .from('statutory_fields')
       .select('field_id, field_name, field_type');
 
     const usedSlots = (existingFields || [])
@@ -45,7 +45,7 @@ export const AddFieldModal: React.FC<AddFieldModalProps> = ({
 
     if (!availableSlot) {
       setError(
-        `You've used all ${slotMap[normalizedType].length} custom field slots. Please delete one before adding another.`
+        `You've used all ${slotMap[normalizedType].length} statutory field slots. Please delete one before adding another.`
       );
       setIsLoading(false);
       return;
@@ -53,11 +53,11 @@ export const AddFieldModal: React.FC<AddFieldModalProps> = ({
 
     const payload: any = {
       field_id: availableSlot,
-      field_name: customFieldName,
-      field_type: customFieldType === 'Text/Number' ? 'Text Input' : customFieldType,
+      field_name: statutoryFieldName,
+      field_type: statutoryFieldType === 'Text/Number' ? 'Text Input' : statutoryFieldType,
     };
 
-    if (customFieldType === 'Dropdown') {
+    if (statutoryFieldType === 'Dropdown') {
       const parsedOptions = dropdownOptions
         .split(',')
         .map((opt) => opt.trim())
@@ -68,7 +68,7 @@ export const AddFieldModal: React.FC<AddFieldModalProps> = ({
     }
 
     const { error: upsertError } = await supabase
-      .from('staff_custom_fields')
+      .from('statutory_fields')
       .upsert(payload, { onConflict: 'field_id' });
 
     if (upsertError) {
@@ -86,7 +86,7 @@ export const AddFieldModal: React.FC<AddFieldModalProps> = ({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-lg p-6 w-full max-w-md">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-gray-800">Add New Field</h2>
+          <h2 className="text-xl font-bold text-gray-800">Add New Statutory Field</h2>
           <button
             type="button"
             onClick={onClose}
@@ -102,12 +102,12 @@ export const AddFieldModal: React.FC<AddFieldModalProps> = ({
               Field Name
             </label>
             <input
-              name="customFieldName"
+              name="statutoryFieldName"
               type="text"
-              value={customFieldName}
-              onChange={(e) => setCustomFieldName(e.target.value)}
+              value={statutoryFieldName}
+              onChange={(e) => setStatutoryFieldName(e.target.value)}
               className="w-full p-3 border border-gray-300 rounded-lg"
-              placeholder="Enter field name"
+              placeholder="e.g., KRA Pin, NSSF Number"
               disabled={isLoading}
             />
           </div>
@@ -116,9 +116,9 @@ export const AddFieldModal: React.FC<AddFieldModalProps> = ({
               Field Type
             </label>
             <select
-              name="customFieldType"
-              value={customFieldType}
-              onChange={(e) => setCustomFieldType(e.target.value)}
+              name="statutoryFieldType"
+              value={statutoryFieldType}
+              onChange={(e) => setStatutoryFieldType(e.target.value)}
               className="w-full p-3 border border-gray-300 rounded-lg"
               disabled={isLoading}
             >
@@ -126,7 +126,7 @@ export const AddFieldModal: React.FC<AddFieldModalProps> = ({
               <option>Dropdown</option>
             </select>
           </div>
-          {customFieldType === 'Dropdown' && (
+          {statutoryFieldType === 'Dropdown' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Dropdown Options (comma-separated)
@@ -166,4 +166,3 @@ export const AddFieldModal: React.FC<AddFieldModalProps> = ({
     </div>
   );
 };
-

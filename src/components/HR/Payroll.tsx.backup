@@ -1,0 +1,1041 @@
+import React, { useState, useRef, useMemo, useCallback } from 'react';
+import { Plus, Search, Filter, DollarSign, Calendar, CheckCircle, Users, Edit, Trash2, ChevronUp } from 'lucide-react';
+
+// Move allowances outside component to prevent recreation on every render
+const ALLOWANCES = [
+  { id: '1', name: 'House Allowance', amount: 15000 },
+  { id: '2', name: 'Transport Allowance', amount: 5000 },
+  { id: '3', name: 'Medical Allowance', amount: 3000 }
+];
+
+// Move payroll records outside component to prevent recreation on every render
+const PAYROLL_RECORDS = [
+  {
+    id: 1,
+    employeeId: 'EMP001',
+    employeeName: 'Dr. Sarah Johnson',
+    designation: 'Senior Science Teacher',
+    department: 'Science Department',
+    grossSalary: 80000,
+    deductions: 8000,
+    netSalary: 72000,
+    payPeriodType: 'Monthly',
+    payPeriodStart: '2024-02-01',
+    payPeriodEnd: '2024-02-29',
+    payDate: '2024-02-28',
+    status: 'Paid',
+    paymentMethod: 'Bank Transfer'
+  },
+  {
+    id: 2,
+    employeeId: 'EMP002',
+    employeeName: 'Michael Thompson',
+    designation: 'Mathematics Teacher',
+    department: 'Mathematics Department',
+    grossSalary: 68000,
+    deductions: 6500,
+    netSalary: 61500,
+    payPeriodType: 'Monthly',
+    payPeriodStart: '2024-02-01',
+    payPeriodEnd: '2024-02-29',
+    payDate: '2024-02-28',
+    status: 'Paid',
+    paymentMethod: 'Bank Transfer'
+  },
+  {
+    id: 3,
+    employeeId: 'EMP003',
+    employeeName: 'Emily Rodriguez',
+    designation: 'Administrative Officer',
+    department: 'Administration',
+    grossSalary: 47000,
+    deductions: 4500,
+    netSalary: 42500,
+    payPeriodType: 'Monthly',
+    payPeriodStart: '2024-03-01',
+    payPeriodEnd: '2024-03-31',
+    payDate: '2024-03-31',
+    status: 'Pending',
+    paymentMethod: 'Bank Transfer'
+  }
+];
+
+interface DeductionConfigProps {
+  config: {
+    id: string;
+    name: string;
+    percentage: number;
+    earningType: string;
+    hasBands: boolean;
+    bands: Array<{ id: string; min: number; max: number | null; percentage: number }>;
+    paidBy: {
+      employer: number;
+      employee: number;
+    };
+    limits: {
+      type: 'deduction' | 'earning';
+      lower: number | null;
+      upper: number | null;
+    };
+  };
+  isEditing: boolean;
+  onToggleEdit: () => void;
+  onUpdateConfig: (id: string, field: string, value: any) => void;
+  onDeleteConfig: (id: string) => void;
+  onUpdateBand: (configId: string, bandId: string, field: string, value: any) => void;
+  onAddBand: (configId: string) => void;
+  onDeleteBand: (configId: string, bandId: string) => void;
+}
+
+const arePropsEqual = (prevProps: DeductionConfigProps, nextProps: DeductionConfigProps) => {
+  return (
+    prevProps.config.id === nextProps.config.id &&
+    prevProps.config.name === nextProps.config.name &&
+    prevProps.config.percentage === nextProps.config.percentage &&
+    prevProps.config.earningType === nextProps.config.earningType &&
+    prevProps.config.hasBands === nextProps.config.hasBands &&
+    JSON.stringify(prevProps.config.bands) === JSON.stringify(nextProps.config.bands) &&
+    JSON.stringify(prevProps.config.paidBy) === JSON.stringify(nextProps.config.paidBy) &&
+    JSON.stringify(prevProps.config.limits) === JSON.stringify(nextProps.config.limits) &&
+    prevProps.isEditing === nextProps.isEditing
+  );
+};
+
+const DeductionConfigItem = React.memo<DeductionConfigProps>(({
+  config,
+  isEditing,
+  onToggleEdit,
+  onUpdateConfig,
+  onDeleteConfig,
+  onUpdateBand,
+  onAddBand,
+  onDeleteBand
+}) => {
+  console.log(' DeductionConfigItem rendering for:', config.id);
+  
+  // Local state for dropdown and search - isolated per component
+  const [showEarningDropdown, setShowEarningDropdown] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  // Get available earning types - memoized with stable ALLOWANCES dependency
+  const earningTypes = useMemo(() => {
+    console.log(' earningTypes useMemo recalculating');
+    const types = ['Gross Earnings', 'Basic Salary'];
+    ALLOWANCES.forEach(a => {
+      if (a.name && !types.includes(a.name)) {
+        types.push(a.name);
+      }
+    });
+    return types;
+  }, []); 
+  const filteredEarningTypes = useMemo(() => {
+    if (!searchTerm) return earningTypes;
+    console.log(' filteredEarningTypes recalculating due to searchTerm:', searchTerm);
+    return earningTypes.filter(type => 
+      type.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [earningTypes, searchTerm]);
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center space-x-3 flex-1">
+          <input
+            type="text"
+            value={config.name}
+            onChange={(e) => {
+              console.log(' Deduction name input changed:', e.target.value);
+              onUpdateConfig(config.id, 'name', e.target.value);
+            }}
+            placeholder="Deduction Name (e.g. PAYE)"
+            className="text-lg font-medium border-b-2 border-transparent focus:border-blue-500 focus:outline-none px-2 py-1 flex-1 min-w-[300px]"
+          />
+        </div>
+        <div className="flex items-center space-x-2">
+          <button
+            type="button"
+            onClick={onToggleEdit}
+            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
+          >
+            {isEditing ? (
+              <ChevronUp className="w-5 h-5" />
+            ) : (
+              <Edit className="w-5 h-5" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => onDeleteConfig(config.id)}
+            className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+          >
+            <Trash2 className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+
+      {isEditing && (
+        <div className="space-y-4 pt-4 border-t border-gray-200">
+          {/* Percentage and Earning Type */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Percentage of Earnings (%)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="100"
+                value={config.percentage ?? 0}
+                onChange={(e) => {
+                  console.log(' Percentage input changed:', e.target.value);
+                  onUpdateConfig(config.id, 'percentage', parseFloat(e.target.value) || 0);
+                }}
+                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                disabled={config.hasBands}
+              />
+              {config.hasBands && (
+                <p className="text-xs text-gray-500 mt-1">Percentage set per band below</p>
+              )}
+            </div>
+            <div className="relative">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Based On
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={config.earningType}
+                  readOnly
+                  onClick={() => {
+                    console.log(' Earning type dropdown clicked for config:', config.id);
+                    setShowEarningDropdown(true);
+                  }}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer bg-white"
+                />
+                {showEarningDropdown && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="p-2 border-b border-gray-200">
+                      <input
+                        type="text"
+                        placeholder="Search earning type..."
+                        value={searchTerm}
+                        onChange={(e) => {
+                          console.log(' Search term changed:', e.target.value);
+                          setSearchTerm(e.target.value);
+                        }}
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                        autoFocus
+                      />
+                    </div>
+                    {filteredEarningTypes.map((type) => (
+                      <div
+                        key={type}
+                        onClick={() => {
+                          console.log(' Earning type selected:', type);
+                          onUpdateConfig(config.id, 'earningType', type);
+                          setShowEarningDropdown(false);
+                          setSearchTerm('');
+                        }}
+                        className="p-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-0"
+                      >
+                        {type}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Bands Toggle */}
+          <div>
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={config.hasBands || false}
+                onChange={(e) => {
+                  console.log(' Bands checkbox changed:', e.target.checked);
+                  const checked = e.target.checked;
+                  // Update both hasBands and bands in a single state update
+                  if (!checked) {
+                    onUpdateConfig(config.id, 'hasBands', false);
+                    onUpdateConfig(config.id, 'bands', []);
+                  } else {
+                    // Initialize with first band
+                    onUpdateConfig(config.id, 'hasBands', true);
+                    const firstBand = {
+                      id: Date.now().toString(),
+                      min: 0,
+                      max: null as number | null,
+                      percentage: config.percentage || 0
+                    };
+                    onUpdateConfig(config.id, 'bands', [firstBand]);
+                  }
+                }}
+                className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-2 focus:ring-blue-500"
+              />
+              <span className="text-sm font-medium text-gray-700">Use Bands (e.g., Tax Brackets)</span>
+            </label>
+          </div>
+
+          {/* Bands Configuration */}
+          {config.hasBands && (
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-700 mb-1">Bands</h4>
+                  <p className="text-xs text-gray-600">
+                    Set up bands like tax brackets. First band starts from 0, subsequent bands start from previous band's max.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onAddBand(config.id)}
+                  className="text-sm text-blue-600 hover:text-blue-700 flex items-center"
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add Band
+                </button>
+              </div>
+              <div className="space-y-3">
+                {(!config.bands || config.bands.length === 0) ? (
+                  <p className="text-sm text-gray-500 italic text-center py-4">No bands configured. Click "Add Band" to create one.</p>
+                ) : (
+                  config.bands.map((band, index) => {
+                    let bandDescription = '';
+                    if (index === 0) {
+                      if (band.max === null || band.max === undefined) {
+                        bandDescription = `First ${(band.min || 0).toLocaleString()} and above`;
+                      } else {
+                        bandDescription = `First ${(band.min || 0).toLocaleString()} - ${band.max.toLocaleString()}`;
+                      }
+                    } else {
+                      if (band.max === null || band.max === undefined) {
+                        bandDescription = `Above ${(band.min || 0).toLocaleString()}`;
+                      } else {
+                        bandDescription = `${(band.min || 0).toLocaleString()} - ${band.max.toLocaleString()}`;
+                      }
+                    }
+                    
+                    return (
+                      <div key={band.id} className="bg-white p-4 rounded-lg border border-gray-200">
+                        <div className="mb-3">
+                          <span className="text-sm font-medium text-gray-700">Band {index + 1}: </span>
+                          <span className="text-sm text-gray-600">{bandDescription}</span>
+                        </div>
+                        <div className="grid grid-cols-12 gap-2 items-end">
+                          <div className="col-span-3">
+                            <label className="text-xs text-gray-600 mb-1 block">Min Amount</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={band.min !== null && band.min !== undefined ? String(band.min) : '0'}
+                              onChange={(e) => {
+                                console.log(' Band min input changed:', { bandId: band.id, value: e.target.value });
+                                onUpdateBand(config.id, band.id, 'min', parseFloat(e.target.value) || 0);
+                              }}
+                              className="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                              disabled={index > 0}
+                            />
+                          </div>
+                          <div className="col-span-3">
+                            <label className="text-xs text-gray-600 mb-1 block">Max Amount (leave empty for no limit)</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min={band.min ?? 0}
+                              value={band.max !== null && band.max !== undefined ? String(band.max) : ''}
+                              onChange={(e) => {
+                                console.log(' Band max input changed:', { bandId: band.id, value: e.target.value });
+                                const newMax = e.target.value ? parseFloat(e.target.value) : null;
+                                onUpdateBand(config.id, band.id, 'max', newMax);
+                                // Update next band's min if it exists
+                                if (newMax !== null && config.bands && index < config.bands.length - 1) {
+                                  const nextBand = config.bands[index + 1];
+                                  if (nextBand && (nextBand.min ?? 0) <= newMax) {
+                                    console.log(' Auto-updating next band min:', nextBand.id, 'to:', newMax);
+                                    onUpdateBand(config.id, nextBand.id, 'min', newMax);
+                                  }
+                                }
+                              }}
+                              placeholder="No limit"
+                              className="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                          </div>
+                          <div className="col-span-4">
+                            <label className="text-xs text-gray-600 mb-1 block">Percentage (%) for this band</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max="100"
+                              value={band.percentage ?? 0}
+                              onChange={(e) => {
+                                console.log(' Band percentage input changed:', { bandId: band.id, value: e.target.value });
+                                onUpdateBand(config.id, band.id, 'percentage', parseFloat(e.target.value) || 0);
+                              }}
+                              className="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            />
+                          </div>
+                          <div className="col-span-2 flex items-end">
+                            <button
+                              type="button"
+                              onClick={() => onDeleteBand(config.id, band.id)}
+                              className="w-full p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                            >
+                              <Trash2 className="w-4 h-4 mx-auto" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Who Pays - Percentage Split */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Who Pays (Percentage of Deduction Amount)
+            </label>
+            <p className="text-xs text-gray-600 mb-3">
+              Specify the percentage of the total deduction amount paid by employer and employee. Example: For 12% NSSF where employer pays 5.5% of earnings, enter 45.8% (5.5/12 * 100) for employer and 54.2% (6.5/12 * 100) for employee.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Employee Percentage (%)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={config.paidBy?.employee ?? 0}
+                  onChange={(e) => {
+                    console.log(' Employee percentage input changed:', e.target.value);
+                    const employeePercent = parseFloat(e.target.value) || 0;
+                    const employerPercent = 100 - employeePercent;
+                    onUpdateConfig(config.id, 'paidBy', {
+                      employer: employerPercent >= 0 && employerPercent <= 100 ? employerPercent : config.paidBy?.employer ?? 0,
+                      employee: employeePercent >= 0 && employeePercent <= 100 ? employeePercent : 0
+                    });
+                  }}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Employer Percentage (%)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={config.paidBy?.employer ?? 0}
+                  onChange={(e) => {
+                    console.log(' Employer percentage input changed:', e.target.value);
+                    const employerPercent = parseFloat(e.target.value) || 0;
+                    const employeePercent = 100 - employerPercent;
+                    onUpdateConfig(config.id, 'paidBy', {
+                      employer: employerPercent >= 0 && employerPercent <= 100 ? employerPercent : 0,
+                      employee: employeePercent >= 0 && employeePercent <= 100 ? employeePercent : config.paidBy?.employee ?? 0
+                    });
+                  }}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+            <div className="mt-2 text-sm text-gray-600">
+              <span className="font-medium">Total: </span>
+              <span className={((config.paidBy?.employer ?? 0) + (config.paidBy?.employee ?? 0)) > 0 ? 'text-blue-600' : 'text-gray-400'}>
+                {((config.paidBy?.employer ?? 0) + (config.paidBy?.employee ?? 0)).toFixed(2)}%
+              </span>
+            </div>
+          </div>
+
+          {/* Limits */}
+          <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+            <h4 className="text-sm font-semibold text-gray-700 mb-3">Limits</h4>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Limit Type</label>
+                <div className="flex space-x-4">
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      name={`limitType-${config.id}`}
+                      value="deduction"
+                      checked={config.limits.type === 'deduction'}
+                      onChange={(e) => {
+                        console.log(' Limit type radio changed to deduction for config:', config.id);
+                        onUpdateConfig(config.id, 'limits', { ...config.limits, type: e.target.value as 'deduction' | 'earning' });
+                      }}
+                      className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className="ml-2 text-sm text-gray-700">On Deduction Amount</span>
+                  </label>
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      name={`limitType-${config.id}`}
+                      value="earning"
+                      checked={config.limits.type === 'earning'}
+                      onChange={(e) => {
+                        console.log(' Limit type radio changed to earning for config:', config.id);
+                        onUpdateConfig(config.id, 'limits', { ...config.limits, type: e.target.value as 'deduction' | 'earning' });
+                      }}
+                      className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className="ml-2 text-sm text-gray-700">On Earning Amount</span>
+                  </label>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Lower Limit (leave empty for no limit)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={config.limits.lower || ''}
+                    onChange={(e) => {
+                      console.log(' Lower limit input changed:', e.target.value);
+                      onUpdateConfig(config.id, 'limits', { ...config.limits, lower: e.target.value ? parseFloat(e.target.value) : null });
+                    }}
+                    placeholder={config.limits.type === 'deduction' ? 'No lower limit on deduction amount' : 'No lower limit on earning amount'}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Upper Limit (leave empty for no limit)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min={config.limits.lower || 0}
+                    value={config.limits.upper || ''}
+                    onChange={(e) => {
+                      console.log(' Upper limit input changed:', e.target.value);
+                      onUpdateConfig(config.id, 'limits', { ...config.limits, upper: e.target.value ? parseFloat(e.target.value) : null });
+                    }}
+                    placeholder={config.limits.type === 'deduction' ? 'No upper limit on deduction amount' : 'No upper limit on earning amount'}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Save and Discard Buttons */}
+          <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+            <button
+              type="button"
+              onClick={() => {
+                // TODO: Save to database when database is configured
+                // For now, just collapse the card
+                onToggleEdit();
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => onDeleteConfig(config.id)}
+              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Discard
+          </div>
+        </div>
+      )
+    }, arePropsEqual);
+
+DeductionConfigItem.displayName = 'DeductionConfigItem';
+
+export const Payroll: React.FC = () => {
+  console.log(' Payroll component rendering');
+  const [showForm, setShowForm] = useState(false);
+  // ... (rest of the code remains the same)
+```
+  const [selectedPayroll, setSelectedPayroll] = useState<any>(null);
+  const [periodValue, setPeriodValue] = useState('2024-02');
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [activeTab, setActiveTab] = useState('process-payroll');
+
+  // Statutory Deductions Configuration State
+  const [statutoryDeductionConfigs, setStatutoryDeductionConfigs] = useState<Array<{
+    id: string;
+    name: string;
+    percentage: number;
+    earningType: string;
+    hasBands: boolean;
+    bands: Array<{ id: string; min: number; max: number | null; percentage: number }>;
+    paidBy: {
+      employer: number;
+      employee: number;
+    };
+    limits: {
+      type: 'deduction' | 'earning';
+      lower: number | null;
+      upper: number | null;
+    };
+  }>>([]);
+  const [editingDeductionConfig, setEditingDeductionConfig] = useState<string | null>(null);
+
+  // Statutory Deductions Helper Functions - wrapped in useCallback to prevent recreation
+  const addDeductionConfig = useCallback(() => {
+    const newId = Date.now().toString();
+    setStatutoryDeductionConfigs(prevConfigs => [...prevConfigs, {
+      id: newId,
+      name: '',
+      percentage: 0,
+      earningType: 'Gross Earnings',
+      hasBands: false,
+      bands: [],
+      paidBy: {
+        employer: 0,
+        employee: 0
+      },
+      limits: {
+        type: 'deduction',
+        lower: null,
+        upper: null
+      }
+    }]);
+    setEditingDeductionConfig(newId);
+  }, []);
+
+  const updateDeductionConfig = useCallback((id: string, field: string, value: any) => {
+    console.log(' updateDeductionConfig called:', { id, field, value });
+    setStatutoryDeductionConfigs(prevConfigs => prevConfigs.map(config =>
+      config.id === id ? { ...config, [field]: value } : config
+    ));
+  }, []);
+
+  const deleteDeductionConfig = useCallback((id: string) => {
+    setStatutoryDeductionConfigs(prevConfigs => prevConfigs.filter(config => config.id !== id));
+    setEditingDeductionConfig(prev => prev === id ? null : prev);
+  }, []);
+
+  const addBand = useCallback((configId: string) => {
+    setStatutoryDeductionConfigs(prevConfigs => prevConfigs.map(config => {
+      if (config.id === configId) {
+        const currentBands = config.bands || [];
+        const lastBand = currentBands.length > 0 ? currentBands[currentBands.length - 1] : null;
+        const newBand = {
+          id: Date.now().toString(),
+          min: lastBand && lastBand.max !== null && lastBand.max !== undefined ? lastBand.max : 0,
+          max: null as number | null,
+          percentage: 0
+        };
+        return { ...config, bands: [...currentBands, newBand] };
+      }
+      return config;
+    }));
+  }, []);
+
+  const updateBand = useCallback((configId: string, bandId: string, field: string, value: any) => {
+    console.log(' updateBand called:', { configId, bandId, field, value });
+    setStatutoryDeductionConfigs(prevConfigs => prevConfigs.map(config => {
+      if (config.id === configId) {
+        const currentBands = config.bands || [];
+        return {
+          ...config,
+          bands: currentBands.map(band =>
+            band.id === bandId ? { ...band, [field]: value } : band
+          )
+        };
+      }
+      return config;
+    }));
+  }, []);
+
+  const deleteBand = useCallback((configId: string, bandId: string) => {
+    setStatutoryDeductionConfigs(prevConfigs => prevConfigs.map(config => {
+      if (config.id === configId) {
+        return {
+          ...config,
+          bands: config.bands.filter(band => band.id !== bandId)
+        };
+      }
+      return config;
+    }));
+  }, []);
+
+  // Memoize the callback functions to prevent recreation
+  const memoizedToggleEdit = useCallback((configId: string) => {
+    setEditingDeductionConfig(prev => prev === configId ? null : configId);
+  }, []);
+
+  const payrollRecords = PAYROLL_RECORDS;
+
+  const PayrollForm = () => (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <style>
+        {`
+          @media (min-width: 768px) {
+            .scrollbar-hide::-webkit-scrollbar {
+              display: none;
+            }
+            .scrollbar-hide {
+              -ms-overflow-style: none;
+              scrollbar-width: none;
+            }
+          }
+        `}
+      </style>
+      <div
+        ref={scrollContainerRef}
+        className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto scrollbar-hide"
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      >
+        {/* Tabs */}
+        <div className="border-b border-gray-200 mb-6">
+          <nav className="flex">
+            <button
+              onClick={() => setActiveTab('process-payroll')}
+              className={`flex-1 py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'process-payroll'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Process Payroll
+            </button>
+            <button
+              onClick={() => setActiveTab('configure-deductions')}
+              className={`flex-1 py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'configure-deductions'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Configure Statutory Deductions
+            </button>
+          </nav>
+        </div>
+
+        {/* Tab Content */}
+        {activeTab === 'process-payroll' && (
+          <form className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Employee</label>
+                <select className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                  <option>Dr. Sarah Johnson (EMP001)</option>
+                  <option>Michael Thompson (EMP002)</option>
+                  <option>Emily Rodriguez (EMP003)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Pay Period</label>
+                <input
+                  type="month"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  defaultValue={selectedPayroll?.payPeriodStart}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Gross Salary</label>
+                <input
+                  type="number"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  defaultValue={selectedPayroll?.grossSalary}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Deductions</label>
+                <input
+                  type="number"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  defaultValue={selectedPayroll?.deductions}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Pay Date</label>
+                <input
+                  type="date"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  defaultValue={selectedPayroll?.payDate}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
+                <select className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                  <option>Bank Transfer</option>
+                  <option>Cash</option>
+                  <option>Cheque</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+              <textarea
+                rows={3}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Additional notes about payroll..."
+              ></textarea>
+            </div>
+
+            <div className="flex justify-end space-x-3 pt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowForm(false);
+                  setSelectedPayroll(null);
+                }}
+                className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                {selectedPayroll ? 'Update' : 'Process'} Payroll
+              </button>
+            </div>
+          </form>
+        )}
+
+        {activeTab === 'configure-deductions' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-gray-800">Configure Statutory Deductions</h3>
+              <button
+                type="button"
+                onClick={addDeductionConfig}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Add Statutory Deduction
+              </button>
+            </div>
+
+            {/* List of Deduction Configs */}
+            <div className="space-y-4">
+              {statutoryDeductionConfigs.length === 0 ? (
+                <div className="text-center py-8 bg-gray-50 rounded-lg border border-gray-200">
+                  <p className="text-gray-500">No statutory deductions configured. Click "Add Statutory Deduction" to create one.</p>
+                </div>
+              ) : (
+                statutoryDeductionConfigs.map((config) => (
+                  <DeductionConfigItem
+                    key={config.id}
+                    config={config}
+                    isEditing={editingDeductionConfig === config.id}
+                    onToggleEdit={() => memoizedToggleEdit(config.id)}
+                    onUpdateConfig={updateDeductionConfig}
+                    onDeleteConfig={deleteDeductionConfig}
+                    onUpdateBand={updateBand}
+                    onAddBand={addBand}
+                    onDeleteBand={deleteBand}
+                  />
+                ))
+              )}
+            </div>
+
+            <div className="flex justify-end space-x-3 pt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowForm(false);
+                  setSelectedPayroll(null);
+                }}
+                className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              >
+                Save Configuration
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="p-6 md:p-3 bg-gray-50 min-h-screen">
+      <div className="max-w-7xl mx-auto">
+        {/* Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-3 mb-6 md:mb-3">
+          {/* Period Selector Card */}
+          <div className="bg-white p-3 md:p-2 rounded-lg shadow-sm border border-gray-200">
+            <div className="space-y-1.5">
+              <div className="text-sm font-semibold text-black">
+                Period Ending
+              </div>
+              <input 
+                type="month" 
+                value={periodValue}
+                onChange={(e) => setPeriodValue(e.target.value)}
+                className="w-full p-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+              />
+            </div>
+          </div>
+          <div className="bg-white p-3 md:p-2 rounded-lg shadow-sm border border-gray-200">
+            <div className="flex items-center">
+              <DollarSign className="w-8 h-8 text-green-600 mr-3" />
+              <div>
+                <div className="text-sm font-semibold text-gray-600">Total Payroll</div>
+                <div className="text-2xl font-bold text-green-600">Ksh 176,000</div>
+                <div className="flex items-center text-xs text-gray-600 mt-1">
+                  <Users className="w-2.5 h-2.5 mr-2" />
+                  <span>Staff Members: 3</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white p-3 md:p-2 rounded-lg shadow-sm border border-gray-200">
+            <div className="flex items-center">
+              <CheckCircle className="w-8 h-8 text-blue-600 mr-3" />
+              <div>
+                <div className="text-sm font-semibold text-gray-600">Paid This Month</div>
+                <div className="text-2xl font-bold text-blue-600">Ksh 133,500</div>
+                <div className="flex items-center text-xs text-gray-600 mt-1">
+                  <Users className="w-2.5 h-2.5 mr-2" />
+                  <span>Staff Members: 2</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white p-3 md:p-2 rounded-lg shadow-sm border border-gray-200">
+            <div className="flex items-center">
+              <Calendar className="w-8 h-8 text-yellow-600 mr-3" />
+              <div>
+                <div className="text-sm font-semibold text-gray-600">Pending</div>
+                <div className="text-2xl font-bold text-yellow-600">Ksh 42,500</div>
+                <div className="flex items-center text-xs text-gray-600 mt-1">
+                  <Users className="w-2.5 h-2.5 mr-2" />
+                  <span>Staff Members: 1</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Search, Filters, and Process Payroll */}
+        <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6">
+          <div className="flex items-center space-x-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search payroll records..."
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <button className="flex-shrink-0 flex items-center justify-center p-2 md:px-4 md:py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+              <Filter className="w-4 h-4 md:mr-2" />
+              <span className="hidden md:inline">Filter by Period</span>
+            </button>
+            <button
+              onClick={() => setShowForm(true)}
+              className="flex-shrink-0 bg-blue-600 text-white p-2 md:px-4 md:py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center"
+            >
+              <Plus className="w-5 h-5 md:mr-2" />
+              <span className="hidden md:inline">Process Payroll</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Payroll Table */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Employee
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Designation
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Gross Salary
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Deductions
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Net Salary
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Pay Period
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {payrollRecords.map((record) => (
+                  <tr key={record.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">{record.employeeName}</div>
+                        <div className="text-sm text-gray-500">{record.employeeId}</div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900">{record.designation}</div>
+                        <div className="text-sm text-gray-500">{record.department}</div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600">
+                      Ksh {record.grossSalary.toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600">
+                      -Ksh {record.deductions.toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
+                      Ksh {record.netSalary.toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div>
+                        <div className="text-sm font-semibold text-gray-900">{record.payPeriodType}</div>
+                        <div className="text-sm text-gray-500">
+                          {new Date(record.payPeriodStart).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })} &nbsp;–&nbsp; {new Date(record.payPeriodEnd).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                        record.status === 'Paid' 
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {record.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {showForm && <PayrollForm />}
+      </div>
+    </div>
+  );
+};

@@ -39,7 +39,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuClick, username = 'Admin',
           supabase
             .from('staff')
             .select('*', { count: 'exact', head: true })
-            .eq('status', 'Active'),
+            .in('status', ['Active', 'On Leave', 'Suspended']),
         ]);
 
         if (cancelled) return;
