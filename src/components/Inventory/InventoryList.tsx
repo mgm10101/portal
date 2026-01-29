@@ -1,8 +1,20 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Package, Plus, Search, Filter, Edit, Trash2, Loader2, Eye, ChevronDown, ShoppingCart, CheckCircle, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect, useCallback, memo } from 'react';
+import { Package, Plus, Search, Filter, ChevronDown, ShoppingCart, CheckCircle, AlertTriangle, Loader2, Trash2 } from 'lucide-react';
 import { DropdownField } from '../Students/masterlist/DropdownField';
 import { OptionsModal } from '../Students/masterlist/OptionsModal';
 import { InventoryEditModal } from './InventoryEditModal';
+import {
+  getInventoryItems,
+  getInventoryCategories,
+  getInventoryStorageLocations,
+  createInventoryItem,
+  deleteInventoryItem,
+  InventoryItem,
+  InventoryCategory,
+  InventoryStorageLocation
+} from './Inventory.data';
+
+// Remove the duplicate InventoryForm at the top - we'll use the one inside the main component
 
 export const InventoryList: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
@@ -12,9 +24,6 @@ export const InventoryList: React.FC = () => {
   
   // Selection state (borrowed from invoices table)
   const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
-  
-  // Loading state for deletions
-  const [isDeleting, setIsDeleting] = useState(false);
   
   // Edit modal state
   const [itemToEdit, setItemToEdit] = useState<any>(null);
@@ -27,365 +36,52 @@ export const InventoryList: React.FC = () => {
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [categorySearchTerm, setCategorySearchTerm] = useState('');
 
-  // State for customizable dropdowns
-  const [categories, setCategories] = useState<{ id: number; name: string }[]>([
-    { id: 1, name: 'Stationery' },
-    { id: 2, name: 'Clothing' },
-    { id: 3, name: 'Equipment' },
-    { id: 4, name: 'Food' },
-    { id: 5, name: 'Maintenance' }
-  ]);
-  
-  const [storageLocations, setStorageLocations] = useState<{ id: number; name: string }[]>([
-    { id: 1, name: 'Main Store' },
-    { id: 2, name: 'Kitchen Store' },
-    { id: 3, name: 'Pantry' },
-    { id: 4, name: 'Maintenance Room' },
-    { id: 5, name: 'Tool Shed' },
-    { id: 6, name: 'Electrical Storage' },
-    { id: 7, name: 'Science Lab' },
-    { id: 8, name: 'Library' }
-  ]);
-
-  const [selectedCategoryId, setSelectedCategoryId] = useState<number | undefined>(1);
-  const [selectedStorageLocationId, setSelectedStorageLocationId] = useState<number | undefined>(1);
-
   // Modal states
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showStorageLocationModal, setShowStorageLocationModal] = useState(false);
 
-  // Filter categories based on search term
-  const filteredCategories = categories.filter(cat => 
-    cat.name.toLowerCase().includes(categorySearchTerm.toLowerCase()) && cat.name !== selectedCategory
-  );
+  // Data state
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [categories, setCategories] = useState<InventoryCategory[]>([]);
+  const [storageLocations, setStorageLocations] = useState<InventoryStorageLocation[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Calculate status based on stock vs requisitions
-  const calculateStatus = (item: any) => {
-    if (item.pendingRequisitions > item.inStock) {
-      return 'Negative Stock';
-    } else if (item.inStock === 0) {
-      return 'Out of Stock';
-    } else if (item.inStock <= 10) {
-      return 'Low Stock';
-    } else {
-      return 'In Stock';
+  // Remove dropdown state to prevent re-renders
+
+  // Load data on component mount
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setIsLoading(true);
+      const [itemsData, categoriesData, locationsData] = await Promise.all([
+        getInventoryItems(),
+        getInventoryCategories(),
+        getInventoryStorageLocations()
+      ]);
+      
+      setInventoryItems(itemsData);
+      setCategories(categoriesData);
+      setStorageLocations(locationsData);
+    } catch (error) {
+      console.error('Error loading inventory data:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const inventory = [
-    // Stationery Items
-    {
-      id: 1,
-      item: 'Exercise Books',
-      description: 'A4 size ruled exercise books for students',
-      category: 'Stationery',
-      inStock: 500,
-      pendingRequisitions: 25,
-      storageLocation: 'Store Room A',
-      unitPrice: 2.50,
-      totalValue: 1250,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 2,
-      item: 'Ballpoint Pens',
-      description: 'Blue and black ballpoint pens pack of 10',
-      category: 'Stationery',
-      inStock: 1200,
-      pendingRequisitions: 50,
-      storageLocation: 'Store Room B',
-      unitPrice: 1.20,
-      totalValue: 1440,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 3,
-      item: 'Pencils',
-      description: 'HB pencils pack of 12',
-      category: 'Stationery',
-      inStock: 0,
-      pendingRequisitions: 30,
-      storageLocation: 'Store Room A',
-      unitPrice: 0.80,
-      totalValue: 0,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 4,
-      item: 'Erasers',
-      description: 'White rubber erasers pack of 6',
-      category: 'Stationery',
-      inStock: 800,
-      pendingRequisitions: 15,
-      storageLocation: 'Store Room C',
-      unitPrice: 0.50,
-      totalValue: 400,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 5,
-      item: 'Rulers',
-      description: '30cm plastic rulers',
-      category: 'Stationery',
-      inStock: 300,
-      pendingRequisitions: 20,
-      storageLocation: 'Store Room A',
-      unitPrice: 1.00,
-      totalValue: 300,
-      status: '' // Will be calculated dynamically
-    },
-    
-    // Clothing Items
-    {
-      id: 6,
-      item: 'Uniforms - Grade 8',
-      description: 'Standard school uniform set for Grade 8 students',
-      category: 'Clothing',
-      inStock: 0,
-      pendingRequisitions: 15,
-      storageLocation: 'Main Store',
-      unitPrice: 45.00,
-      totalValue: 0,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 7,
-      item: 'Uniforms - Grade 1',
-      description: 'Standard school uniform set for Grade 1 students',
-      category: 'Clothing',
-      inStock: 50,
-      pendingRequisitions: 10,
-      storageLocation: 'Main Store',
-      unitPrice: 38.00,
-      totalValue: 1900,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 8,
-      item: 'Sports Jerseys',
-      description: 'School sports team jerseys',
-      category: 'Clothing',
-      inStock: 25,
-      pendingRequisitions: 5,
-      storageLocation: 'Sports Room',
-      unitPrice: 25.00,
-      totalValue: 625,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 9,
-      item: 'Lab Coats',
-      description: 'White lab coats for science classes',
-      category: 'Clothing',
-      inStock: 40,
-      pendingRequisitions: 12,
-      storageLocation: 'Lab Storage',
-      unitPrice: 18.00,
-      totalValue: 720,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 10,
-      item: 'Winter Jackets',
-      description: 'School winter jackets size M',
-      category: 'Clothing',
-      inStock: 5,
-      pendingRequisitions: 8,
-      storageLocation: 'Main Store',
-      unitPrice: 35.00,
-      totalValue: 175,
-      status: '' // Will be calculated dynamically (8 > 5, so Negative Stock)
-    },
-    
-    // Equipment Items
-    {
-      id: 11,
-      item: 'Science Lab Equipment',
-      description: 'Basic laboratory equipment for science experiments',
-      category: 'Equipment',
-      inStock: 15,
-      pendingRequisitions: 8,
-      storageLocation: 'Lab Cabinet',
-      unitPrice: 120.00,
-      totalValue: 1800,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 12,
-      item: 'Projectors',
-      description: 'Multimedia projectors for classrooms',
-      category: 'Equipment',
-      inStock: 8,
-      pendingRequisitions: 3,
-      storageLocation: 'AV Room',
-      unitPrice: 450.00,
-      totalValue: 3600,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 13,
-      item: 'Computers',
-      description: 'Desktop computers for computer lab',
-      category: 'Equipment',
-      inStock: 30,
-      pendingRequisitions: 10,
-      storageLocation: 'Computer Lab',
-      unitPrice: 800.00,
-      totalValue: 24000,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 14,
-      item: 'Microscopes',
-      description: 'Biological microscopes for biology lab',
-      category: 'Equipment',
-      inStock: 0,
-      pendingRequisitions: 6,
-      storageLocation: 'Lab Cabinet',
-      unitPrice: 250.00,
-      totalValue: 0,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 15,
-      item: 'Whiteboards',
-      description: 'Mobile whiteboards with stands',
-      category: 'Equipment',
-      inStock: 12,
-      pendingRequisitions: 4,
-      storageLocation: 'Storage Room 2',
-      unitPrice: 150.00,
-      totalValue: 1800,
-      status: '' // Will be calculated dynamically
-    },
-    
-    // Food Items
-    {
-      id: 16,
-      item: 'Rice Bags',
-      description: '25kg bags of premium rice',
-      category: 'Food',
-      inStock: 20,
-      pendingRequisitions: 5,
-      storageLocation: 'Kitchen Store',
-      unitPrice: 45.00,
-      totalValue: 900,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 17,
-      item: 'Cooking Oil',
-      description: '5L containers of cooking oil',
-      category: 'Food',
-      inStock: 35,
-      pendingRequisitions: 8,
-      storageLocation: 'Kitchen Store',
-      unitPrice: 12.00,
-      totalValue: 420,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 18,
-      item: 'Sugar',
-      description: '50kg bags of sugar',
-      category: 'Food',
-      inStock: 0,
-      pendingRequisitions: 3,
-      storageLocation: 'Kitchen Store',
-      unitPrice: 65.00,
-      totalValue: 0,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 19,
-      item: 'Flour',
-      description: '25kg bags of wheat flour',
-      category: 'Food',
-      inStock: 15,
-      pendingRequisitions: 4,
-      storageLocation: 'Kitchen Store',
-      unitPrice: 28.00,
-      totalValue: 420,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 20,
-      item: 'Tea Bags',
-      description: 'Boxes of tea bags (100 count)',
-      category: 'Food',
-      inStock: 100,
-      pendingRequisitions: 12,
-      storageLocation: 'Pantry',
-      unitPrice: 8.50,
-      totalValue: 850,
-      status: '' // Will be calculated dynamically
-    },
-    
-    // Maintenance Items
-    {
-      id: 21,
-      item: 'Cleaning Supplies',
-      description: 'General cleaning chemicals and supplies',
-      category: 'Maintenance',
-      inStock: 50,
-      pendingRequisitions: 10,
-      storageLocation: 'Maintenance Room',
-      unitPrice: 15.00,
-      totalValue: 750,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 22,
-      item: 'Light Bulbs',
-      description: 'LED light bulbs for classrooms',
-      category: 'Maintenance',
-      inStock: 200,
-      pendingRequisitions: 25,
-      storageLocation: 'Electrical Storage',
-      unitPrice: 3.50,
-      totalValue: 700,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 23,
-      item: 'Paint',
-      description: 'White paint for classroom walls',
-      category: 'Maintenance',
-      inStock: 0,
-      pendingRequisitions: 6,
-      storageLocation: 'Maintenance Room',
-      unitPrice: 85.00,
-      totalValue: 0,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 24,
-      item: 'Tools',
-      description: 'Basic maintenance tools set',
-      category: 'Maintenance',
-      inStock: 25,
-      pendingRequisitions: 3,
-      storageLocation: 'Tool Shed',
-      unitPrice: 120.00,
-      totalValue: 3000,
-      status: '' // Will be calculated dynamically
-    },
-    {
-      id: 25,
-      item: 'Plumbing Supplies',
-      description: 'Pipes, fittings, and plumbing accessories',
-      category: 'Maintenance',
-      inStock: 40,
-      pendingRequisitions: 8,
-      storageLocation: 'Maintenance Room',
-      unitPrice: 45.00,
-      totalValue: 1800,
-      status: '' // Will be calculated dynamically
-    }
-  ].map(item => ({ ...item, status: calculateStatus(item) }));
-
   // Filter inventory based on selected category
-  const filteredInventory = inventory.filter(item => item.category === selectedCategory);
+  const filteredInventory = inventoryItems.filter(item => 
+    item.category_name === selectedCategory
+  );
+
+  // Filter categories for dropdown
+  const filteredCategories = categories.filter(category =>
+    category.name.toLowerCase().includes(categorySearchTerm.toLowerCase())
+  );
 
   // Toggle selection function (borrowed from invoices table)
   const toggleSelection = (itemId: number) => {
@@ -402,43 +98,6 @@ export const InventoryList: React.FC = () => {
   
   const hasSelections = selectedItems.size > 0;
   
-  // --- Delete Handler ---
-  const handleDelete = async (itemId: number) => {
-    if (!confirm('Are you sure you want to delete this inventory item?')) return;
-    
-    setIsDeleting(true);
-    try {
-      // Here you would typically delete from your backend
-      console.log('Deleting inventory item:', itemId);
-      alert('Inventory item deleted successfully.');
-      // Refresh logic would go here
-    } catch (error: any) {
-      console.error('Error deleting inventory item:', error);
-      alert(error.message || 'Failed to delete inventory item. Please try again.');
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  const handleDeleteSelected = () => {
-    const selectedArray = Array.from(selectedItems);
-    if (selectedArray.length === 0) return;
-    if (!confirm(`Are you sure you want to delete ${selectedArray.length} inventory item(s)?`)) return;
-    
-    setIsDeleting(true);
-    try {
-      // Here you would typically delete from your backend
-      console.log('Deleting inventory items:', selectedArray);
-      alert('Inventory items deleted successfully.');
-      // Refresh logic would go here
-    } catch (error: any) {
-      console.error('Error deleting inventory items:', error);
-      alert(error.message || 'Failed to delete inventory items. Please try again.');
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
   // --- Edit Handler ---
   const handleEdit = (item: any) => {
     setItemToEdit(item);
@@ -448,7 +107,10 @@ export const InventoryList: React.FC = () => {
   const handleAddCategory = async (name: string) => {
     const newCategory = {
       id: Math.max(...categories.map(c => c.id)) + 1,
-      name
+      name,
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
     };
     setCategories([...categories, newCategory]);
   };
@@ -464,7 +126,10 @@ export const InventoryList: React.FC = () => {
   const handleAddStorageLocation = async (name: string) => {
     const newLocation = {
       id: Math.max(...storageLocations.map(l => l.id)) + 1,
-      name
+      name,
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
     };
     setStorageLocations([...storageLocations, newLocation]);
   };
@@ -477,11 +142,138 @@ export const InventoryList: React.FC = () => {
     setStorageLocations(storageLocations.map(l => l.id === id ? { ...l, name: newName } : l));
   };
 
-  const clearIfInvalid = (e: React.FocusEvent<HTMLSelectElement>, validList: string[]) => {
+  const clearIfInvalid = () => {
     // Placeholder function for dropdown validation
   };
 
-  const InventoryForm: React.FC = () => (
+  // Delete handler
+  const handleDeleteItem = async (itemId: number, itemName: string) => {
+    try {
+      console.log('🗑️ Deleting item:', itemId, itemName);
+      
+      // Delete from database
+      await deleteInventoryItem(itemId);
+      console.log('✅ Item deleted successfully:', itemId);
+      
+      // Reload data
+      await loadData();
+      
+      alert(`"${itemName}" has been deleted successfully.`);
+    } catch (error: any) {
+      console.error('❌ Error deleting item:', error);
+      alert(error.message || 'Failed to delete item. Please try again.');
+    }
+  };
+
+  // Bulk delete handler
+  const handleBulkDelete = async () => {
+    const selectedCount = selectedItems.size;
+    const itemNames = filteredInventory
+      .filter(item => selectedItems.has(item.id))
+      .map(item => item.item_name)
+      .slice(0, 3); // Show first 3 item names
+    
+    const moreText = selectedCount > 3 ? ` and ${selectedCount - 3} more` : '';
+    const confirmMessage = `Are you sure you want to delete ${selectedCount} item(s): ${itemNames.join(', ')}${moreText}?`;
+    
+    if (!confirm(confirmMessage)) return;
+    
+    try {
+      console.log('🗑️ Bulk deleting items:', Array.from(selectedItems));
+      
+      // Delete all selected items
+      const deletePromises = Array.from(selectedItems).map(itemId => 
+        deleteInventoryItem(itemId)
+      );
+      
+      await Promise.all(deletePromises);
+      console.log('✅ All items deleted successfully');
+      
+      // Clear selection and reload data
+      setSelectedItems(new Set());
+      await loadData();
+      
+      alert(`${selectedCount} item(s) have been deleted successfully.`);
+    } catch (error: any) {
+      console.error('❌ Error bulk deleting items:', error);
+      alert(error.message || 'Failed to delete some items. Please try again.');
+    }
+  };
+
+  // Direct DOM update handlers (no state, no re-renders)
+  const handleCategorySelect = useCallback((id: number) => {
+    // Update hidden input directly without state change
+    const hiddenInput = document.getElementById('category_id_hidden') as HTMLInputElement;
+    if (hiddenInput) hiddenInput.value = id.toString();
+  }, []);
+
+  const handleStorageSelect = useCallback((id: number) => {
+    // Update hidden input directly without state change
+    const hiddenInput = document.getElementById('storage_location_id_hidden') as HTMLInputElement;
+    if (hiddenInput) hiddenInput.value = id.toString();
+  }, []);
+
+  const handleFormSubmit = useCallback(async (e: React.FormEvent) => {
+    console.log('🔥 [FORM SUBMIT] Form submission started');
+    e.preventDefault();
+    console.log('🔥 [FORM SUBMIT] Default prevented');
+    
+    setIsSubmitting(true);
+    
+    try {
+      // Get form data from DOM since we removed state bindings
+      const form = e.target as HTMLFormElement;
+      const formData = new FormData(form);
+      
+      // Get dropdown values from hidden inputs
+      const categoryId = formData.get('category_id_hidden') as string;
+      const storageId = formData.get('storage_location_id_hidden') as string;
+      
+      const itemData = {
+        item_name: formData.get('item_name') as string || '',
+        description: formData.get('description') as string || '',
+        category_id: categoryId ? parseInt(categoryId) : undefined,
+        in_stock: parseInt(formData.get('in_stock') as string) || 0,
+        unit_price: parseFloat(formData.get('unit_price') as string) || 0,
+        storage_location_id: storageId ? parseInt(storageId) : undefined,
+        minimum_stock_level: parseInt(formData.get('minimum_stock_level') as string) || 10,
+        pending_requisitions: 0
+      };
+      
+      console.log('🔥 [FORM DATA] Item data for database:', itemData);
+      
+      // Validate required fields
+      if (!itemData.item_name) {
+        alert('Item name is required');
+        return;
+      }
+      
+      // Save to database
+      const newItem = await createInventoryItem(itemData);
+      console.log('🔥 [FORM SUBMIT] Item saved to database:', newItem);
+      
+      // Reload data
+      await loadData();
+      
+      // Reset form only (no dropdown state to reset)
+      form.reset();
+      
+      alert('Item saved successfully!');
+      setShowForm(false);
+      console.log('🔥 [FORM SUBMIT] Form closed');
+    } catch (error: any) {
+      console.error('🔥 [FORM SUBMIT] Error saving item:', error);
+      alert(error.message || 'Failed to save item. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [loadData]);
+
+  // Move InventoryForm outside main component to prevent recreation
+  const InventoryForm = memo(() => {
+    console.log('🟢 [MOUNT] InventoryForm mounted');
+    
+    return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-lg p-6 w-full max-w-2xl">
         {/* Tabs */}
@@ -505,20 +297,22 @@ export const InventoryList: React.FC = () => {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              Batch Stock Update
+              Stock Update
             </button>
           </nav>
         </div>
 
-        {/* Tab Content */}
-        {activeTab === 'add-item' && (
-          <form className="space-y-4">
+        {/* Tab Content - Always rendered, use CSS display for visibility */}
+        <div style={{ display: activeTab === 'add-item' ? 'block' : 'none' }}>
+          <form onSubmit={handleFormSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Item Name</label>
                 <input
+                  name="item_name"
                   type="text"
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
                 />
               </div>
               <div>
@@ -526,12 +320,18 @@ export const InventoryList: React.FC = () => {
                   name="category_id"
                   label="Category"
                   items={categories}
-                  selectedId={selectedCategoryId}
                   clearIfInvalid={clearIfInvalid}
-                  onOpenModal={() => setShowCategoryModal(true)}
-                  onSelect={setSelectedCategoryId}
+                  onOpenModal={() => {
+                    setShowCategoryModal(true);
+                  }}
+                  onSelect={handleCategorySelect}
                   tableName="inventory_categories"
                   disableFetch={true}
+                />
+                <input
+                  type="hidden"
+                  name="category_id_hidden"
+                  id="category_id_hidden"
                 />
               </div>
             </div>
@@ -539,6 +339,7 @@ export const InventoryList: React.FC = () => {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
               <textarea
+                name="description"
                 rows={2}
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
@@ -548,15 +349,19 @@ export const InventoryList: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Initial Stock</label>
                 <input
+                  name="in_stock"
                   type="number"
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Low Stock Alert</label>
                 <input
+                  name="minimum_stock_level"
                   type="number"
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
                 />
               </div>
             </div>
@@ -565,9 +370,11 @@ export const InventoryList: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Unit Price (Ksh)</label>
                 <input
+                  name="unit_price"
                   type="number"
                   step="0.01"
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
                 />
               </div>
               <div>
@@ -575,12 +382,18 @@ export const InventoryList: React.FC = () => {
                   name="storage_location_id"
                   label="Storage Location"
                   items={storageLocations}
-                  selectedId={selectedStorageLocationId}
                   clearIfInvalid={clearIfInvalid}
-                  onOpenModal={() => setShowStorageLocationModal(true)}
-                  onSelect={setSelectedStorageLocationId}
+                  onOpenModal={() => {
+                    setShowStorageLocationModal(true);
+                  }}
+                  onSelect={handleStorageSelect}
                   tableName="inventory_storage_locations"
                   disableFetch={true}
+                />
+                <input
+                  type="hidden"
+                  name="storage_location_id_hidden"
+                  id="storage_location_id_hidden"
                 />
               </div>
             </div>
@@ -595,15 +408,16 @@ export const InventoryList: React.FC = () => {
               </button>
               <button
                 type="submit"
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                disabled={isSubmitting}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
               >
-                Save Changes
+                {isSubmitting ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
           </form>
-        )}
+        </div>
 
-        {activeTab === 'update-stock' && (
+        <div style={{ display: activeTab === 'update-stock' ? 'block' : 'none' }}>
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
@@ -616,7 +430,7 @@ export const InventoryList: React.FC = () => {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
               <select className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                <option value="New Stock Purchased">New Stock Purchased</option>
+                <option value="New Stock">New Stock</option>
                 <option value="Stock Adjustment (Damaged)">Stock Adjustment (Damaged)</option>
                 <option value="Stock Adjustment (Loss/Theft)">Stock Adjustment (Loss/Theft)</option>
                 <option value="Stock Adjustment (Expired)">Stock Adjustment (Expired)</option>
@@ -673,7 +487,7 @@ export const InventoryList: React.FC = () => {
               </button>
             </div>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Options Modals */}
@@ -702,6 +516,7 @@ export const InventoryList: React.FC = () => {
       )}
     </div>
   );
+});
 
   return (
     <div className="p-6 md:p-3 bg-gray-50 min-h-screen">
@@ -854,12 +669,16 @@ export const InventoryList: React.FC = () => {
                   Clear
                 </button>
               </div>
-              <button
-                onClick={handleDeleteSelected}
-                className="text-xs text-red-600 hover:text-red-700 font-medium px-3 py-1 bg-red-50 hover:bg-red-100 rounded transition-colors"
-              >
-                Delete Selected
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleBulkDelete}
+                  className="flex items-center gap-1 px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                  title="Delete selected items"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  Delete All
+                </button>
+              </div>
             </div>
           )}
           <style>{`
@@ -894,7 +713,7 @@ export const InventoryList: React.FC = () => {
                   <th className="pl-3 pr-2 py-3 text-left w-10">
                     {/* Empty header for checkbox column */}
                   </th>
-                  <th className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="pl-1 pr-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Item
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -915,88 +734,123 @@ export const InventoryList: React.FC = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredInventory.map((item) => (
-                  <tr 
-                    key={item.id} 
-                    className="hover:bg-gray-50 transition-colors cursor-pointer"
-                    onMouseEnter={() => setHoveredRow(item.id)}
-                    onMouseLeave={() => setHoveredRow(null)}
-                    onClick={() => handleEdit(item)}
-                  >
-                    {/* Checkbox column (borrowed from invoices table) */}
-                    <td 
-                      className="pl-3 pr-2 py-4 whitespace-nowrap"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedItems.has(item.id)}
-                        onChange={() => toggleSelection(item.id)}
-                        className={`w-4 h-4 text-blue-600 rounded border-gray-300 cursor-pointer ${
-                          hoveredRow === item.id || hasSelections
-                            ? 'opacity-100'
-                            : 'opacity-0'
-                        }`}
-                      />
-                    </td>
-                    <td className="px-2 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{item.item}</div>
-                      <div className="text-xs text-gray-500">{item.description}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-                        {item.category}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium">
-                      {item.inStock}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-orange-600 font-medium">
-                      {item.pendingRequisitions}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {item.storageLocation}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      Ksh {item.unitPrice}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {item.status === 'Negative Stock' ? (
-                        <div>
-                          <span className="text-sm font-semibold text-yellow-800">Negative Stock</span>
-                          <div className="text-xs text-gray-900 font-semibold">
-                            Deficit: {item.pendingRequisitions - item.inStock}
-                          </div>
-                        </div>
-                      ) : (
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                          item.status === 'In Stock' 
-                            ? 'bg-green-100 text-green-800'
-                            : item.status === 'Out of Stock'
-                            ? 'bg-red-100 text-red-800'
-                            : item.status === 'Low Stock'
-                            ? 'bg-orange-100 text-orange-800'
-                            : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {item.status}
-                        </span>
-                      )}
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
+                      <Loader2 className="w-6 h-6 animate-spin mx-auto" />
+                      <p className="mt-2">Loading inventory...</p>
                     </td>
                   </tr>
-                ))}
+                ) : filteredInventory.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
+                      No inventory items found
+                    </td>
+                  </tr>
+                ) : (
+                  filteredInventory.map((item) => (
+                    <tr 
+                      key={item.id} 
+                      className="hover:bg-gray-50 transition-colors cursor-pointer"
+                      onMouseEnter={() => setHoveredRow(item.id)}
+                      onMouseLeave={() => setHoveredRow(null)}
+                      onClick={() => handleEdit(item)}
+                    >
+                      {/* Checkbox column (borrowed from invoices table) */}
+                      <td 
+                        className="pl-3 pr-2 py-4 whitespace-nowrap"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedItems.has(item.id)}
+                          onChange={() => toggleSelection(item.id)}
+                          className={`w-4 h-4 text-blue-600 rounded border-gray-300 cursor-pointer ${
+                            hoveredRow === item.id || hasSelections
+                              ? 'opacity-100'
+                              : 'opacity-0'
+                          }`}
+                        />
+                      </td>
+                      <td className="pl-1 pr-2 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">{item.item_name}</div>
+                        <div className="text-xs text-gray-500">{item.description}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {item.category_name || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium">
+                        {item.in_stock}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-orange-600 font-medium">
+                        {item.pending_requisitions}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {item.storage_location_name || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        Ksh {item.unit_price}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {item.status === 'Negative Stock' ? (
+                          <div>
+                            <span className="text-xs font-semibold text-yellow-800">Negative Stock</span>
+                            <div className="text-xs text-gray-900 font-semibold">
+                              Deficit: {item.pending_requisitions - item.in_stock}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                            item.status === 'In Stock' 
+                              ? 'bg-green-100 text-green-800'
+                              : item.status === 'Out of Stock'
+                              ? 'bg-red-100 text-red-800'
+                              : item.status === 'Low Stock'
+                              ? 'bg-orange-100 text-orange-800'
+                              : 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {item.status}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (confirm(`Are you sure you want to delete "${item.item_name}"?`)) {
+                              handleDeleteItem(item.id, item.item_name);
+                            }
+                          }}
+                          className="text-red-600 hover:text-red-800 hover:bg-red-50 p-2 rounded-lg transition-colors"
+                          title="Delete item"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         </div>
 
-        {showForm && <InventoryForm />}
+        {/* Modal with visibility instead of conditional mounting */}
+        <div style={{ display: showForm ? 'block' : 'none' }}>
+          <InventoryForm />
+        </div>
         
         {itemToEdit && (
           <InventoryEditModal
             item={itemToEdit}
+            categories={categories}
+            storageLocations={storageLocations}
             onClose={() => setItemToEdit(null)}
             onSaved={() => {
               // Refresh logic would go here

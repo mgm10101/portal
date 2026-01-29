@@ -385,7 +385,7 @@ export const StaffInfo: React.FC = () => {
     <div className="p-6 md:p-3 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-6 gap-6 md:gap-3 mb-6 md:mb-3">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-6 md:gap-3 mb-6 md:mb-3">
           <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
             <div className="flex items-center">
               <CheckCircle className="w-8 h-8 text-green-600 mr-3" />
@@ -423,9 +423,9 @@ export const StaffInfo: React.FC = () => {
             <div className="flex items-center">
               <UserX className="w-8 h-8 text-red-600 mr-3" />
               <div>
-                <div className="text-sm text-gray-600">Terminated</div>
+                <div className="text-sm text-gray-600">Terminated/Resigned</div>
                 <div className="text-2xl font-bold text-red-600">
-                  {staffMembers.filter(s => s.status === 'Terminated').length}
+                  {staffMembers.filter(s => s.status === 'Terminated' || s.status === 'Resigned').length}
                 </div>
               </div>
             </div>
@@ -437,17 +437,6 @@ export const StaffInfo: React.FC = () => {
                 <div className="text-sm text-gray-600">Retired</div>
                 <div className="text-2xl font-bold text-purple-600">
                   {staffMembers.filter(s => s.status === 'Retired').length}
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="bg-white p-6 md:p-4 rounded-lg shadow-sm border border-gray-200">
-            <div className="flex items-center">
-              <User className="w-8 h-8 text-gray-600 mr-3" />
-              <div>
-                <div className="text-sm text-gray-600">Resigned</div>
-                <div className="text-2xl font-bold text-gray-600">
-                  {staffMembers.filter(s => s.status === 'Resigned').length}
                 </div>
               </div>
             </div>
@@ -552,7 +541,7 @@ export const StaffInfo: React.FC = () => {
                   <th className="pl-3 pr-0 py-3 text-left w-10">
                     {/* Empty header for checkbox column */}
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="pl-1 pr-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Staff Member
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -623,16 +612,16 @@ export const StaffInfo: React.FC = () => {
                             return newSet;
                           });
                         }}
-                        className={`w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-2 focus:ring-blue-500 transition-opacity cursor-pointer ${
+                        className={`w-4 h-4 text-blue-600 rounded border-gray-300 focus:outline-none transition-opacity cursor-pointer ${
                           isHovered || hasSelections
                             ? 'opacity-100'
                             : 'opacity-0'
                         }`}
                       />
                     </td>
-                    <td className="pl-2 pr-6 py-4 whitespace-nowrap">
+                    <td className="pl-1 pr-4 py-4 whitespace-nowrap">
                       <div className="flex items-center">
-                        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center mr-4">
+                        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center mr-3">
                           <User className="w-5 h-5 text-gray-500" />
                         </div>
                         <div>
@@ -1087,17 +1076,16 @@ export const StaffInfo: React.FC = () => {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Number of Leave Days in a Year</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Paid Leave Days Per Year</label>
               <input
                 type="text"
                 value={numberOfLeaveDays !== null ? numberOfLeaveDays.toString() : ''}
                 onChange={(e) => {
-                  // Only allow numbers
-                  const value = e.target.value.replace(/[^0-9]/g, '');
+                  const value = e.target.value;
                   setNumberOfLeaveDays(value === '' ? null : parseInt(value, 10));
                 }}
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="Enter number of leave days"
+                placeholder="Enter paid leave days"
               />
             </div>
           </div>
