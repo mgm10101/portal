@@ -39,6 +39,16 @@ export const DropdownField: React.FC<DropdownFieldProps> = ({
   placeholder,
   disabled = false,
 }) => {
+  console.log(`🔽 [DROPDOWN] ${label} dropdown initialized:`, {
+    name,
+    itemsCount: items?.length,
+    selectedId,
+    disableFetch,
+    items: items,
+    firstItem: items?.[0],
+    lastItem: items?.[items?.length - 1]
+  });
+
   const [open, setOpen] = useState(false);
   const [dropdownItems, setDropdownItems] = useState<DropdownItem[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -227,6 +237,7 @@ export const DropdownField: React.FC<DropdownFieldProps> = ({
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
+                  console.log(`🔽 [DROPDOWN] ${label} item selected:`, item);
                   // Use setTimeout to prevent scroll jump during state update
                   setTimeout(() => {
                     setLocalSelected(item);

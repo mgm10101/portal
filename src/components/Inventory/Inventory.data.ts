@@ -75,7 +75,7 @@ export const getInventoryItems = async (): Promise<InventoryItem[]> => {
   const { data, error } = await supabase
     .from('inventory_summary')
     .select('*')
-    .order('item_name');
+    .order('updated_at', { ascending: false });
 
   if (error) throw error;
   return data || [];
@@ -230,13 +230,22 @@ export const getStockHistory = async (itemId?: number): Promise<StockHistory[]> 
 };
 
 export const createStockHistoryEntry = async (entry: Omit<StockHistory, 'id' | 'created_at' | 'item_name'>): Promise<StockHistory> => {
+  console.log('📚 [createStockHistoryEntry] Creating history entry:', entry);
+  
   const { data, error } = await supabase
     .from('inventory_stock_history')
     .insert([entry])
     .select()
     .single();
 
-  if (error) throw error;
+  console.log('📝 [createStockHistoryEntry] History entry result:', { data, error });
+
+  if (error) {
+    console.error('❌ [createStockHistoryEntry] Error creating history entry:', error);
+    throw error;
+  }
+  
+  console.log('✅ [createStockHistoryEntry] History entry created successfully');
   return data;
 };
 
@@ -298,27 +307,58 @@ export const createStockUpdate = async (update: Omit<StockUpdate, 'id' | 'create
 };
 
 export const updateStockForItem = async (itemId: number, quantityChange: number, transactionType: string, notes?: string): Promise<void> => {
+  console.log('🔄 [updateStockForItem] Function called with:', {
+    itemId,
+    quantityChange,
+    transactionType,
+    notes
+  });
+
   // Get current item
+  console.log('📊 [updateStockForItem] Fetching current item from database...');
   const { data: currentItem, error: fetchError } = await supabase
     .from('inventory_items')
     .select('*')
     .eq('id', itemId)
     .single();
 
-  if (fetchError) throw fetchError;
-  if (!currentItem) throw new Error('Item not found');
+  console.log('📋 [updateStockForItem] Fetch result:', {
+    currentItem,
+    fetchError
+  });
+
+  if (fetchError) {
+    console.error('❌ [updateStockForItem] Fetch error:', fetchError);
+    throw fetchError;
+  }
+  if (!currentItem) {
+    console.error('❌ [updateStockForItem] Item not found');
+    throw new Error('Item not found');
+  }
 
   const newStock = currentItem.in_stock + quantityChange;
+  console.log('📈 [updateStockForItem] Stock calculation:', {
+    currentStock: currentItem.in_stock,
+    quantityChange,
+    newStock
+  });
 
   // Update inventory item
+  console.log('💾 [updateStockForItem] Updating inventory item...');
   const { error: updateError } = await supabase
     .from('inventory_items')
     .update({ in_stock: newStock })
     .eq('id', itemId);
 
-  if (updateError) throw updateError;
+  console.log('📝 [updateStockForItem] Update result:', { updateError });
+
+  if (updateError) {
+    console.error('❌ [updateStockForItem] Update error:', updateError);
+    throw updateError;
+  }
 
   // Create stock history entry
+  console.log('📚 [updateStockForItem] Creating stock history entry...');
   await createStockHistoryEntry({
     inventory_item_id: itemId,
     transaction_date: new Date().toISOString().split('T')[0],
@@ -330,4 +370,6 @@ export const updateStockForItem = async (itemId: number, quantityChange: number,
     reference_type: 'manual_update',
     notes: notes
   });
+
+  console.log('✅ [updateStockForItem] Function completed successfully');
 };

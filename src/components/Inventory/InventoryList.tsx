@@ -47,6 +47,79 @@ export const InventoryList: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Scroll-on-hover state for add item form
+  const [isFormHovering, setIsFormHovering] = useState(false);
+  const formScrollContainerRef = React.useRef<HTMLDivElement>(null);
+
+  // Scroll-on-hover state for stock update form
+  const [isStockFormHovering, setIsStockFormHovering] = useState(false);
+  const stockFormScrollContainerRef = React.useRef<HTMLDivElement>(null);
+
+  // Keyboard navigation for scrolling add item form
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isFormHovering || !formScrollContainerRef.current) return;
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        formScrollContainerRef.current.scrollBy({
+          top: -100,
+          behavior: 'smooth'
+        });
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        formScrollContainerRef.current.scrollBy({
+          top: 100,
+          behavior: 'smooth'
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFormHovering]);
+
+  // Keyboard navigation for scrolling stock update form
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isStockFormHovering || !stockFormScrollContainerRef.current) return;
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        stockFormScrollContainerRef.current.scrollBy({
+          top: -100,
+          behavior: 'smooth'
+        });
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        stockFormScrollContainerRef.current.scrollBy({
+          top: 100,
+          behavior: 'smooth'
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isStockFormHovering]);
+
+  // Click outside to close functionality for add item form
+  React.useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('.add-item-form-content')) return;
+      if (target.closest('[role="dialog"]')) return;
+      
+      // Check if click is on the backdrop (outside the form content)
+      if (showForm && target.classList.contains('fixed') && target.classList.contains('inset-0')) {
+        setShowForm(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showForm]);
+
   // Remove dropdown state to prevent re-renders
 
   // Load data on component mount
@@ -56,6 +129,7 @@ export const InventoryList: React.FC = () => {
 
   const loadData = async () => {
     try {
+      console.log('🔄 [PARENT] Starting data load...');
       setIsLoading(true);
       const [itemsData, categoriesData, locationsData] = await Promise.all([
         getInventoryItems(),
@@ -63,11 +137,16 @@ export const InventoryList: React.FC = () => {
         getInventoryStorageLocations()
       ]);
       
+      console.log('📊 [PARENT] Categories loaded:', categoriesData);
+      console.log('📦 [PARENT] Storage locations loaded:', locationsData);
+      
       setInventoryItems(itemsData);
       setCategories(categoriesData);
       setStorageLocations(locationsData);
+      
+      console.log('✅ [PARENT] Data load completed');
     } catch (error) {
-      console.error('Error loading inventory data:', error);
+      console.error('❌ [PARENT] Error loading inventory data:', error);
     } finally {
       setIsLoading(false);
     }
@@ -100,6 +179,14 @@ export const InventoryList: React.FC = () => {
   
   // --- Edit Handler ---
   const handleEdit = (item: any) => {
+    console.log('✏️ [PARENT] Edit handler called with item:', item);
+    console.log('📊 [PARENT] Current categories state:', categories);
+    console.log('📦 [PARENT] Current storage locations state:', storageLocations);
+    console.log('🔧 [PARENT] Data being passed to modal:', {
+      item,
+      categories: categories,
+      storageLocations: storageLocations
+    });
     setItemToEdit(item);
   };
 
@@ -275,7 +362,7 @@ export const InventoryList: React.FC = () => {
     
     return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-2xl">
+      <div className="add-item-form-content bg-white rounded-lg p-6 w-full max-w-2xl">
         {/* Tabs */}
         <div className="border-b border-gray-200 mb-6">
           <nav className="flex">
@@ -303,7 +390,14 @@ export const InventoryList: React.FC = () => {
         </div>
 
         {/* Tab Content - Always rendered, use CSS display for visibility */}
-        <div style={{ display: activeTab === 'add-item' ? 'block' : 'none' }}>
+        <div 
+          ref={formScrollContainerRef}
+          style={{ display: activeTab === 'add-item' ? 'block' : 'none' }}
+          className="max-h-[60vh] overflow-y-auto scrollbar-hide"
+          onMouseEnter={() => setIsFormHovering(true)}
+          onMouseLeave={() => setIsFormHovering(false)}
+          tabIndex={-1} // Make it focusable without requiring click
+        >
           <form onSubmit={handleFormSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -417,7 +511,14 @@ export const InventoryList: React.FC = () => {
           </form>
         </div>
 
-        <div style={{ display: activeTab === 'update-stock' ? 'block' : 'none' }}>
+        <div 
+          ref={stockFormScrollContainerRef}
+          style={{ display: activeTab === 'update-stock' ? 'block' : 'none' }}
+          className="max-h-[60vh] overflow-y-auto scrollbar-hide"
+          onMouseEnter={() => setIsStockFormHovering(true)}
+          onMouseLeave={() => setIsStockFormHovering(false)}
+          tabIndex={-1} // Make it focusable without requiring click
+        >
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
@@ -847,16 +948,31 @@ export const InventoryList: React.FC = () => {
         </div>
         
         {itemToEdit && (
-          <InventoryEditModal
-            item={itemToEdit}
-            categories={categories}
-            storageLocations={storageLocations}
-            onClose={() => setItemToEdit(null)}
-            onSaved={() => {
-              // Refresh logic would go here
-              setItemToEdit(null);
-            }}
-          />
+          <>
+            {console.log('🎬 [PARENT] About to render InventoryEditModal with props:', {
+              item: itemToEdit,
+              categories: categories,
+              storageLocations: storageLocations
+            })}
+            <InventoryEditModal
+              item={itemToEdit}
+              categories={categories}
+              storageLocations={storageLocations}
+              onClose={() => {
+                console.log('❌ [PARENT] Modal onClose called');
+                setItemToEdit(null);
+              }}
+              onSaved={async () => {
+                console.log('✅ [PARENT] Modal onSaved called - refreshing data');
+                try {
+                  await loadData(); // Refresh the inventory data
+                  setItemToEdit(null);
+                } catch (error) {
+                  console.error('❌ [PARENT] Error refreshing data:', error);
+                }
+              }}
+            />
+          </>
         )}
       </div>
     </div>

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 
-import { InventoryItem, InventoryCategory, InventoryStorageLocation } from './Inventory.data';
+import { InventoryItem, InventoryCategory, InventoryStorageLocation, updateInventoryItem, updateStockForItem, StockHistory, getStockHistory } from './Inventory.data';
 
 import { DropdownField } from '../Students/masterlist/DropdownField';
 
@@ -32,7 +32,9 @@ type StockUpdateType =
 
   | 'Stock Adjustment (Loss/Theft)'
 
-  | 'Stock Adjustment (Expired)';
+  | 'Stock Adjustment (Expired)'
+
+  | 'Stock Adjustment (Accounting Error)';
 
 type StockUpdateDirection = 'add' | 'subtract';
 
@@ -67,12 +69,15 @@ interface UpdateStockModalProps {
 const UpdateStockModal: React.FC<UpdateStockModalProps> = ({ initialData, onClose, onSubmit }) => {
 
   const [data, setData] = useState<StockUpdateFormData>(initialData);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
 
 
   const deriveDirection = (type: StockUpdateType): StockUpdateDirection => {
 
     if (type === 'New Stock') return 'add';
+
+    if (type === 'Stock Adjustment (Accounting Error)') return 'add'; // Default to add, but user can change
 
     return 'subtract';
 
@@ -154,6 +159,8 @@ const UpdateStockModal: React.FC<UpdateStockModalProps> = ({ initialData, onClos
 
               <option value="Stock Adjustment (Expired)">Stock Adjustment (Expired)</option>
 
+              <option value="Stock Adjustment (Accounting Error)">Stock Adjustment (Accounting Error)</option>
+
             </select>
 
           </div>
@@ -166,17 +173,28 @@ const UpdateStockModal: React.FC<UpdateStockModalProps> = ({ initialData, onClos
 
               <label className="block text-sm font-medium text-gray-700 mb-1">Action</label>
 
-              <input
-
-                type="text"
-
-                value={data.direction === 'add' ? 'Add' : 'Subtract'}
-
-                readOnly
-
-                className="w-full p-3 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed focus:ring-2 focus:ring-gray-500 focus:border-transparent"
-
-              />
+              {data.type === 'Stock Adjustment (Accounting Error)' ? (
+                <select
+                  value={data.direction}
+                  onChange={(e) => {
+                    setData({
+                      ...data,
+                      direction: e.target.value as StockUpdateDirection
+                    });
+                  }}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="add">Add</option>
+                  <option value="subtract">Subtract</option>
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={data.direction === 'add' ? 'Add' : 'Subtract'}
+                  readOnly
+                  className="w-full p-3 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed focus:ring-2 focus:ring-gray-500 focus:border-transparent"
+                />
+              )}
 
             </div>
 
@@ -224,13 +242,32 @@ const UpdateStockModal: React.FC<UpdateStockModalProps> = ({ initialData, onClos
 
               type="button"
 
-              onClick={() => onSubmit(data)}
+              onClick={async () => {
+                console.log('🔘 [UPDATE STOCK MODAL] Apply button clicked');
+                console.log('📊 [UPDATE STOCK MODAL] Current data:', data);
+                console.log('⏳ [UPDATE STOCK MODAL] Setting isSubmitting to true');
+                
+                setIsSubmitting(true);
+                
+                try {
+                  console.log('🚀 [UPDATE STOCK MODAL] Calling onSubmit prop...');
+                  await onSubmit(data);
+                  console.log('✅ [UPDATE STOCK MODAL] onSubmit completed successfully');
+                } catch (error) {
+                  console.error('❌ [UPDATE STOCK MODAL] Error in onSubmit:', error);
+                } finally {
+                  console.log('🏁 [UPDATE STOCK MODAL] Setting isSubmitting to false');
+                  setIsSubmitting(false);
+                }
+              }}
 
-              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              disabled={isSubmitting}
+
+              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
 
             >
 
-              Apply
+              {isSubmitting ? 'Applying...' : 'Apply'}
 
             </button>
 
@@ -246,168 +283,286 @@ const UpdateStockModal: React.FC<UpdateStockModalProps> = ({ initialData, onClos
 
 };
 
-
-
 export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, onClose, onSaved, categories, storageLocations }) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isHovering, setIsHovering] = useState(false);
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
 
-  console.log('🔍 Edit modal opened with item:', item);
+  // Scroll-on-hover state for restock tab
+  const [isRestockHovering, setIsRestockHovering] = useState(false);
+  const restockScrollContainerRef = React.useRef<HTMLDivElement>(null);
 
-  
-
-  const [formData, setFormData] = useState({
-
-    item_name: item.item_name,
-
-    description: item.description || '',
-
-    category_id: item.category_id,
-
-    in_stock: item.in_stock,
-
-    unit_price: item.unit_price,
-
-    storage_location_id: item.storage_location_id,
-
-    minimum_stock_level: item.minimum_stock_level
-
-  });
-
-  
-
-  console.log('📝 Initial form data:', formData);
-
-  
-
+  // Modal states
   const [showCategoryModal, setShowCategoryModal] = useState(false);
-
   const [showStorageLocationModal, setShowStorageLocationModal] = useState(false);
-
-  
-
   const [activeTab, setActiveTab] = useState<'details' | 'restock'>('details');
-
   const [isUpdateStockOpen, setIsUpdateStockOpen] = useState(false);
 
+  // Stock history state
+  const [stockHistory, setStockHistory] = useState<StockHistory[]>([]);
+  const [filteredStockHistory, setFilteredStockHistory] = useState<StockHistory[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyDateFrom, setHistoryDateFrom] = useState('');
+  const [historyDateTo, setHistoryDateTo] = useState('');
+
+  // Find category_id from category_name if category_id is undefined
+  const getCategoryIdFromName = (categoryName?: string): number | undefined => {
+    if (!categoryName) return undefined;
+    const category = categories.find(cat => cat.name === categoryName);
+    return category?.id;
+  };
+
+  // Find storage_location_id from storage_location_name if storage_location_id is undefined
+  const getStorageLocationIdFromName = (locationName?: string): number | undefined => {
+    if (!locationName) return undefined;
+    const location = storageLocations.find((loc: any) => loc.name === locationName);
+    return location?.id;
+  };
+
+  const derivedCategoryId = item.category_id || getCategoryIdFromName(item.category_name);
+  const derivedStorageLocationId = item.storage_location_id || getStorageLocationIdFromName(item.storage_location_name);
+
+  const [formData, setFormData] = useState({
+    item_name: item.item_name,
+    description: item.description || '',
+    category_id: derivedCategoryId,
+    in_stock: item.in_stock,
+    unit_price: item.unit_price,
+    storage_location_id: derivedStorageLocationId,
+    minimum_stock_level: item.minimum_stock_level
+  });
+
   const [stockUpdateInitialData, setStockUpdateInitialData] = useState<StockUpdateFormData>(() => ({
-
     date: new Date().toISOString().slice(0, 10),
-
     type: 'New Stock',
-
     direction: 'add',
-
     quantity: 0
-
   }));
 
-  
+  // Keyboard navigation for scrolling
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isHovering || !scrollContainerRef.current) return;
 
-  useEffect(() => {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        scrollContainerRef.current.scrollBy({
+          top: -100,
+          behavior: 'smooth'
+        });
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        scrollContainerRef.current.scrollBy({
+          top: 100,
+          behavior: 'smooth'
+        });
+      }
+    };
 
-    console.log('� Categories received as props:', categories);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isHovering]);
 
-    console.log('📦 Storage locations received as props:', storageLocations);
+  // Keyboard navigation for scrolling restock tab
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isRestockHovering || !restockScrollContainerRef.current) return;
 
-  }, [categories, storageLocations]);
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        restockScrollContainerRef.current.scrollBy({
+          top: -100,
+          behavior: 'smooth'
+        });
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        restockScrollContainerRef.current.scrollBy({
+          top: 100,
+          behavior: 'smooth'
+        });
+      }
+    };
 
-  
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isRestockHovering]);
 
-  const clearIfInvalid = () => {
+  // Click outside to close functionality
+  React.useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('.modal-content')) return;
+      if (target.closest('[role="dialog"]')) return;
+      
+      // Check if click is outside the modal backdrop
+      if (target.classList.contains('fixed') && target.classList.contains('inset-0')) {
+        onClose();
+      }
+    };
 
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [onClose]);
+
+  const [clearIfInvalid] = useState(() => {
     // Placeholder function for dropdown validation
-
-  };
-
-  
+    return () => {};
+  });
 
   const handleCategorySelect = (id: number) => {
-
     setFormData({ ...formData, category_id: id });
-
   };
-
-  
 
   const handleStorageSelect = (id: number) => {
-
     setFormData({ ...formData, storage_location_id: id });
-
   };
-
-  
 
   const handleAddCategory = async (name: string) => {
-
     // TODO: Implement add category
-
     console.log('Add category:', name);
-
   };
-
-  
 
   const handleDeleteCategory = async (id: number) => {
-
     // TODO: Implement delete category
-
     console.log('Delete category:', id);
-
   };
-
-  
 
   const handleEditCategory = async (id: number, newName: string) => {
-
     // TODO: Implement edit category
-
     console.log('Edit category:', id, newName);
-
   };
-
-  
 
   const handleAddStorageLocation = async (name: string) => {
-
     // TODO: Implement add storage location
-
     console.log('Add storage location:', name);
-
   };
-
-  
 
   const handleDeleteStorageLocation = async (id: number) => {
-
     // TODO: Implement delete storage location
-
     console.log('Delete storage location:', id);
-
   };
-
-  
 
   const handleEditStorageLocation = async (id: number, newName: string) => {
-
     // TODO: Implement edit storage location
-
     console.log('Edit storage location:', id, newName);
-
   };
 
+  // Load stock history for the current item
+  const loadStockHistory = async () => {
+    try {
+      setHistoryLoading(true);
+      console.log('📚 [STOCK HISTORY] Loading history for item:', item.id);
+      
+      const history = await getStockHistory(item.id);
+      console.log('📚 [STOCK HISTORY] Loaded history:', history);
+      
+      setStockHistory(history);
+      filterStockHistory(history, historyDateFrom, historyDateTo);
+    } catch (error: any) {
+      console.error('❌ [STOCK HISTORY] Error loading history:', error);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
+  // Filter stock history based on date range
+  const filterStockHistory = (history: StockHistory[], fromDate: string, toDate: string) => {
+    let filtered = history;
+    
+    if (fromDate) {
+      filtered = filtered.filter(item => 
+        new Date(item.transaction_date) >= new Date(fromDate)
+      );
+    }
+    
+    if (toDate) {
+      filtered = filtered.filter(item => 
+        new Date(item.transaction_date) <= new Date(toDate)
+      );
+    }
+    
+    console.log('📚 [STOCK HISTORY] Filtered history:', filtered);
+    setFilteredStockHistory(filtered);
+  };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Handle date filter changes
+  const handleDateFilterChange = (fromDate: string, toDate: string) => {
+    setHistoryDateFrom(fromDate);
+    setHistoryDateTo(toDate);
+    filterStockHistory(stockHistory, fromDate, toDate);
+  };
 
+  // Load stock history when component mounts or when switching to restock tab
+  React.useEffect(() => {
+    if (activeTab === 'restock' && item.id) {
+      loadStockHistory();
+    }
+  }, [activeTab, item.id]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Here you would typically save to your backend
-
-    console.log('Saving inventory item:', formData);
-
-    onSaved();
-
-    onClose();
-
+    
+    // Validate required fields
+    if (!formData.item_name.trim()) {
+      alert('Item name is required');
+      return;
+    }
+    
+    if (!formData.category_id) {
+      alert('Please select a category');
+      return;
+    }
+    
+    if (!formData.storage_location_id) {
+      alert('Please select a storage location');
+      return;
+    }
+    
+    if (formData.unit_price < 0) {
+      alert('Unit price cannot be negative');
+      return;
+    }
+    
+    if (formData.minimum_stock_level < 0) {
+      alert('Minimum stock level cannot be negative');
+      return;
+    }
+    
+    setIsSubmitting(true);
+    
+    try {
+      // Prepare the update data
+      const updateData = {
+        item_name: formData.item_name.trim(),
+        description: formData.description?.trim() || '',
+        category_id: formData.category_id,
+        unit_price: formData.unit_price,
+        storage_location_id: formData.storage_location_id,
+        minimum_stock_level: formData.minimum_stock_level
+      };
+      
+      console.log('💾 Saving inventory item:', updateData);
+      
+      // Update the item in the database
+      await updateInventoryItem(item.id, updateData);
+      
+      console.log('✅ Item updated successfully');
+      
+      // Show success message
+      alert('Item updated successfully!');
+      
+      // Call the onSaved callback to refresh parent data
+      onSaved();
+      
+      // Close the modal
+      onClose();
+      
+    } catch (error: any) {
+      console.error('❌ Error updating item:', error);
+      alert(error.message || 'Failed to update item. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
 
@@ -416,13 +571,17 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
 
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
 
-      <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden scrollbar-hide" onWheel={(e) => {
-
-        const target = e.currentTarget;
-
-        target.scrollTop += e.deltaY;
-
-      }}>
+      <div 
+        ref={scrollContainerRef}
+        className="modal-content bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto overflow-x-hidden scrollbar-hide" 
+        onMouseEnter={() => setIsHovering(true)}
+        onMouseLeave={() => setIsHovering(false)}
+        onWheel={(e) => {
+          const target = e.currentTarget;
+          target.scrollTop += e.deltaY;
+        }}
+        tabIndex={-1} // Make it focusable without requiring click
+      >
 
         {isUpdateStockOpen && (
 
@@ -432,22 +591,64 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
 
             onClose={() => setIsUpdateStockOpen(false)}
 
-            onSubmit={(data) => {
+            onSubmit={async (data) => {
+              console.log('🔄 [STOCK UPDATE] onSubmit called with data:', data);
+              console.log('📊 [STOCK UPDATE] Item ID:', item.id);
+              console.log('🔢 [STOCK UPDATE] Calculating delta...');
+              
+              try {
+                const delta = data.direction === 'add' ? data.quantity : -data.quantity;
+                console.log('➕➖ [STOCK UPDATE] Delta calculated:', delta);
+                console.log('📝 [STOCK UPDATE] Transaction type:', data.type);
+                
+                console.log('🗄️ [STOCK UPDATE] Calling updateStockForItem...');
+                
+                // Update the database
+                await updateStockForItem(
+                  item.id,
+                  delta,
+                  data.type,
+                  `Stock update: ${data.type}`
+                );
+                
+                console.log('✅ [STOCK UPDATE] Database update successful');
+                
+                // Update local form data
+                console.log('📊 [STOCK UPDATE] Updating local form data...');
+                const newStock = Math.max(0, (formData.in_stock || 0) + delta);
+                console.log('📈 [STOCK UPDATE] New stock calculated:', newStock);
+                
+                setFormData((prev) => {
+                  console.log('⚙️ [STOCK UPDATE] setFormData called with prev:', prev);
+                  const updated = {
+                    ...prev,
+                    in_stock: newStock
+                  };
+                  console.log('🔄 [STOCK UPDATE] New form data:', updated);
+                  return updated;
+                });
 
-              const delta = data.direction === 'add' ? data.quantity : -data.quantity;
-
-              setFormData((prev) => ({
-
-                ...prev,
-
-                in_stock: Math.max(0, (prev.in_stock || 0) + delta)
-
-              }));
-
-              setStockUpdateInitialData(data);
-
-              setIsUpdateStockOpen(false);
-
+                console.log('💾 [STOCK UPDATE] Updating stockUpdateInitialData...');
+                setStockUpdateInitialData(data);
+                
+                console.log('🚪 [STOCK UPDATE] Closing modal...');
+                setIsUpdateStockOpen(false);
+                
+                // Refresh the parent data
+                console.log('🔄 [STOCK UPDATE] Calling onSaved callback...');
+                onSaved();
+                
+                console.log('🎉 [STOCK UPDATE] Showing success alert...');
+                alert('Stock updated successfully!');
+              } catch (error: any) {
+                console.error('❌ [STOCK UPDATE] Error in onSubmit:', error);
+                console.error('❌ [STOCK UPDATE] Error details:', {
+                  message: error.message,
+                  stack: error.stack,
+                  name: error.name
+                });
+                alert(`Error updating stock: ${error.message}`);
+              }
             }}
 
           />
@@ -683,301 +884,87 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
 
 
           {activeTab === 'restock' && (
-
-            <div>
-
-              <div className="flex justify-between items-center mb-4">
-
-                <h4 className="text-base font-medium text-gray-700">Stock History</h4>
-
-                <div className="flex items-center gap-2">
-
-                  <label className="text-sm text-gray-600">From:</label>
-
-                  <input
-
-                    type="date"
-
-                    defaultValue="2024-03-23"
-
-                    className="px-3 py-1 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-
-                  />
-
-                  <span className="text-sm text-gray-600">to:</span>
-
-                  <input
-
-                    type="date"
-
-                    defaultValue="2024-04-23"
-
-                    className="px-3 py-1 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-
-                  />
-
+            <div 
+              ref={restockScrollContainerRef}
+              className="max-h-[60vh] overflow-y-auto scrollbar-hide"
+              onMouseEnter={() => setIsRestockHovering(true)}
+              onMouseLeave={() => setIsRestockHovering(false)}
+              tabIndex={-1} // Make it focusable without requiring click
+            >
+              <div>
+                <div className="flex justify-between items-center mb-4">
+                  <h4 className="text-base font-medium text-gray-700">Stock History</h4>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-600">From:</label>
+                    <input
+                      type="date"
+                      value={historyDateFrom}
+                      onChange={(e) => handleDateFilterChange(e.target.value, historyDateTo)}
+                      className="px-3 py-1 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <span className="text-sm text-gray-600">to:</span>
+                    <input
+                      type="date"
+                      value={historyDateTo}
+                      onChange={(e) => handleDateFilterChange(historyDateFrom, e.target.value)}
+                      className="px-3 py-1 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
                 </div>
-
-              </div>
 
               <div className="space-y-2">
-
-                <div className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded-lg">
-
-                  <span className="text-sm text-gray-600 w-24">2024-04-01</span>
-
-                  <span className="text-sm text-gray-500 flex-1">Stock Adjustment (Expired)</span>
-
-                  <span className="text-sm font-medium text-red-600 w-20 text-right">-10 units</span>
-
-                  <span className="text-sm font-medium text-gray-700 w-28 text-right">Balance: 130</span>
-
-                  <div className="flex gap-1 ml-8">
-
-                    <button className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors">
-
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-
-                      </svg>
-
-                    </button>
-
-                    <button className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors">
-
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-
-                      </svg>
-
-                    </button>
-
+                {historyLoading ? (
+                  <div className="flex justify-center items-center py-8">
+                    <div className="text-sm text-gray-500">Loading stock history...</div>
                   </div>
-
-                </div>
-
-                <div className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded-lg">
-
-                  <span className="text-sm text-gray-600 w-24">2024-03-15</span>
-
-                  <span className="text-sm text-gray-500 flex-1">Stock Adjustment (Damaged)</span>
-
-                  <span className="text-sm font-medium text-red-600 w-20 text-right">-30 units</span>
-
-                  <span className="text-sm font-medium text-gray-700 w-28 text-right">Balance: 120</span>
-
-                  <div className="flex gap-1 ml-8">
-
-                    <button className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors">
-
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-
-                      </svg>
-
-                    </button>
-
-                    <button className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors">
-
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-
-                      </svg>
-
-                    </button>
-
+                ) : filteredStockHistory.length === 0 ? (
+                  <div className="flex justify-center items-center py-8">
+                    <div className="text-sm text-gray-500">
+                      {stockHistory.length === 0 
+                        ? 'No stock history found for this item' 
+                        : 'No stock history found for the selected date range'
+                      }
+                    </div>
                   </div>
-
-                </div>
-
-                <div className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded-lg">
-
-                  <span className="text-sm text-gray-600 w-24">2024-03-01</span>
-
-                  <span className="text-sm text-gray-500 flex-1">Stock Adjustment (Loss/Theft)</span>
-
-                  <span className="text-sm font-medium text-red-600 w-20 text-right">-15 units</span>
-
-                  <span className="text-sm font-medium text-gray-700 w-28 text-right">Balance: 90</span>
-
-                  <div className="flex gap-1 ml-8">
-
-                    <button className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors">
-
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-
-                      </svg>
-
-                    </button>
-
-                    <button className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors">
-
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-
-                      </svg>
-
-                    </button>
-
-                  </div>
-
-                </div>
-
-                <div className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded-lg">
-
-                  <span className="text-sm text-gray-600 w-24">2024-02-01</span>
-
-                  <span className="text-sm text-gray-500 flex-1">New Stock</span>
-
-                  <span className="text-sm font-medium text-green-600 w-20 text-right">+25 units</span>
-
-                  <span className="text-sm font-medium text-gray-700 w-28 text-right">Balance: 75</span>
-
-                  <div className="flex gap-1 ml-8">
-
-                    <button className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors">
-
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-
-                      </svg>
-
-                    </button>
-
-                    <button className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors">
-
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-
-                      </svg>
-
-                    </button>
-
-                  </div>
-
-                </div>
-
-                <div className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded-lg">
-
-                  <span className="text-sm text-gray-600 w-24">2024-01-15</span>
-
-                  <span className="text-sm text-gray-500 flex-1">New Stock</span>
-
-                  <span className="text-sm font-medium text-green-600 w-20 text-right">+50 units</span>
-
-                  <span className="text-sm font-medium text-gray-700 w-28 text-right">Balance: 50</span>
-
-                  <div className="flex gap-1 ml-8">
-
-                    <button className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors">
-
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-
-                      </svg>
-
-                    </button>
-
-                    <button className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors">
-
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-
-                      </svg>
-
-                    </button>
-
-                  </div>
-
-                </div>
-
-                <div className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded-lg">
-
-                  <span className="text-sm text-gray-600 w-24">2024-01-20</span>
-
-                  <span className="text-sm text-gray-500 flex-1">Issued for Use</span>
-
-                  <span className="text-sm font-medium text-red-600 w-20 text-right">-15 units</span>
-
-                  <span className="text-sm font-medium text-gray-700 w-28 text-right">Balance: 60</span>
-
-                  <div className="flex gap-1 ml-8">
-
-                    <button className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors">
-
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-
-                      </svg>
-
-                    </button>
-
-                    <button className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors">
-
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-
-                      </svg>
-
-                    </button>
-
-                  </div>
-
-                </div>
-
-                <div className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded-lg">
-
-                  <span className="text-sm text-gray-600 w-24">2024-01-25</span>
-
-                  <span className="text-sm text-gray-500 flex-1">Returned</span>
-
-                  <span className="text-sm font-medium text-green-600 w-20 text-right">+5 units</span>
-
-                  <span className="text-sm font-medium text-gray-700 w-28 text-right">Balance: 65</span>
-
-                  <div className="flex gap-1 ml-8">
-
-                    <button className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors">
-
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-
-                      </svg>
-
-                    </button>
-
-                    <button className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors">
-
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-
-                      </svg>
-
-                    </button>
-
-                  </div>
-
-                </div>
-
+                ) : (
+                  filteredStockHistory.map((history) => (
+                    <div key={history.id} className="flex justify-between items-center py-2 px-3 bg-gray-50 rounded-lg">
+                      <span className="text-sm text-gray-600 w-24">
+                        {new Date(history.transaction_date).toLocaleDateString()}
+                      </span>
+                      <span className="text-sm text-gray-500 flex-1">{history.transaction_type}</span>
+                      <span className={`text-sm font-medium w-20 text-right ${
+                        history.quantity_change > 0 ? 'text-green-600' : 'text-red-600'
+                      }`}>
+                        {history.quantity_change > 0 ? '+' : ''}{history.quantity_change} units
+                      </span>
+                      <span className="text-sm font-medium text-gray-700 w-28 text-right">
+                        Balance: {history.quantity_after}
+                      </span>
+                      <div className="flex gap-1 ml-8">
+                        <button 
+                          className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                          title="Edit entry"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                        <button 
+                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                          title="Delete entry"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
-
             </div>
-
+            </div>
           )}
 
 
@@ -1025,15 +1012,11 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
             </button>
 
             <button
-
               type="submit"
-
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-
+              disabled={isSubmitting}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-
-              Save Changes
-
+              {isSubmitting ? 'Saving...' : 'Save Changes'}
             </button>
 
           </div>
