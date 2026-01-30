@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, memo } from 'react';
+import React, { useState, useEffect, useCallback, memo, useMemo } from 'react';
 import { Package, Plus, Search, Filter, ChevronDown, ShoppingCart, CheckCircle, AlertTriangle, Loader2, Trash2 } from 'lucide-react';
 import { DropdownField } from '../Students/masterlist/DropdownField';
 import { OptionsModal } from '../Students/masterlist/OptionsModal';
@@ -15,6 +15,244 @@ import {
 } from './Inventory.data';
 
 // Remove the duplicate InventoryForm at the top - we'll use the one inside the main component
+
+// Move AddItemModal outside main component to prevent recreation
+interface AddItemModalProps {
+  showForm: boolean;
+  activeTab: string;
+  categories: InventoryCategory[];
+  storageLocations: InventoryStorageLocation[];
+  formScrollContainerRef: React.RefObject<HTMLDivElement>;
+  isFormHovering: boolean;
+  setIsFormHovering: (hovering: boolean) => void;
+  stockFormScrollContainerRef: React.RefObject<HTMLDivElement>;
+  isStockFormHovering: boolean;
+  setIsStockFormHovering: (hovering: boolean) => void;
+  setActiveTab: (tab: string) => void;
+  setShowForm: (show: boolean) => void;
+  handleFormSubmit: (e: React.FormEvent) => void;
+  handleCategorySelect: (id: number) => void;
+  handleStorageSelect: (id: number) => void;
+  clearIfInvalid: () => void;
+  showCategoryModal: boolean;
+  showStorageLocationModal: boolean;
+  setShowCategoryModal: (show: boolean) => void;
+  setShowStorageLocationModal: (show: boolean) => void;
+  handleAddCategory: (name: string) => Promise<void>;
+  handleDeleteCategory: (id: number) => Promise<void>;
+  handleEditCategory: (id: number, newName: string) => Promise<void>;
+  handleAddStorageLocation: (name: string) => Promise<void>;
+  handleDeleteStorageLocation: (id: number) => Promise<void>;
+  handleEditStorageLocation: (id: number, newName: string) => Promise<void>;
+  setIsSubmitting: (submitting: boolean) => void;
+  isSubmitting: boolean;
+}
+
+const AddItemModal: React.FC<AddItemModalProps> = memo(({
+  showForm,
+  activeTab,
+  categories,
+  storageLocations,
+  formScrollContainerRef,
+  isFormHovering,
+  setIsFormHovering,
+  stockFormScrollContainerRef,
+  isStockFormHovering,
+  setIsStockFormHovering,
+  setActiveTab,
+  setShowForm,
+  handleFormSubmit,
+  handleCategorySelect,
+  handleStorageSelect,
+  clearIfInvalid,
+  showCategoryModal,
+  showStorageLocationModal,
+  setShowCategoryModal,
+  setShowStorageLocationModal,
+  handleAddCategory,
+  handleDeleteCategory,
+  handleEditCategory,
+  handleAddStorageLocation,
+  handleDeleteStorageLocation,
+  handleEditStorageLocation,
+  setIsSubmitting,
+  isSubmitting
+}) => {
+  console.log(' [MOUNT] AddItemModal mounted');
+  
+  if (!showForm) return null;
+  
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="add-item-form-content bg-white rounded-lg p-6 w-full max-w-2xl">
+        {/* Tabs */}
+        <div className="border-b border-gray-200 mb-6">
+          <nav className="flex">
+            <button
+              onClick={() => setActiveTab('add-item')}
+              className={`flex-1 py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'add-item'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Add New Item
+            </button>
+          </nav>
+        </div>
+
+        {/* Tab Content - Always rendered, use CSS display for visibility */}
+        <div 
+          ref={formScrollContainerRef}
+          style={{ display: activeTab === 'add-item' ? 'block' : 'none' }}
+          className="max-h-[60vh] overflow-y-auto scrollbar-hide"
+          onMouseEnter={() => { console.log('🖱️ [DEBUG] ADD ITEM onMouseEnter triggered'); setIsFormHovering(true); }}
+          onMouseLeave={() => { console.log('🖱️ [DEBUG] ADD ITEM onMouseLeave triggered'); setIsFormHovering(false); }}
+          onWheel={(e) => { console.log('🖱️ [DEBUG] ADD ITEM onWheel triggered'); console.log('🖱️ [DEBUG] ADD ITEM ScrollHeight:', e.currentTarget.scrollHeight); console.log('🖱️ [DEBUG] ADD ITEM ClientHeight:', e.currentTarget.clientHeight); console.log('🖱️ [DEBUG] ADD ITEM Can scroll:', e.currentTarget.scrollHeight > e.currentTarget.clientHeight); const target = e.currentTarget; target.scrollTop += e.deltaY; }}
+          tabIndex={-1} // Make it focusable without requiring click
+        >
+          <form onSubmit={handleFormSubmit} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Item Name</label>
+                <input
+                  name="item_name"
+                  type="text"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+              </div>
+              <div>
+                <DropdownField
+                  name="category_id"
+                  label="Category"
+                  items={categories}
+                  clearIfInvalid={clearIfInvalid}
+                  onOpenModal={() => {
+                    setShowCategoryModal(true);
+                  }}
+                  onSelect={handleCategorySelect}
+                  tableName="inventory_categories"
+                  disableFetch={true}
+                />
+                <input
+                  type="hidden"
+                  name="category_id_hidden"
+                  id="category_id_hidden"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <textarea
+                name="description"
+                rows={2}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Initial Stock</label>
+                <input
+                  name="in_stock"
+                  type="number"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Low Stock Alert</label>
+                <input
+                  name="minimum_stock_level"
+                  type="number"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Unit Price</label>
+                <input
+                  name="unit_price"
+                  type="number"
+                  step="0.01"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+              </div>
+              <div>
+                <DropdownField
+                  name="storage_location_id"
+                  label="Storage Location"
+                  items={storageLocations}
+                  clearIfInvalid={clearIfInvalid}
+                  onOpenModal={() => {
+                    setShowStorageLocationModal(true);
+                  }}
+                  onSelect={handleStorageSelect}
+                  tableName="inventory_storage_locations"
+                  disableFetch={true}
+                />
+                <input
+                  type="hidden"
+                  name="storage_location_id_hidden"
+                  id="storage_location_id_hidden"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 pt-4">
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </form>
+        </div>
+
+
+        {/* Options Modals */}
+        {showCategoryModal && (
+          <OptionsModal
+            title="Categories"
+            items={categories}
+            onAdd={handleAddCategory}
+            onDelete={handleDeleteCategory}
+            onEdit={handleEditCategory}
+            onClose={() => setShowCategoryModal(false)}
+            tableName="inventory_categories"
+          />
+        )}
+
+        {showStorageLocationModal && (
+          <OptionsModal
+            title="Storage Locations"
+            items={storageLocations}
+            onAdd={handleAddStorageLocation}
+            onDelete={handleDeleteStorageLocation}
+            onEdit={handleEditStorageLocation}
+            onClose={() => setShowStorageLocationModal(false)}
+            tableName="inventory_storage_locations"
+          />
+        )}
+      </div>
+    </div>
+  );
+});
 
 export const InventoryList: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
@@ -57,16 +295,29 @@ export const InventoryList: React.FC = () => {
 
   // Keyboard navigation for scrolling add item form
   React.useEffect(() => {
+    console.log('🔧 [DEBUG] Setting up keyboard navigation for add item form');
+    console.log('🔧 [DEBUG] isFormHovering:', isFormHovering);
+    console.log('🔧 [DEBUG] formScrollContainerRef.current:', formScrollContainerRef.current);
+    
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isFormHovering || !formScrollContainerRef.current) return;
+      console.log('⌨️ [DEBUG] Key pressed:', e.key);
+      console.log('⌨️ [DEBUG] isFormHovering:', isFormHovering);
+      console.log('⌨️ [DEBUG] formScrollContainerRef.current exists:', !!formScrollContainerRef.current);
+      
+      if (!isFormHovering || !formScrollContainerRef.current) {
+        console.log('⌨️ [DEBUG] Early return - not hovering or no container');
+        return;
+      }
 
       if (e.key === 'ArrowUp') {
+        console.log('⬆️ [DEBUG] Arrow Up pressed - scrolling up');
         e.preventDefault();
         formScrollContainerRef.current.scrollBy({
           top: -100,
           behavior: 'smooth'
         });
       } else if (e.key === 'ArrowDown') {
+        console.log('⬇️ [DEBUG] Arrow Down pressed - scrolling down');
         e.preventDefault();
         formScrollContainerRef.current.scrollBy({
           top: 100,
@@ -76,21 +327,38 @@ export const InventoryList: React.FC = () => {
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    console.log('🔧 [DEBUG] Keyboard event listener added for add item form');
+    return () => {
+      console.log('🔧 [DEBUG] Cleaning up keyboard event listener for add item form');
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, [isFormHovering]);
 
   // Keyboard navigation for scrolling stock update form
   React.useEffect(() => {
+    console.log('🔧 [DEBUG] Setting up keyboard navigation for stock update form');
+    console.log('🔧 [DEBUG] isStockFormHovering:', isStockFormHovering);
+    console.log('🔧 [DEBUG] stockFormScrollContainerRef.current:', stockFormScrollContainerRef.current);
+    
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isStockFormHovering || !stockFormScrollContainerRef.current) return;
+      console.log('⌨️ [DEBUG] STOCK Key pressed:', e.key);
+      console.log('⌨️ [DEBUG] STOCK isStockFormHovering:', isStockFormHovering);
+      console.log('⌨️ [DEBUG] STOCK stockFormScrollContainerRef.current exists:', !!stockFormScrollContainerRef.current);
+      
+      if (!isStockFormHovering || !stockFormScrollContainerRef.current) {
+        console.log('⌨️ [DEBUG] STOCK Early return - not hovering or no container');
+        return;
+      }
 
       if (e.key === 'ArrowUp') {
+        console.log('⬆️ [DEBUG] STOCK Arrow Up pressed - scrolling up');
         e.preventDefault();
         stockFormScrollContainerRef.current.scrollBy({
           top: -100,
           behavior: 'smooth'
         });
       } else if (e.key === 'ArrowDown') {
+        console.log('⬇️ [DEBUG] STOCK Arrow Down pressed - scrolling down');
         e.preventDefault();
         stockFormScrollContainerRef.current.scrollBy({
           top: 100,
@@ -100,7 +368,11 @@ export const InventoryList: React.FC = () => {
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    console.log('🔧 [DEBUG] Keyboard event listener added for stock update form');
+    return () => {
+      console.log('🔧 [DEBUG] Cleaning up keyboard event listener for stock update form');
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, [isStockFormHovering]);
 
   // Click outside to close functionality for add item form
@@ -376,16 +648,6 @@ export const InventoryList: React.FC = () => {
             >
               Add New Item
             </button>
-            <button
-              onClick={() => setActiveTab('update-stock')}
-              className={`flex-1 py-2 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'update-stock'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              Stock Update
-            </button>
           </nav>
         </div>
 
@@ -394,8 +656,9 @@ export const InventoryList: React.FC = () => {
           ref={formScrollContainerRef}
           style={{ display: activeTab === 'add-item' ? 'block' : 'none' }}
           className="max-h-[60vh] overflow-y-auto scrollbar-hide"
-          onMouseEnter={() => setIsFormHovering(true)}
-          onMouseLeave={() => setIsFormHovering(false)}
+          onMouseEnter={() => { console.log('🖱️ [DEBUG] ADD ITEM onMouseEnter triggered'); setIsFormHovering(true); }}
+          onMouseLeave={() => { console.log('🖱️ [DEBUG] ADD ITEM onMouseLeave triggered'); setIsFormHovering(false); }}
+          onWheel={(e) => { console.log('🖱️ [DEBUG] ADD ITEM onWheel triggered'); console.log('🖱️ [DEBUG] ADD ITEM ScrollHeight:', e.currentTarget.scrollHeight); console.log('🖱️ [DEBUG] ADD ITEM ClientHeight:', e.currentTarget.clientHeight); console.log('🖱️ [DEBUG] ADD ITEM Can scroll:', e.currentTarget.scrollHeight > e.currentTarget.clientHeight); const target = e.currentTarget; target.scrollTop += e.deltaY; }}
           tabIndex={-1} // Make it focusable without requiring click
         >
           <form onSubmit={handleFormSubmit} className="space-y-4">
@@ -619,6 +882,48 @@ export const InventoryList: React.FC = () => {
   );
 });
 
+  // Memoize props for AddItemModal to prevent unnecessary remounts
+  const addItemModalProps = useMemo(() => ({
+    showForm,
+    activeTab,
+    categories,
+    storageLocations,
+    formScrollContainerRef,
+    isFormHovering,
+    setIsFormHovering,
+    stockFormScrollContainerRef,
+    isStockFormHovering,
+    setIsStockFormHovering,
+    setActiveTab,
+    setShowForm,
+    handleFormSubmit,
+    handleCategorySelect,
+    handleStorageSelect,
+    clearIfInvalid,
+    showCategoryModal,
+    showStorageLocationModal,
+    setShowCategoryModal,
+    setShowStorageLocationModal,
+    handleAddCategory,
+    handleDeleteCategory,
+    handleEditCategory,
+    handleAddStorageLocation,
+    handleDeleteStorageLocation,
+    handleEditStorageLocation,
+    setIsSubmitting,
+    isSubmitting
+  }), [
+    showForm,
+    activeTab,
+    categories,
+    storageLocations,
+    isFormHovering,
+    showCategoryModal,
+    showStorageLocationModal,
+    isSubmitting,
+    // Functions are stable due to useCallback, so we don't need to include them
+  ]);
+
   return (
     <div className="p-6 md:p-3 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
@@ -743,7 +1048,7 @@ export const InventoryList: React.FC = () => {
               className="flex-shrink-0 bg-blue-600 text-white p-2 md:px-4 md:py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center"
             >
               <Plus className="w-5 h-5 md:mr-2" />
-              <span className="hidden md:inline">Manage Inventory</span>
+              <span className="hidden md:inline">Add Item</span>
             </button>
           </div>
         </div>
@@ -943,9 +1248,7 @@ export const InventoryList: React.FC = () => {
         </div>
 
         {/* Modal with visibility instead of conditional mounting */}
-        <div style={{ display: showForm ? 'block' : 'none' }}>
-          <InventoryForm />
-        </div>
+        <AddItemModal {...addItemModalProps} />
         
         {itemToEdit && (
           <>
@@ -978,3 +1281,5 @@ export const InventoryList: React.FC = () => {
     </div>
   );
 };
+
+
