@@ -5,10 +5,16 @@ import { OptionsModal } from '../Students/masterlist/OptionsModal';
 import { InventoryEditModal } from './InventoryEditModal';
 import {
   getInventoryItems,
-  getInventoryCategories,
-  getInventoryStorageLocations,
   createInventoryItem,
   deleteInventoryItem,
+  getInventoryCategories,
+  createInventoryCategory,
+  updateInventoryCategory,
+  deleteInventoryCategory,
+  getInventoryStorageLocations,
+  createInventoryStorageLocation,
+  updateInventoryStorageLocation,
+  deleteInventoryStorageLocation,
   InventoryItem,
   InventoryCategory,
   InventoryStorageLocation
@@ -25,9 +31,6 @@ interface AddItemModalProps {
   formScrollContainerRef: React.RefObject<HTMLDivElement>;
   isFormHovering: boolean;
   setIsFormHovering: (hovering: boolean) => void;
-  stockFormScrollContainerRef: React.RefObject<HTMLDivElement>;
-  isStockFormHovering: boolean;
-  setIsStockFormHovering: (hovering: boolean) => void;
   setActiveTab: (tab: string) => void;
   setShowForm: (show: boolean) => void;
   handleFormSubmit: (e: React.FormEvent) => void;
@@ -44,7 +47,6 @@ interface AddItemModalProps {
   handleAddStorageLocation: (name: string) => Promise<void>;
   handleDeleteStorageLocation: (id: number) => Promise<void>;
   handleEditStorageLocation: (id: number, newName: string) => Promise<void>;
-  setIsSubmitting: (submitting: boolean) => void;
   isSubmitting: boolean;
 }
 
@@ -56,9 +58,6 @@ const AddItemModal: React.FC<AddItemModalProps> = memo(({
   formScrollContainerRef,
   isFormHovering,
   setIsFormHovering,
-  stockFormScrollContainerRef,
-  isStockFormHovering,
-  setIsStockFormHovering,
   setActiveTab,
   setShowForm,
   handleFormSubmit,
@@ -75,10 +74,10 @@ const AddItemModal: React.FC<AddItemModalProps> = memo(({
   handleAddStorageLocation,
   handleDeleteStorageLocation,
   handleEditStorageLocation,
-  setIsSubmitting,
   isSubmitting
 }) => {
   console.log(' [MOUNT] AddItemModal mounted');
+  console.log('🖱️ [DEBUG] Current hover state:', isFormHovering);
   
   if (!showForm) return null;
   
@@ -163,6 +162,28 @@ const AddItemModal: React.FC<AddItemModalProps> = memo(({
                 />
               </div>
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Units</label>
+                <input
+                  name="units"
+                  type="text"
+                  placeholder="e.g., pcs, kg, liters"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Unit Price (Ksh)</label>
+                <input
+                  name="unit_price"
+                  type="number"
+                  step="0.01"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  required
+                />
+              </div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Low Stock Alert</label>
                 <input
                   name="minimum_stock_level"
@@ -173,36 +194,24 @@ const AddItemModal: React.FC<AddItemModalProps> = memo(({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Unit Price</label>
-                <input
-                  name="unit_price"
-                  type="number"
-                  step="0.01"
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                />
-              </div>
-              <div>
-                <DropdownField
-                  name="storage_location_id"
-                  label="Storage Location"
-                  items={storageLocations}
-                  clearIfInvalid={clearIfInvalid}
-                  onOpenModal={() => {
-                    setShowStorageLocationModal(true);
-                  }}
-                  onSelect={handleStorageSelect}
-                  tableName="inventory_storage_locations"
-                  disableFetch={true}
-                />
-                <input
-                  type="hidden"
-                  name="storage_location_id_hidden"
-                  id="storage_location_id_hidden"
-                />
-              </div>
+            <div>
+              <DropdownField
+                name="storage_location_id"
+                label="Storage Location"
+                items={storageLocations}
+                clearIfInvalid={clearIfInvalid}
+                onOpenModal={() => {
+                  setShowStorageLocationModal(true);
+                }}
+                onSelect={handleStorageSelect}
+                tableName="inventory_storage_locations"
+                disableFetch={true}
+              />
+              <input
+                type="hidden"
+                name="storage_location_id_hidden"
+                id="storage_location_id_hidden"
+              />
             </div>
 
             <div className="flex justify-end space-x-3 pt-4">
@@ -235,6 +244,10 @@ const AddItemModal: React.FC<AddItemModalProps> = memo(({
             onEdit={handleEditCategory}
             onClose={() => setShowCategoryModal(false)}
             tableName="inventory_categories"
+            onRefresh={() => {
+              console.log('🔄 [CATEGORY] Refreshing categories...');
+              // Categories are already updated in local state, no need to refetch
+            }}
           />
         )}
 
@@ -247,6 +260,10 @@ const AddItemModal: React.FC<AddItemModalProps> = memo(({
             onEdit={handleEditStorageLocation}
             onClose={() => setShowStorageLocationModal(false)}
             tableName="inventory_storage_locations"
+            onRefresh={() => {
+              console.log('🔄 [STORAGE] Refreshing storage locations...');
+              // Storage locations are already updated in local state, no need to refetch
+            }}
           />
         )}
       </div>
@@ -274,6 +291,22 @@ export const InventoryList: React.FC = () => {
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [categorySearchTerm, setCategorySearchTerm] = useState('');
 
+  // Search and filter state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [isFilterModalHovering, setIsFilterModalHovering] = useState(false);
+  const filterModalScrollRef = React.useRef<HTMLDivElement>(null);
+  const [filters, setFilters] = useState({
+    status: '',
+    storageLocation: '',
+    unitPriceMin: '',
+    unitPriceMax: '',
+    inStockMin: '',
+    inStockMax: '',
+    requisitionedMin: '',
+    requisitionedMax: ''
+  });
+
   // Modal states
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showStorageLocationModal, setShowStorageLocationModal] = useState(false);
@@ -288,10 +321,6 @@ export const InventoryList: React.FC = () => {
   // Scroll-on-hover state for add item form
   const [isFormHovering, setIsFormHovering] = useState(false);
   const formScrollContainerRef = React.useRef<HTMLDivElement>(null);
-
-  // Scroll-on-hover state for stock update form
-  const [isStockFormHovering, setIsStockFormHovering] = useState(false);
-  const stockFormScrollContainerRef = React.useRef<HTMLDivElement>(null);
 
   // Keyboard navigation for scrolling add item form
   React.useEffect(() => {
@@ -334,33 +363,33 @@ export const InventoryList: React.FC = () => {
     };
   }, [isFormHovering]);
 
-  // Keyboard navigation for scrolling stock update form
+  // Keyboard navigation for filter modal scrolling
   React.useEffect(() => {
-    console.log('🔧 [DEBUG] Setting up keyboard navigation for stock update form');
-    console.log('🔧 [DEBUG] isStockFormHovering:', isStockFormHovering);
-    console.log('🔧 [DEBUG] stockFormScrollContainerRef.current:', stockFormScrollContainerRef.current);
+    console.log('🔧 [DEBUG] Setting up keyboard navigation for filter modal');
+    console.log('🔧 [DEBUG] isFilterModalHovering:', isFilterModalHovering);
+    console.log('🔧 [DEBUG] filterModalScrollRef.current:', filterModalScrollRef.current);
     
     const handleKeyDown = (e: KeyboardEvent) => {
-      console.log('⌨️ [DEBUG] STOCK Key pressed:', e.key);
-      console.log('⌨️ [DEBUG] STOCK isStockFormHovering:', isStockFormHovering);
-      console.log('⌨️ [DEBUG] STOCK stockFormScrollContainerRef.current exists:', !!stockFormScrollContainerRef.current);
+      console.log('⌨️ [DEBUG] Filter modal key pressed:', e.key);
+      console.log('⌨️ [DEBUG] isFilterModalHovering:', isFilterModalHovering);
+      console.log('⌨️ [DEBUG] filterModalScrollRef.current exists:', !!filterModalScrollRef.current);
       
-      if (!isStockFormHovering || !stockFormScrollContainerRef.current) {
-        console.log('⌨️ [DEBUG] STOCK Early return - not hovering or no container');
+      if (!isFilterModalHovering || !filterModalScrollRef.current) {
+        console.log('⌨️ [DEBUG] Filter modal early return - not hovering or no container');
         return;
       }
 
       if (e.key === 'ArrowUp') {
-        console.log('⬆️ [DEBUG] STOCK Arrow Up pressed - scrolling up');
+        console.log('⬆️ [DEBUG] Filter modal Arrow Up pressed - scrolling up');
         e.preventDefault();
-        stockFormScrollContainerRef.current.scrollBy({
+        filterModalScrollRef.current.scrollBy({
           top: -100,
           behavior: 'smooth'
         });
       } else if (e.key === 'ArrowDown') {
-        console.log('⬇️ [DEBUG] STOCK Arrow Down pressed - scrolling down');
+        console.log('⬇️ [DEBUG] Filter modal Arrow Down pressed - scrolling down');
         e.preventDefault();
-        stockFormScrollContainerRef.current.scrollBy({
+        filterModalScrollRef.current.scrollBy({
           top: 100,
           behavior: 'smooth'
         });
@@ -368,12 +397,12 @@ export const InventoryList: React.FC = () => {
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    console.log('🔧 [DEBUG] Keyboard event listener added for stock update form');
+    console.log('🔧 [DEBUG] Keyboard event listener added for filter modal');
     return () => {
-      console.log('🔧 [DEBUG] Cleaning up keyboard event listener for stock update form');
+      console.log('🔧 [DEBUG] Cleaning up keyboard event listener for filter modal');
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isStockFormHovering]);
+  }, [isFilterModalHovering]);
 
   // Click outside to close functionality for add item form
   React.useEffect(() => {
@@ -398,6 +427,32 @@ export const InventoryList: React.FC = () => {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Refresh categories and storage locations when modals open
+  useEffect(() => {
+    if (showCategoryModal || showStorageLocationModal) {
+      console.log('🔄 [PARENT] Refreshing dropdown data due to modal open...');
+      refreshDropdownData();
+    }
+  }, [showCategoryModal, showStorageLocationModal]);
+
+  const refreshDropdownData = async () => {
+    try {
+      console.log('🔄 [PARENT] Refreshing categories and storage locations...');
+      const [categoriesData, locationsData] = await Promise.all([
+        getInventoryCategories(),
+        getInventoryStorageLocations()
+      ]);
+      
+      console.log('📊 [PARENT] Categories refreshed:', categoriesData);
+      console.log('📦 [PARENT] Storage locations refreshed:', locationsData);
+      
+      setCategories(categoriesData);
+      setStorageLocations(locationsData);
+    } catch (error) {
+      console.error('❌ [PARENT] Error refreshing dropdown data:', error);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -424,10 +479,55 @@ export const InventoryList: React.FC = () => {
     }
   };
 
-  // Filter inventory based on selected category
-  const filteredInventory = inventoryItems.filter(item => 
-    item.category_name === selectedCategory
-  );
+  // Filter inventory based on search term, selected category, and filters
+  const filteredInventory = useMemo(() => {
+    return inventoryItems.filter(item => {
+      // Category filter
+      if (item.category_name !== selectedCategory) return false;
+      
+      // Search filter (item name and description)
+      if (searchTerm) {
+        const searchLower = searchTerm.toLowerCase();
+        const nameMatch = item.item_name.toLowerCase().includes(searchLower);
+        const descMatch = item.description?.toLowerCase().includes(searchLower);
+        if (!nameMatch && !descMatch) return false;
+      }
+      
+      // Status filter
+      if (filters.status && item.status !== filters.status) return false;
+      
+      // Storage location filter
+      if (filters.storageLocation && item.storage_location_name !== filters.storageLocation) return false;
+      
+      // Unit price range filter
+      if (filters.unitPriceMin && item.unit_price < parseFloat(filters.unitPriceMin)) return false;
+      if (filters.unitPriceMax && item.unit_price > parseFloat(filters.unitPriceMax)) return false;
+      
+      // In stock range filter
+      if (filters.inStockMin && item.in_stock < parseInt(filters.inStockMin)) return false;
+      if (filters.inStockMax && item.in_stock > parseInt(filters.inStockMax)) return false;
+      
+      // Requisitioned range filter
+      if (filters.requisitionedMin && item.pending_requisitions < parseInt(filters.requisitionedMin)) return false;
+      if (filters.requisitionedMax && item.pending_requisitions > parseInt(filters.requisitionedMax)) return false;
+      
+      return true;
+    });
+  }, [inventoryItems, selectedCategory, searchTerm, filters]);
+
+  // Check if any filters are active
+  const hasActiveFilters = useMemo(() => {
+    return !!(
+      filters.status ||
+      filters.storageLocation ||
+      filters.unitPriceMin ||
+      filters.unitPriceMax ||
+      filters.inStockMin ||
+      filters.inStockMax ||
+      filters.requisitionedMin ||
+      filters.requisitionedMax
+    );
+  }, [filters]);
 
   // Filter categories for dropdown
   const filteredCategories = categories.filter(category =>
@@ -464,42 +564,79 @@ export const InventoryList: React.FC = () => {
 
   // --- Dropdown Handlers ---
   const handleAddCategory = async (name: string) => {
-    const newCategory = {
-      id: Math.max(...categories.map(c => c.id)) + 1,
-      name,
-      is_active: true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
-    setCategories([...categories, newCategory]);
+    try {
+      console.log('📝 [CATEGORY] Adding new category:', name);
+      const newCategory = await createInventoryCategory({ name, is_active: true });
+      console.log('✅ [CATEGORY] Category added successfully:', newCategory);
+      setCategories([...categories, newCategory]);
+    } catch (error) {
+      console.error('❌ [CATEGORY] Error adding category:', error);
+      alert('Failed to add category. Please try again.');
+    }
   };
 
   const handleDeleteCategory = async (id: number) => {
-    setCategories(categories.filter(c => c.id !== id));
+    try {
+      console.log('🗑️ [CATEGORY] Deleting category:', id);
+      await deleteInventoryCategory(id);
+      console.log('✅ [CATEGORY] Category deleted successfully');
+      // Remove from local state (hard delete)
+      setCategories(categories.filter(c => c.id !== id));
+    } catch (error) {
+      console.error('❌ [CATEGORY] Error deleting category:', error);
+      alert('Failed to delete category. Please try again.');
+    }
   };
 
   const handleEditCategory = async (id: number, newName: string) => {
-    setCategories(categories.map(c => c.id === id ? { ...c, name: newName } : c));
+    try {
+      console.log('✏️ [CATEGORY] Updating category:', id, 'to:', newName);
+      const updatedCategory = await updateInventoryCategory(id, { name: newName });
+      console.log('✅ [CATEGORY] Category updated successfully:', updatedCategory);
+      setCategories(categories.map(c => c.id === id ? updatedCategory : c));
+    } catch (error) {
+      console.error('❌ [CATEGORY] Error updating category:', error);
+      alert('Failed to update category. Please try again.');
+    }
   };
 
   const handleAddStorageLocation = async (name: string) => {
-    const newLocation = {
-      id: Math.max(...storageLocations.map(l => l.id)) + 1,
-      name,
-      is_active: true,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
-    setStorageLocations([...storageLocations, newLocation]);
+    try {
+      console.log('📝 [STORAGE] Adding new storage location:', name);
+      const newLocation = await createInventoryStorageLocation({ name, is_active: true });
+      console.log('✅ [STORAGE] Storage location added successfully:', newLocation);
+      setStorageLocations([...storageLocations, newLocation]);
+    } catch (error) {
+      console.error('❌ [STORAGE] Error adding storage location:', error);
+      alert('Failed to add storage location. Please try again.');
+    }
   };
 
   const handleDeleteStorageLocation = async (id: number) => {
-    setStorageLocations(storageLocations.filter(l => l.id !== id));
+    try {
+      console.log('🗑️ [STORAGE] Deleting storage location:', id);
+      await deleteInventoryStorageLocation(id);
+      console.log('✅ [STORAGE] Storage location deleted successfully');
+      // Remove from local state (hard delete)
+      setStorageLocations(storageLocations.filter(l => l.id !== id));
+    } catch (error) {
+      console.error('❌ [STORAGE] Error deleting storage location:', error);
+      alert('Failed to delete storage location. Please try again.');
+    }
   };
 
   const handleEditStorageLocation = async (id: number, newName: string) => {
-    setStorageLocations(storageLocations.map(l => l.id === id ? { ...l, name: newName } : l));
+    try {
+      console.log('✏️ [STORAGE] Updating storage location:', id, 'to:', newName);
+      const updatedLocation = await updateInventoryStorageLocation(id, { name: newName });
+      console.log('✅ [STORAGE] Storage location updated successfully:', updatedLocation);
+      setStorageLocations(storageLocations.map(l => l.id === id ? updatedLocation : l));
+    } catch (error) {
+      console.error('❌ [STORAGE] Error updating storage location:', error);
+      alert('Failed to update storage location. Please try again.');
+    }
   };
+
 
   const clearIfInvalid = () => {
     // Placeholder function for dropdown validation
@@ -593,6 +730,7 @@ export const InventoryList: React.FC = () => {
         description: formData.get('description') as string || '',
         category_id: categoryId ? parseInt(categoryId) : undefined,
         in_stock: parseInt(formData.get('in_stock') as string) || 0,
+        units: formData.get('units') as string || '',
         unit_price: parseFloat(formData.get('unit_price') as string) || 0,
         storage_location_id: storageId ? parseInt(storageId) : undefined,
         minimum_stock_level: parseInt(formData.get('minimum_stock_level') as string) || 10,
@@ -628,259 +766,6 @@ export const InventoryList: React.FC = () => {
     }
   }, [loadData]);
 
-  // Move InventoryForm outside main component to prevent recreation
-  const InventoryForm = memo(() => {
-    console.log('🟢 [MOUNT] InventoryForm mounted');
-    
-    return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="add-item-form-content bg-white rounded-lg p-6 w-full max-w-2xl">
-        {/* Tabs */}
-        <div className="border-b border-gray-200 mb-6">
-          <nav className="flex">
-            <button
-              onClick={() => setActiveTab('add-item')}
-              className={`flex-1 py-2 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'add-item'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              Add New Item
-            </button>
-          </nav>
-        </div>
-
-        {/* Tab Content - Always rendered, use CSS display for visibility */}
-        <div 
-          ref={formScrollContainerRef}
-          style={{ display: activeTab === 'add-item' ? 'block' : 'none' }}
-          className="max-h-[60vh] overflow-y-auto scrollbar-hide"
-          onMouseEnter={() => { console.log('🖱️ [DEBUG] ADD ITEM onMouseEnter triggered'); setIsFormHovering(true); }}
-          onMouseLeave={() => { console.log('🖱️ [DEBUG] ADD ITEM onMouseLeave triggered'); setIsFormHovering(false); }}
-          onWheel={(e) => { console.log('🖱️ [DEBUG] ADD ITEM onWheel triggered'); console.log('🖱️ [DEBUG] ADD ITEM ScrollHeight:', e.currentTarget.scrollHeight); console.log('🖱️ [DEBUG] ADD ITEM ClientHeight:', e.currentTarget.clientHeight); console.log('🖱️ [DEBUG] ADD ITEM Can scroll:', e.currentTarget.scrollHeight > e.currentTarget.clientHeight); const target = e.currentTarget; target.scrollTop += e.deltaY; }}
-          tabIndex={-1} // Make it focusable without requiring click
-        >
-          <form onSubmit={handleFormSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Item Name</label>
-                <input
-                  name="item_name"
-                  type="text"
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                />
-              </div>
-              <div>
-                <DropdownField
-                  name="category_id"
-                  label="Category"
-                  items={categories}
-                  clearIfInvalid={clearIfInvalid}
-                  onOpenModal={() => {
-                    setShowCategoryModal(true);
-                  }}
-                  onSelect={handleCategorySelect}
-                  tableName="inventory_categories"
-                  disableFetch={true}
-                />
-                <input
-                  type="hidden"
-                  name="category_id_hidden"
-                  id="category_id_hidden"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <textarea
-                name="description"
-                rows={2}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Initial Stock</label>
-                <input
-                  name="in_stock"
-                  type="number"
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Low Stock Alert</label>
-                <input
-                  name="minimum_stock_level"
-                  type="number"
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Unit Price (Ksh)</label>
-                <input
-                  name="unit_price"
-                  type="number"
-                  step="0.01"
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                />
-              </div>
-              <div>
-                <DropdownField
-                  name="storage_location_id"
-                  label="Storage Location"
-                  items={storageLocations}
-                  clearIfInvalid={clearIfInvalid}
-                  onOpenModal={() => {
-                    setShowStorageLocationModal(true);
-                  }}
-                  onSelect={handleStorageSelect}
-                  tableName="inventory_storage_locations"
-                  disableFetch={true}
-                />
-                <input
-                  type="hidden"
-                  name="storage_location_id_hidden"
-                  id="storage_location_id_hidden"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end space-x-3 pt-4">
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              >
-                {isSubmitting ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <div 
-          ref={stockFormScrollContainerRef}
-          style={{ display: activeTab === 'update-stock' ? 'block' : 'none' }}
-          className="max-h-[60vh] overflow-y-auto scrollbar-hide"
-          onMouseEnter={() => setIsStockFormHovering(true)}
-          onMouseLeave={() => setIsStockFormHovering(false)}
-          tabIndex={-1} // Make it focusable without requiring click
-        >
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-              <input
-                type="date"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-              <select className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                <option value="New Stock">New Stock</option>
-                <option value="Stock Adjustment (Damaged)">Stock Adjustment (Damaged)</option>
-                <option value="Stock Adjustment (Loss/Theft)">Stock Adjustment (Loss/Theft)</option>
-                <option value="Stock Adjustment (Expired)">Stock Adjustment (Expired)</option>
-              </select>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Action</label>
-                <input
-                  type="text"
-                  value="Add"
-                  readOnly
-                  className="w-full p-3 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed focus:ring-2 focus:ring-gray-500 focus:border-transparent"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
-                <input
-                  type="number"
-                  min={0}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <textarea
-                rows={2}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            <div className="flex justify-end space-x-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                Save & Record Next
-              </button>
-              <button
-                type="button"
-                className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Options Modals */}
-      {showCategoryModal && (
-        <OptionsModal
-          title="Categories"
-          items={categories}
-          onAdd={handleAddCategory}
-          onDelete={handleDeleteCategory}
-          onEdit={handleEditCategory}
-          onClose={() => setShowCategoryModal(false)}
-          tableName="inventory_categories"
-        />
-      )}
-
-      {showStorageLocationModal && (
-        <OptionsModal
-          title="Storage Locations"
-          items={storageLocations}
-          onAdd={handleAddStorageLocation}
-          onDelete={handleDeleteStorageLocation}
-          onEdit={handleEditStorageLocation}
-          onClose={() => setShowStorageLocationModal(false)}
-          tableName="inventory_storage_locations"
-        />
-      )}
-    </div>
-  );
-});
 
   // Memoize props for AddItemModal to prevent unnecessary remounts
   const addItemModalProps = useMemo(() => ({
@@ -891,9 +776,6 @@ export const InventoryList: React.FC = () => {
     formScrollContainerRef,
     isFormHovering,
     setIsFormHovering,
-    stockFormScrollContainerRef,
-    isStockFormHovering,
-    setIsStockFormHovering,
     setActiveTab,
     setShowForm,
     handleFormSubmit,
@@ -910,13 +792,13 @@ export const InventoryList: React.FC = () => {
     handleAddStorageLocation,
     handleDeleteStorageLocation,
     handleEditStorageLocation,
-    setIsSubmitting,
     isSubmitting
   }), [
     showForm,
     activeTab,
     categories,
     storageLocations,
+    formScrollContainerRef,
     isFormHovering,
     showCategoryModal,
     showStorageLocationModal,
@@ -981,6 +863,8 @@ export const InventoryList: React.FC = () => {
               <input
                 type="text"
                 placeholder="Search inventory..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -1039,9 +923,19 @@ export const InventoryList: React.FC = () => {
               )}
             </div>
             
-            <button className="flex-shrink-0 flex items-center justify-center p-2 md:px-4 md:py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+            <button 
+              onClick={() => setShowFilterModal(true)}
+              className={`flex-shrink-0 flex items-center justify-center p-2 md:px-4 md:py-2 border rounded-lg hover:bg-gray-50 relative ${
+                hasActiveFilters 
+                  ? 'bg-blue-50 border-blue-300 text-blue-600' 
+                  : 'border-gray-300 text-gray-700'
+              }`}
+            >
               <Filter className="w-4 h-4 md:mr-2" />
               <span className="hidden md:inline">Filters</span>
+              {hasActiveFilters && (
+                <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border-2 border-white"></div>
+              )}
             </button>
             <button
               onClick={() => setShowForm(true)}
@@ -1191,11 +1085,25 @@ export const InventoryList: React.FC = () => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {item.category_name || 'N/A'}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-medium">
-                        {item.in_stock}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-green-600 font-medium">
+                          {item.in_stock}
+                        </div>
+                        {item.units && (
+                          <div className="text-xs text-gray-400">
+                            {item.units}
+                          </div>
+                        )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-orange-600 font-medium">
-                        {item.pending_requisitions}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-orange-600 font-medium">
+                          {item.pending_requisitions}
+                        </div>
+                        {item.units && (
+                          <div className="text-xs text-gray-400">
+                            {item.units}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {item.storage_location_name || 'N/A'}
@@ -1276,6 +1184,166 @@ export const InventoryList: React.FC = () => {
               }}
             />
           </>
+        )}
+        
+        {/* Filter Modal */}
+        {showFilterModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md relative">
+              {/* X button at top right */}
+              <button
+                onClick={() => setShowFilterModal(false)}
+                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+              
+              <h3 className="text-lg font-semibold mb-4 pr-8">Filter Inventory</h3>
+              
+              <div 
+                ref={filterModalScrollRef}
+                className="space-y-4 max-h-[60vh] overflow-y-auto scrollbar-hide"
+                onMouseEnter={() => { console.log('🖱️ [FILTER] onMouseEnter triggered'); setIsFilterModalHovering(true); }}
+                onMouseLeave={() => { console.log('🖱️ [FILTER] onMouseLeave triggered'); setIsFilterModalHovering(false); }}
+                onWheel={(e) => {
+                  console.log('🖱️ [FILTER] onWheel triggered');
+                  const target = e.currentTarget;
+                  target.scrollTop += e.deltaY;
+                }}
+                tabIndex={-1}
+              >
+                {/* Status Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                  <select
+                    value={filters.status}
+                    onChange={(e) => setFilters({...filters, status: e.target.value})}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">All Statuses</option>
+                    <option value="In Stock">In Stock</option>
+                    <option value="Out of Stock">Out of Stock</option>
+                    <option value="Negative Stock">Negative Stock</option>
+                  </select>
+                </div>
+                
+                {/* Storage Location Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Storage Location</label>
+                  <select
+                    value={filters.storageLocation}
+                    onChange={(e) => setFilters({...filters, storageLocation: e.target.value})}
+                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">All Locations</option>
+                    {storageLocations.map(location => (
+                      <option key={location.id} value={location.name}>
+                        {location.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                {/* Unit Price Range */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Unit Price Range (Ksh)</label>
+                  <div className="flex space-x-2">
+                    <input
+                      type="number"
+                      placeholder="Min"
+                      value={filters.unitPriceMin}
+                      onChange={(e) => setFilters({...filters, unitPriceMin: e.target.value})}
+                      className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Max"
+                      value={filters.unitPriceMax}
+                      onChange={(e) => setFilters({...filters, unitPriceMax: e.target.value})}
+                      className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+                
+                {/* In Stock Range */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">In Stock Range</label>
+                  <div className="flex space-x-2">
+                    <input
+                      type="number"
+                      placeholder="Min"
+                      value={filters.inStockMin}
+                      onChange={(e) => setFilters({...filters, inStockMin: e.target.value})}
+                      className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Max"
+                      value={filters.inStockMax}
+                      onChange={(e) => setFilters({...filters, inStockMax: e.target.value})}
+                      className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+                
+                {/* Requisitioned Range */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Requisitioned Range</label>
+                  <div className="flex space-x-2">
+                    <input
+                      type="number"
+                      placeholder="Min"
+                      value={filters.requisitionedMin}
+                      onChange={(e) => setFilters({...filters, requisitionedMin: e.target.value})}
+                      className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Max"
+                      value={filters.requisitionedMax}
+                      onChange={(e) => setFilters({...filters, requisitionedMax: e.target.value})}
+                      className="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex justify-end space-x-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setFilters({
+                    status: '',
+                    storageLocation: '',
+                    unitPriceMin: '',
+                    unitPriceMax: '',
+                    inStockMin: '',
+                    inStockMax: '',
+                    requisitionedMin: '',
+                    requisitionedMax: ''
+                  })}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                >
+                  Clear Filters
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowFilterModal(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowFilterModal(false)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Apply Filters
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

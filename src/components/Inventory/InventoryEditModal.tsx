@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-import { InventoryItem, InventoryCategory, InventoryStorageLocation, updateInventoryItem, updateStockForItem, StockHistory, getStockHistory } from './Inventory.data';
+import { InventoryItem, InventoryCategory, InventoryStorageLocation, updateInventoryItem, updateStockForItem, StockHistory, getStockHistory, createInventoryCategory, updateInventoryCategory, deleteInventoryCategory, createInventoryStorageLocation, updateInventoryStorageLocation, deleteInventoryStorageLocation, getInventoryCategories, getInventoryStorageLocations, getInventoryItemById } from './Inventory.data';
 
 import { DropdownField } from '../Students/masterlist/DropdownField';
 
@@ -298,6 +298,69 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
   const [activeTab, setActiveTab] = useState<'details' | 'restock'>('details');
   const [isUpdateStockOpen, setIsUpdateStockOpen] = useState(false);
 
+  // Local state for categories and storage locations
+  const [localCategories, setLocalCategories] = useState<InventoryCategory[]>(categories);
+  const [localStorageLocations, setLocalStorageLocations] = useState<InventoryStorageLocation[]>(storageLocations);
+
+  // Sync local state when props change
+  React.useEffect(() => {
+    setLocalCategories(categories);
+    setLocalStorageLocations(storageLocations);
+  }, [categories, storageLocations]);
+
+  // Fetch complete item data (including units) when modal opens
+  React.useEffect(() => {
+    const fetchCompleteItemData = async () => {
+      try {
+        console.log('🔄 [EDIT MODAL] Fetching complete item data for ID:', item.id);
+        const completeItem = await getInventoryItemById(item.id);
+        console.log('📊 [EDIT MODAL] Complete item data fetched:', completeItem);
+        
+        // Update formData with complete data including units
+        setFormData({
+          item_name: completeItem.item_name,
+          description: completeItem.description || '',
+          category_id: completeItem.category_id || getCategoryIdFromName(completeItem.category_name),
+          in_stock: completeItem.in_stock,
+          units: completeItem.units || '',
+          unit_price: completeItem.unit_price,
+          storage_location_id: completeItem.storage_location_id || getStorageLocationIdFromName(completeItem.storage_location_name),
+          minimum_stock_level: completeItem.minimum_stock_level
+        });
+      } catch (error) {
+        console.error('❌ [EDIT MODAL] Error fetching complete item data:', error);
+      }
+    };
+    
+    fetchCompleteItemData();
+  }, [item.id]);
+
+  // Refresh categories and storage locations when modals open
+  React.useEffect(() => {
+    if (showCategoryModal || showStorageLocationModal) {
+      console.log('🔄 [EDIT MODAL] Refreshing dropdown data due to modal open...');
+      refreshDropdownData();
+    }
+  }, [showCategoryModal, showStorageLocationModal]);
+
+  const refreshDropdownData = async () => {
+    try {
+      console.log('🔄 [EDIT MODAL] Refreshing categories and storage locations...');
+      const [categoriesData, locationsData] = await Promise.all([
+        getInventoryCategories(),
+        getInventoryStorageLocations()
+      ]);
+      
+      console.log('📊 [EDIT MODAL] Categories refreshed:', categoriesData);
+      console.log('📦 [EDIT MODAL] Storage locations refreshed:', locationsData);
+      
+      setLocalCategories(categoriesData);
+      setLocalStorageLocations(locationsData);
+    } catch (error) {
+      console.error('❌ [EDIT MODAL] Error refreshing dropdown data:', error);
+    }
+  };
+
   // Stock history state
   const [stockHistory, setStockHistory] = useState<StockHistory[]>([]);
   const [filteredStockHistory, setFilteredStockHistory] = useState<StockHistory[]>([]);
@@ -327,6 +390,7 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
     description: item.description || '',
     category_id: derivedCategoryId,
     in_stock: item.in_stock,
+    units: item.units || '',
     unit_price: item.unit_price,
     storage_location_id: derivedStorageLocationId,
     minimum_stock_level: item.minimum_stock_level
@@ -418,33 +482,81 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
   };
 
   const handleAddCategory = async (name: string) => {
-    // TODO: Implement add category
-    console.log('Add category:', name);
+    try {
+      console.log('📝 [CATEGORY] Adding new category:', name);
+      const newCategory = await createInventoryCategory({ name, is_active: true });
+      console.log('✅ [CATEGORY] Category added successfully:', newCategory);
+      // Update local state
+      setLocalCategories([...localCategories, newCategory]);
+    } catch (error) {
+      console.error('❌ [CATEGORY] Error adding category:', error);
+      alert('Failed to add category. Please try again.');
+    }
   };
 
   const handleDeleteCategory = async (id: number) => {
-    // TODO: Implement delete category
-    console.log('Delete category:', id);
+    try {
+      console.log('🗑️ [CATEGORY] Deleting category:', id);
+      await deleteInventoryCategory(id);
+      console.log('✅ [CATEGORY] Category deleted successfully');
+      // Update local state (hard delete)
+      setLocalCategories(localCategories.filter(c => c.id !== id));
+    } catch (error) {
+      console.error('❌ [CATEGORY] Error deleting category:', error);
+      alert('Failed to delete category. Please try again.');
+    }
   };
 
   const handleEditCategory = async (id: number, newName: string) => {
-    // TODO: Implement edit category
-    console.log('Edit category:', id, newName);
+    try {
+      console.log('✏️ [CATEGORY] Updating category:', id, 'to:', newName);
+      const updatedCategory = await updateInventoryCategory(id, { name: newName });
+      console.log('✅ [CATEGORY] Category updated successfully:', updatedCategory);
+      // Update local state
+      setLocalCategories(localCategories.map(c => c.id === id ? updatedCategory : c));
+    } catch (error) {
+      console.error('❌ [CATEGORY] Error updating category:', error);
+      alert('Failed to update category. Please try again.');
+    }
   };
 
   const handleAddStorageLocation = async (name: string) => {
-    // TODO: Implement add storage location
-    console.log('Add storage location:', name);
+    try {
+      console.log('📝 [STORAGE] Adding new storage location:', name);
+      const newLocation = await createInventoryStorageLocation({ name, is_active: true });
+      console.log('✅ [STORAGE] Storage location added successfully:', newLocation);
+      // Update local state
+      setLocalStorageLocations([...localStorageLocations, newLocation]);
+    } catch (error) {
+      console.error('❌ [STORAGE] Error adding storage location:', error);
+      alert('Failed to add storage location. Please try again.');
+    }
   };
 
   const handleDeleteStorageLocation = async (id: number) => {
-    // TODO: Implement delete storage location
-    console.log('Delete storage location:', id);
+    try {
+      console.log('🗑️ [STORAGE] Deleting storage location:', id);
+      await deleteInventoryStorageLocation(id);
+      console.log('✅ [STORAGE] Storage location deleted successfully');
+      // Update local state (hard delete)
+      setLocalStorageLocations(localStorageLocations.filter(l => l.id !== id));
+    } catch (error) {
+      console.error('❌ [STORAGE] Error deleting storage location:', error);
+      alert('Failed to delete storage location. Please try again.');
+    }
   };
 
   const handleEditStorageLocation = async (id: number, newName: string) => {
-    // TODO: Implement edit storage location
-    console.log('Edit storage location:', id, newName);
+    try {
+      console.log('✏️ [STORAGE] Updating storage location:', id, 'to:', newName);
+      const updatedLocation = await updateInventoryStorageLocation(id, { name: newName });
+      console.log('✅ [STORAGE] Storage location updated successfully:', updatedLocation);
+      // Update local state
+      setLocalStorageLocations(localStorageLocations.map(l => l.id === id ? updatedLocation : l));
+    } catch (error) {
+      console.error('❌ [STORAGE] Error updating storage location:', error);
+      alert('Failed to update storage location. Please try again.');
+    }
   };
 
   // Load stock history for the current item
@@ -536,6 +648,7 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
         item_name: formData.item_name.trim(),
         description: formData.description?.trim() || '',
         category_id: formData.category_id,
+        units: formData.units?.trim() || '',
         unit_price: formData.unit_price,
         storage_location_id: formData.storage_location_id,
         minimum_stock_level: formData.minimum_stock_level
@@ -743,7 +856,7 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
 
                     label="Category"
 
-                    items={categories}
+                    items={localCategories}
 
                     selectedId={formData.category_id}
 
@@ -807,6 +920,28 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
 
                 <div>
 
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Units</label>
+
+                  <input
+
+                    name="units"
+
+                    type="text"
+
+                    value={formData.units || ''}
+
+                    placeholder="e.g., pcs, kg, liters"
+
+                    onChange={(e) => setFormData({ ...formData, units: e.target.value })}
+
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+
+                  />
+
+                </div>
+
+                <div>
+
                   <label className="block text-sm font-medium text-gray-700 mb-1">Low Stock Alert</label>
 
                   <input
@@ -857,7 +992,7 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
 
                     label="Storage Location"
 
-                    items={storageLocations}
+                    items={localStorageLocations}
 
                     selectedId={formData.storage_location_id}
 
@@ -1033,7 +1168,7 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
 
             title="Categories"
 
-            items={categories}
+            items={localCategories}
 
             onAdd={handleAddCategory}
 
@@ -1044,6 +1179,11 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
             onClose={() => setShowCategoryModal(false)}
 
             tableName="inventory_categories"
+
+            onRefresh={() => {
+              console.log('🔄 [CATEGORY] Refreshing categories...');
+              // Local state is already updated, no need to refetch
+            }}
 
           />
 
@@ -1057,7 +1197,7 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
 
             title="Storage Locations"
 
-            items={storageLocations}
+            items={localStorageLocations}
 
             onAdd={handleAddStorageLocation}
 
@@ -1068,6 +1208,11 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
             onClose={() => setShowStorageLocationModal(false)}
 
             tableName="inventory_storage_locations"
+
+            onRefresh={() => {
+              console.log('🔄 [STORAGE] Refreshing storage locations...');
+              // Local state is already updated, no need to refetch
+            }}
 
           />
 

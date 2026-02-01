@@ -6,6 +6,7 @@ export interface InventoryItem {
   description?: string;
   category_id?: number;
   in_stock: number;
+  units?: string;
   unit_price: number;
   storage_location_id?: number;
   minimum_stock_level: number;
@@ -70,15 +71,61 @@ export interface StockUpdateItem {
   notes?: string;
 }
 
+// Get a single inventory item by ID (includes units field)
+export const getInventoryItemById = async (id: number): Promise<InventoryItem> => {
+  const { data, error } = await supabase
+    .from('inventory_items')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
 // Inventory Items
 export const getInventoryItems = async (): Promise<InventoryItem[]> => {
   const { data, error } = await supabase
-    .from('inventory_summary')
-    .select('*')
+    .from('inventory_items')
+    .select(`
+      id,
+      item_name,
+      description,
+      category_id,
+      in_stock,
+      units,
+      unit_price,
+      storage_location_id,
+      minimum_stock_level,
+      pending_requisitions,
+      status,
+      total_value,
+      created_at,
+      updated_at,
+      inventory_categories (
+        id,
+        name
+      ),
+      inventory_storage_locations (
+        id,
+        name
+      )
+    `)
     .order('updated_at', { ascending: false });
 
   if (error) throw error;
-  return data || [];
+  
+  // Transform the data to match the expected interface
+  return (data || []).map(item => {
+    const category = item.inventory_categories as any;
+    const storage = item.inventory_storage_locations as any;
+    
+    return {
+      ...item,
+      category_name: Array.isArray(category) ? category[0]?.name : category?.name || 'N/A',
+      storage_location_name: Array.isArray(storage) ? storage[0]?.name : storage?.name || 'N/A'
+    };
+  });
 };
 
 export const getInventoryItem = async (id: number): Promise<InventoryItem | null> => {
@@ -162,7 +209,7 @@ export const updateInventoryCategory = async (id: number, category: Partial<Inve
 export const deleteInventoryCategory = async (id: number): Promise<void> => {
   const { error } = await supabase
     .from('inventory_categories')
-    .update({ is_active: false })
+    .delete()
     .eq('id', id);
 
   if (error) throw error;
@@ -206,7 +253,7 @@ export const updateInventoryStorageLocation = async (id: number, location: Parti
 export const deleteInventoryStorageLocation = async (id: number): Promise<void> => {
   const { error } = await supabase
     .from('inventory_storage_locations')
-    .update({ is_active: false })
+    .delete()
     .eq('id', id);
 
   if (error) throw error;
