@@ -85,28 +85,28 @@ export const AssetIssuance: React.FC = () => {
   }, []);
 
   const assetRecords = [
-    {
-      id: 1,
-      asset: 'Laptop - Dell Inspiron',
-      assetTag: 'ASSET-001',
-      issuedTo: 'John Teacher',
-      department: 'Grade 8',
-      dateIssued: '2024-02-15',
-      dateReturned: null,
-      condition: 'Good',
-      status: 'Issued'
-    },
-    {
-      id: 2,
-      asset: 'Projector - Epson',
-      assetTag: 'ASSET-002',
-      issuedTo: 'Dr. Smith',
-      department: 'Science Department',
-      dateIssued: '2024-02-10',
-      dateReturned: '2024-02-14',
-      condition: 'Good',
-      status: 'Returned'
-    }
+    // {
+    //   id: 1,
+    //   asset: 'Laptop - Dell Inspiron',
+    //   assetTag: 'ASSET-001',
+    //   issuedTo: 'John Teacher',
+    //   department: 'Grade 8',
+    //   dateIssued: '2024-02-15',
+    //   dateReturned: null,
+    //   condition: 'Good',
+    //   status: 'Issued'
+    // },
+    // {
+    //   id: 2,
+    //   asset: 'Projector - Epson',
+    //   assetTag: 'ASSET-002',
+    //   issuedTo: 'Dr. Smith',
+    //   department: 'Science Department',
+    //   dateIssued: '2024-02-10',
+    //   dateReturned: '2024-02-14',
+    //   condition: 'Good',
+    //   status: 'Returned'
+    // }
   ];
 
   const AssetForm = memo(() => (
