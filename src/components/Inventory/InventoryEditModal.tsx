@@ -367,6 +367,8 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyDateFrom, setHistoryDateFrom] = useState('');
   const [historyDateTo, setHistoryDateTo] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10); // 10 items per page
 
   // Find category_id from category_name if category_id is undefined
   const getCategoryIdFromName = (categoryName?: string): number | undefined => {
@@ -569,7 +571,7 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
       console.log('📚 [STOCK HISTORY] Loaded history:', history);
       
       setStockHistory(history);
-      filterStockHistory(history, historyDateFrom, historyDateTo);
+      filterStockHistory(history, historyDateFrom, historyDateTo, currentPage, itemsPerPage);
     } catch (error: any) {
       console.error('❌ [STOCK HISTORY] Error loading history:', error);
     } finally {
@@ -577,8 +579,8 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
     }
   };
 
-  // Filter stock history based on date range
-  const filterStockHistory = (history: StockHistory[], fromDate: string, toDate: string) => {
+  // Filter stock history based on date range and paginate
+  const filterStockHistory = (history: StockHistory[], fromDate: string, toDate: string, page: number, limit: number) => {
     let filtered = history;
     
     if (fromDate) {
@@ -593,16 +595,29 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
       );
     }
     
-    console.log('📚 [STOCK HISTORY] Filtered history:', filtered);
-    setFilteredStockHistory(filtered);
+    // Apply pagination
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + limit;
+    const paginated = filtered.slice(startIndex, endIndex);
+
+    console.log('📚 [STOCK HISTORY] Filtered and paginated history:', paginated);
+    setFilteredStockHistory(paginated);
   };
 
   // Handle date filter changes
   const handleDateFilterChange = (fromDate: string, toDate: string) => {
     setHistoryDateFrom(fromDate);
     setHistoryDateTo(toDate);
-    filterStockHistory(stockHistory, fromDate, toDate);
+    setCurrentPage(1); // Reset to first page on filter change
+    filterStockHistory(stockHistory, fromDate, toDate, 1, itemsPerPage);
   };
+
+  // Handle page change
+  const handlePageChange = (pageNumber: number) => {
+    setCurrentPage(pageNumber);
+    filterStockHistory(stockHistory, historyDateFrom, historyDateTo, pageNumber, itemsPerPage);
+  };
+
 
   // Load stock history when component mounts or when switching to restock tab
   React.useEffect(() => {
@@ -920,7 +935,7 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
 
                 <div>
 
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Units</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Units (Optional)</label>
 
                   <input
 
@@ -942,7 +957,7 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
 
                 <div>
 
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Low Stock Alert</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Low Stock Alert (Optional)</label>
 
                   <input
 
@@ -1067,7 +1082,12 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
                       <span className="text-sm text-gray-600 w-24">
                         {new Date(history.transaction_date).toLocaleDateString()}
                       </span>
-                      <span className="text-sm text-gray-500 flex-1">{history.transaction_type}</span>
+                      <span className="text-sm text-gray-500 flex-1">
+                        {(history.transaction_type === 'Issued for Use' || history.transaction_type === 'Returned') && history.notes
+                          ? history.notes
+                          : history.transaction_type
+                        }
+                      </span>
                       <span className={`text-sm font-medium w-20 text-right ${
                         history.quantity_change > 0 ? 'text-green-600' : 'text-red-600'
                       }`}>
@@ -1076,8 +1096,9 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
                       <span className="text-sm font-medium text-gray-700 w-28 text-right">
                         Balance: {history.quantity_after}
                       </span>
+                      {/*
                       <div className="flex gap-1 ml-8">
-                        <button 
+                        <button
                           className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
                           title="Edit entry"
                         >
@@ -1085,7 +1106,7 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                           </svg>
                         </button>
-                        <button 
+                        <button
                           className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
                           title="Delete entry"
                         >
@@ -1094,10 +1115,32 @@ export const InventoryEditModal: React.FC<InventoryEditModalProps> = ({ item, on
                           </svg>
                         </button>
                       </div>
+                      */}
                     </div>
                   ))
                 )}
               </div>
+
+              {/* Pagination controls */}
+              {stockHistory.length > itemsPerPage && (
+                <div className="flex justify-center items-center space-x-2 mt-4">
+                  {Array.from({ length: Math.ceil(stockHistory.length / itemsPerPage) }, (_, i) => i + 1).map(pageNumber => (
+                    <button
+                      key={pageNumber}
+                      type="button"
+                      onClick={() => handlePageChange(pageNumber)}
+                      className={`px-3 py-1 rounded-lg text-sm font-medium ${
+                        currentPage === pageNumber
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                    >
+                      {pageNumber}
+                    </button>
+                  ))}
+                </div>
+              )}
+
             </div>
             </div>
           )}

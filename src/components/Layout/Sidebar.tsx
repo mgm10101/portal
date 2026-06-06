@@ -196,9 +196,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange
       children: [
         { id: 'inventory-list', label: 'Inventory', icon: Package },
         { id: 'requisition-records', label: 'Requisitions', icon: ClipboardCheck },
-        { id: 'repair-requests', label: 'Repair Requests', icon: Wrench },
+        // { id: 'repair-requests', label: 'Repair Requests', icon: Wrench },
         { id: 'asset-issuance', label: 'Asset Issuance', icon: Share2 },
-        { id: 'budgets', label: 'Budgets', icon: Wallet }
+        // { id: 'budgets', label: 'Budgets', icon: Wallet }
       ]
     },
     {

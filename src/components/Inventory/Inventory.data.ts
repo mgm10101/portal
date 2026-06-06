@@ -71,6 +71,22 @@ export interface StockUpdateItem {
   notes?: string;
 }
 
+export interface Requisition {
+  id: string;
+  item: string;
+  description?: string;
+  req_by: string;
+  department: string;
+  date: string;
+  requisitioned: number;
+  issued: number;
+  unit_price?: number;
+  total_price?: number;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 // Get a single inventory item by ID (includes units field)
 export const getInventoryItemById = async (id: number): Promise<InventoryItem> => {
   const { data, error } = await supabase
@@ -419,4 +435,259 @@ export const updateStockForItem = async (itemId: number, quantityChange: number,
   });
 
   console.log('✅ [updateStockForItem] Function completed successfully');
+};
+
+// Submit Requisition - Validates stock, creates requisition, updates inventory, and creates stock history entries
+export const submitRequisition = async (
+  requisitionData: {
+    item_name: string;
+    description?: string;
+    req_by: string;
+    department: string;
+    date: string;
+    requisitioned: number;
+    issued: number;
+  },
+  lineItems: Array<{
+    item: string;
+    description: string;
+    qtyRequisitioned: string;
+    qtyIssued: string;
+  }>,
+  staffData: { full_name: string; department_name: string }
+): Promise<{ success: boolean; message: string; requisitionId?: string }> => {
+  try {
+    // Validate that we have line items
+    const validLineItems = lineItems.filter(item => item.item);
+
+    if (validLineItems.length === 0) {
+      return { success: false, message: 'Please add at least one item' };
+    }
+
+    // Validate stock availability for items with issued quantities and capture unit_price
+    let itemUnitPrice: number | null = null;
+    for (const lineItem of validLineItems) {
+      const trimmedItemName = lineItem.item.trim();
+      const trimmedDescription = lineItem.description ? lineItem.description.trim() : '';
+
+      // Strict match with both item_name and description (case-insensitive, trimmed)
+      const { data: inventoryItem } = await supabase
+        .from('inventory_items')
+        .select('id, in_stock, item_name, unit_price')
+        .ilike('item_name', trimmedItemName)
+        .ilike('description', trimmedDescription)
+        .maybeSingle();
+
+      if (!inventoryItem) {
+        return { success: false, message: `Item "${lineItem.item}"${trimmedDescription ? ` (${trimmedDescription})` : ''} not found in inventory` };
+      }
+
+      const issuedQty = parseInt(lineItem.qtyIssued);
+      // Only validate stock if actually issuing items
+      if (issuedQty > 0) {
+        if (issuedQty > inventoryItem.in_stock) {
+          return {
+            success: false,
+            message: `Insufficient stock for "${lineItem.item}". Available: ${inventoryItem.in_stock}, Requested to issue: ${issuedQty}`
+          };
+        }
+      }
+
+      // Capture unit_price from the first item
+      if (itemUnitPrice === null) {
+        itemUnitPrice = inventoryItem.unit_price;
+      }
+    }
+
+    // Create the requisition record
+    const { data: requisition, error: requisitionError } = await supabase
+      .from('requisitions')
+      .insert([
+        {
+          item: lineItems[0]?.item || '',
+          description: lineItems[0]?.description || '',
+          req_by: staffData.full_name,
+          department: staffData.department_name,
+          date: requisitionData.date,
+          requisitioned: parseInt(lineItems[0]?.qtyRequisitioned) || 0,
+          issued: parseInt(lineItems[0]?.qtyIssued) || 0,
+          unit_price: itemUnitPrice || 0,
+          status: 'Pending'
+        }
+      ])
+      .select()
+      .single();
+
+    if (requisitionError) {
+      console.error('❌ Requisition creation error:', requisitionError);
+      return { success: false, message: 'Failed to create requisition record' };
+    }
+
+    // Process each line item with issued quantity > 0
+    for (const lineItem of validLineItems) {
+      const issuedQty = parseInt(lineItem.qtyIssued);
+      const trimmedItemName = lineItem.item.trim();
+      const trimmedDescription = lineItem.description ? lineItem.description.trim() : '';
+
+      // Strict match with both item_name and description (case-insensitive, trimmed)
+      const { data: inventoryItem } = await supabase
+        .from('inventory_items')
+        .select('id, in_stock, unit_price')
+        .ilike('item_name', trimmedItemName)
+        .ilike('description', trimmedDescription)
+        .maybeSingle();
+
+      if (inventoryItem) {
+        const quantityBefore = inventoryItem.in_stock;
+        const quantityAfter = quantityBefore - issuedQty;
+
+        // Update inventory stock
+        await supabase
+          .from('inventory_items')
+          .update({ in_stock: quantityAfter })
+          .eq('id', inventoryItem.id);
+
+        // Create stock history entry with transaction type indicating requisition
+        await createStockHistoryEntry({
+          inventory_item_id: inventoryItem.id,
+          transaction_date: requisitionData.date,
+          transaction_type: 'Issued for Use',
+          quantity_change: -issuedQty,
+          quantity_before: quantityBefore,
+          quantity_after: quantityAfter,
+          unit_price_at_time: inventoryItem.unit_price,
+          reference_type: 'requisition',
+          notes: `Issued to ${staffData.full_name} (${staffData.department_name})`
+        });
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Requisition recorded successfully',
+      requisitionId: requisition.id
+    };
+  } catch (error) {
+    console.error('❌ [submitRequisition] Error:', error);
+    return { success: false, message: 'An error occurred while processing the requisition' };
+  }
+};
+
+// Get all requisitions
+export const getRequisitions = async (): Promise<Requisition[]> => {
+  const { data, error } = await supabase
+    .from('requisitions')
+    .select('*')
+    .order('date', { ascending: false })
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('❌ [getRequisitions] Error:', error);
+    throw error;
+  }
+
+  return data || [];
+};
+
+// Update requisition with issued/returned quantities
+export const updateRequisitionIssued = async (
+  requisitionId: string,
+  itemName: string,
+  itemDescription: string,
+  addToIssuedQty: number,
+  returnQty: number,
+  updateDate: string
+): Promise<{ success: boolean; message: string }> => {
+  try {
+    // Get current requisition
+    const { data: requisition, error: reqError } = await supabase
+      .from('requisitions')
+      .select('*')
+      .eq('id', requisitionId)
+      .single();
+
+    if (reqError || !requisition) {
+      return { success: false, message: 'Requisition not found' };
+    }
+
+    // Strict match with both item_name and description (case-insensitive, trimmed)
+    const trimmedItemName = itemName.trim();
+    const trimmedDescription = itemDescription ? itemDescription.trim() : '';
+    const { data: inventoryItem } = await supabase
+      .from('inventory_items')
+      .select('id, in_stock, unit_price')
+      .ilike('item_name', trimmedItemName)
+      .ilike('description', trimmedDescription)
+      .maybeSingle();
+
+    if (!inventoryItem) {
+      return { success: false, message: `No corresponding inventory record found for "${itemName}"${trimmedDescription ? ` (${trimmedDescription})` : ''}. The item may have been modified or deleted in inventory.` };
+    }
+
+    // Calculate new issued quantity and stock
+    const newIssuedQty = requisition.issued + addToIssuedQty - returnQty;
+    const newStock = inventoryItem.in_stock - addToIssuedQty + returnQty;
+
+    // Check if new stock would be negative
+    if (newStock < 0) {
+      return { 
+        success: false, 
+        message: `Insufficient stock. Available: ${inventoryItem.in_stock}, trying to issue: ${addToIssuedQty}` 
+      };
+    }
+
+    // Update requisition
+    const { error: updateError } = await supabase
+      .from('requisitions')
+      .update({ issued: newIssuedQty })
+      .eq('id', requisitionId);
+
+    if (updateError) {
+      return { success: false, message: 'Failed to update requisition' };
+    }
+
+    // Update inventory stock
+    await supabase
+      .from('inventory_items')
+      .update({ in_stock: newStock })
+      .eq('id', inventoryItem.id);
+
+    // Create stock history entries for additional issued quantity
+    if (addToIssuedQty > 0) {
+      await createStockHistoryEntry({
+        inventory_item_id: inventoryItem.id,
+        transaction_date: updateDate,
+        transaction_type: 'Issued for Use',
+        quantity_change: -addToIssuedQty,
+        quantity_before: inventoryItem.in_stock,
+        quantity_after: inventoryItem.in_stock - addToIssuedQty,
+        unit_price_at_time: inventoryItem.unit_price,
+        reference_type: 'requisition',
+        notes: `Additional issue to ${requisition.req_by} (${requisition.department})`
+      });
+    }
+
+    // Create stock history entries for returned quantity
+    if (returnQty > 0) {
+      await createStockHistoryEntry({
+        inventory_item_id: inventoryItem.id,
+        transaction_date: updateDate,
+        transaction_type: 'Returned',
+        quantity_change: returnQty,
+        quantity_before: inventoryItem.in_stock - addToIssuedQty,
+        quantity_after: newStock,
+        unit_price_at_time: inventoryItem.unit_price,
+        reference_type: 'requisition',
+        notes: `Returned by ${requisition.req_by} (${requisition.department})`
+      });
+    }
+
+    return {
+      success: true,
+      message: 'Requisition updated successfully'
+    };
+  } catch (error) {
+    console.error('❌ [updateRequisitionIssued] Error:', error);
+    return { success: false, message: 'An error occurred while updating the requisition' };
+  }
 };

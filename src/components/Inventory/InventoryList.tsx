@@ -162,7 +162,7 @@ const AddItemModal: React.FC<AddItemModalProps> = memo(({
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Units</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Units (Optional)</label>
                 <input
                   name="units"
                   type="text"
@@ -184,7 +184,7 @@ const AddItemModal: React.FC<AddItemModalProps> = memo(({
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Low Stock Alert</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Low Stock Alert (Optional)</label>
                 <input
                   name="minimum_stock_level"
                   type="number"
@@ -846,9 +846,9 @@ export const InventoryList: React.FC = () => {
             <div className="flex items-center">
               <AlertTriangle className="w-8 h-8 text-yellow-600 mr-3" />
               <div>
-                <div className="text-sm text-gray-600">Negative Stock</div>
+                <div className="text-sm text-gray-600">Low Stock</div>
                 <div className="text-2xl font-bold text-yellow-600">
-                  {filteredInventory.filter(i => i.status === 'Negative Stock').length}
+                  {filteredInventory.filter(i => i.status === 'Low Stock').length}
                 </div>
               </div>
             </div>
@@ -1022,9 +1022,9 @@ export const InventoryList: React.FC = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     In Stock
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  {/* <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Requisitioned
-                  </th>
+                  </th> */}
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Storage Location
                   </th>
@@ -1095,7 +1095,7 @@ export const InventoryList: React.FC = () => {
                           </div>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      {/* <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-orange-600 font-medium">
                           {item.pending_requisitions}
                         </div>
@@ -1104,7 +1104,7 @@ export const InventoryList: React.FC = () => {
                             {item.units}
                           </div>
                         )}
-                      </td>
+                      </td> */}
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {item.storage_location_name || 'N/A'}
                       </td>

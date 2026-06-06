@@ -1,8 +1,88 @@
-import React, { useState } from 'react';
-import { Plus, Search, Filter, Package } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
+import { Plus, Search, Filter } from 'lucide-react';
 
 export const AssetIssuance: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [selectedRecord, setSelectedRecord] = useState<any>(null);
+  const [isFormHovering, setIsFormHovering] = useState(false);
+  const [isUpdateModalHovering, setIsUpdateModalHovering] = useState(false);
+  const formScrollContainerRef = useRef<HTMLDivElement>(null);
+  const updateModalScrollRef = useRef<HTMLDivElement>(null);
+  const [returnQty, setReturnQty] = useState('');
+  const [returnDate, setReturnDate] = useState('');
+  const [receivedBy, setReceivedBy] = useState('');
+  const [returnNotes, setReturnNotes] = useState('');
+
+  // Handle keyboard scroll when hovering
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isFormHovering || !formScrollContainerRef.current) return;
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        formScrollContainerRef.current.scrollBy({
+          top: -100,
+          behavior: 'smooth'
+        });
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        formScrollContainerRef.current.scrollBy({
+          top: 100,
+          behavior: 'smooth'
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFormHovering]);
+
+  // Handle keyboard scroll for update modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isUpdateModalHovering || !updateModalScrollRef.current) return;
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        updateModalScrollRef.current.scrollBy({
+          top: -100,
+          behavior: 'smooth'
+        });
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        updateModalScrollRef.current.scrollBy({
+          top: 100,
+          behavior: 'smooth'
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isUpdateModalHovering]);
+
+  const handleCloseForm = useCallback(() => {
+    setShowForm(false);
+  }, []);
+
+  const handleOpenUpdateModal = useCallback((record: any) => {
+    setSelectedRecord(record);
+    setReturnQty('');
+    setReturnDate('');
+    setReceivedBy('');
+    setReturnNotes('');
+    setShowUpdateModal(true);
+  }, []);
+
+  const handleCloseUpdateModal = useCallback(() => {
+    setShowUpdateModal(false);
+    setSelectedRecord(null);
+    setReturnQty('');
+    setReturnDate('');
+    setReceivedBy('');
+    setReturnNotes('');
+  }, []);
 
   const assetRecords = [
     {
@@ -29,48 +109,39 @@ export const AssetIssuance: React.FC = () => {
     }
   ];
 
-  const AssetForm = () => (
+  const AssetForm = memo(() => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-2xl">
+      <style>
+        {`
+          @media (min-width: 768px) {
+            .scrollbar-hide::-webkit-scrollbar {
+              display: none;
+            }
+            .scrollbar-hide {
+              -ms-overflow-style: none;
+              scrollbar-width: none;
+            }
+          }
+        `}
+      </style>
+      <div
+        ref={formScrollContainerRef}
+        className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto scrollbar-hide"
+        onMouseEnter={() => setIsFormHovering(true)}
+        onMouseLeave={() => setIsFormHovering(false)}
+        tabIndex={-1}
+      >
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-gray-800">Asset Issuance</h2>
+          <h2 className="text-xl font-semibold text-gray-800">Asset Issuance</h2>
           <button
-            onClick={() => setShowForm(false)}
-            className="text-gray-500 hover:text-gray-700"
+            onClick={handleCloseForm}
+            className="text-gray-500 hover:text-gray-700 text-2xl leading-none"
           >
             ×
           </button>
         </div>
 
         <form className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Asset</label>
-              <div className="flex">
-                <select className="flex-1 p-3 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                  <option>Laptop - Dell Inspiron</option>
-                  <option>Projector - Epson</option>
-                  <option>Printer - HP LaserJet</option>
-                  <option>Camera - Canon</option>
-                </select>
-                <button
-                  type="button"
-                  className="px-3 border border-l-0 border-gray-300 rounded-r-lg hover:bg-gray-50"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Asset Tag</label>
-              <input
-                type="text"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="ASSET-001"
-              />
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Issued To</label>
@@ -80,21 +151,37 @@ export const AssetIssuance: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
-              <div className="flex">
-                <select className="flex-1 p-3 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                  <option>Grade 8</option>
-                  <option>Grade 9</option>
-                  <option>Science Department</option>
-                  <option>Administration</option>
-                </select>
-                <button
-                  type="button"
-                  className="px-3 border border-l-0 border-gray-300 rounded-r-lg hover:bg-gray-50"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Issued By</label>
+              <input
+                type="text"
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Asset</label>
+            <input
+              type="text"
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Qty Issued</label>
+              <input
+                type="number"
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Asset Tag/ Serial No.</label>
+              <input
+                type="text"
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="ASSET-001"
+              />
             </div>
           </div>
 
@@ -117,36 +204,18 @@ export const AssetIssuance: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Condition at Issue</label>
-            <div className="flex">
-              <select className="flex-1 p-3 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                <option>Excellent</option>
-                <option>Good</option>
-                <option>Fair</option>
-                <option>Poor</option>
-              </select>
-              <button
-                type="button"
-                className="px-3 border border-l-0 border-gray-300 rounded-r-lg hover:bg-gray-50"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
             <textarea
               rows={3}
               className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Any additional notes about the asset issuance..."
+              placeholder="Any additional notes about the asset issuance e.g. condition at issue"
             ></textarea>
           </div>
 
           <div className="flex justify-end space-x-3 pt-4">
             <button
               type="button"
-              onClick={() => setShowForm(false)}
+              onClick={handleCloseForm}
               className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
             >
               Cancel
@@ -161,7 +230,115 @@ export const AssetIssuance: React.FC = () => {
         </form>
       </div>
     </div>
-  );
+  ));
+
+  const UpdateModal = memo(() => (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <style>
+        {`
+          @media (min-width: 768px) {
+            .scrollbar-hide::-webkit-scrollbar {
+              display: none;
+            }
+            .scrollbar-hide {
+              -ms-overflow-style: none;
+              scrollbar-width: none;
+            }
+          }
+        `}
+      </style>
+      <div
+        ref={updateModalScrollRef}
+        className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto scrollbar-hide"
+        onMouseEnter={() => setIsUpdateModalHovering(true)}
+        onMouseLeave={() => setIsUpdateModalHovering(false)}
+        tabIndex={-1}
+      >
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-semibold text-gray-800">Update Asset Return</h2>
+          <button
+            onClick={handleCloseUpdateModal}
+            className="text-gray-500 hover:text-gray-700 text-2xl leading-none"
+          >
+            ×
+          </button>
+        </div>
+
+        {selectedRecord && (
+          <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+            <div className="text-sm font-medium text-gray-900">{selectedRecord.asset}</div>
+            <div className="text-xs text-gray-500">{selectedRecord.assetTag}</div>
+            <div className="text-xs text-gray-500 mt-1">Issued to: {selectedRecord.issuedTo}</div>
+            <div className="text-xs text-gray-500">Qty Issued: {selectedRecord.qtyIssued || 1}</div>
+          </div>
+        )}
+
+        <form className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Qty Returned</label>
+              <input
+                type="number"
+                value={returnQty}
+                onChange={(e) => setReturnQty(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Enter Quantity"
+                min="1"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Return Date</label>
+              <input
+                type="date"
+                value={returnDate}
+                onChange={(e) => setReturnDate(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                defaultValue={new Date().toISOString().split('T')[0]}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Received By</label>
+            <input
+              type="text"
+              value={receivedBy}
+              onChange={(e) => setReceivedBy(e.target.value)}
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Enter name of person receiving the return"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+            <textarea
+              rows={3}
+              value={returnNotes}
+              onChange={(e) => setReturnNotes(e.target.value)}
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Any notes about the return e.g. condition at return"
+            ></textarea>
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-4">
+            <button
+              type="button"
+              onClick={handleCloseUpdateModal}
+              className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Submit Return
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  ));
 
   return (
     <div className="p-6 md:p-3 bg-gray-50 min-h-screen">
@@ -207,9 +384,6 @@ export const AssetIssuance: React.FC = () => {
                     Issued To
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Department
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Date Issued
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -217,6 +391,9 @@ export const AssetIssuance: React.FC = () => {
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
                   </th>
                 </tr>
               </thead>
@@ -231,11 +408,9 @@ export const AssetIssuance: React.FC = () => {
                         {record.assetTag}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {record.issuedTo}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {record.department}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{record.issuedTo}</div>
+                      <div className="text-xs text-gray-500">{record.department}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {record.dateIssued}
@@ -245,12 +420,20 @@ export const AssetIssuance: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        record.status === 'Issued' 
+                        record.status === 'Issued'
                           ? 'bg-yellow-100 text-yellow-800'
                           : 'bg-green-100 text-green-800'
                       }`}>
                         {record.status}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <button
+                        onClick={() => handleOpenUpdateModal(record)}
+                        className="px-3 py-1 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-300 rounded-lg transition-colors"
+                      >
+                        Update
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -260,6 +443,7 @@ export const AssetIssuance: React.FC = () => {
         </div>
 
         {showForm && <AssetForm />}
+        {showUpdateModal && <UpdateModal />}
       </div>
     </div>
   );

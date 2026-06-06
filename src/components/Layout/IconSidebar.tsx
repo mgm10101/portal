@@ -159,9 +159,9 @@ export const IconSidebar: React.FC<IconSidebarProps> = ({
     'inventory': [
       { id: 'inventory-list', icon: Package },
       { id: 'requisition-records', icon: ClipboardCheck },
-      { id: 'repair-requests', icon: Wrench },
+      // { id: 'repair-requests', icon: Wrench },
       { id: 'asset-issuance', icon: Share2 },
-      { id: 'budgets', icon: Wallet }
+      // { id: 'budgets', icon: Wallet }
     ],
     'library': [
       { id: 'books-masterlist', icon: BookMarked },
@@ -247,7 +247,7 @@ export const IconSidebar: React.FC<IconSidebarProps> = ({
     const parentChildMap: Record<string, string[]> = {
       'students': ['masterlist', 'assessments', 'behaviour', 'attendance', 'transport', 'boarding', 'medical', 'homework'],
       'financial': ['invoices', 'payment-plans', 'fee-structure', 'payments', 'expenses', 'payroll'],
-      'inventory': ['inventory-list', 'requisition-records', 'repair-requests', 'asset-issuance', 'budgets'],
+      'inventory': ['inventory-list', 'requisition-records', /* 'repair-requests', */ 'asset-issuance', /* 'budgets' */],
       'library': ['books-masterlist', 'borrowing-records'],
       'hr': ['staff-info', 'leave-management', 'disciplinary', 'performance'],
       'programs': ['school-calendar', 'lesson-plans', 'shifts', 'schedules'],
